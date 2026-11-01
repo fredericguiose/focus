@@ -1,9 +1,9 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { creerApiSimulee } from '@/api/simule';
-import type { LeverDuJour, RegulariteLevers } from '@/api/contrat';
-import { CarteRegularite, detailLever, resumeLevers } from '@/composants/statut/CarteRegularite';
+import type { CoucherDeLaNuit, LeverDuJour, RegulariteCouchers, RegulariteLevers } from '@/api/contrat';
+import { CarteRegularite, detailCoucher, detailLever, resumeCouchers, resumeLevers } from '@/composants/statut/CarteRegularite';
 
 const MARDI_15H = Date.parse('2026-11-03T14:00:00Z');
 const statut = () => creerApiSimulee({ maintenant: () => MARDI_15H, fuseau: 'Europe/Paris', phase: 'journee' }).statut();
@@ -17,7 +17,65 @@ const jour = (partiel: Partial<LeverDuJour>): LeverDuJour => ({
   ...partiel,
 });
 
-describe('carte « Régularité des levers »', () => {
+const nuit = (partiel: Partial<CoucherDeLaNuit>): CoucherDeLaNuit => ({
+  nuit: '2026-11-01',
+  prevu: '2026-11-01T22:00:00Z',
+  prevu_fige: true,
+  mesure: '2026-11-02T01:12:00Z',
+  ecart_min: 192,
+  ...partiel,
+});
+
+describe('carte « Régularité » : couchers', () => {
+  it('résumé : plage autour de minuit, écart et repère, sans phrase de dépassement', () => {
+    const couchers: RegulariteCouchers = {
+      nuits: [],
+      amplitude: { plus_tot: '2026-11-03T22:10:00Z', plus_tard: '2026-11-02T01:12:00Z', ecart_min: 182, mesures: 4 },
+      limite_min: 120,
+    };
+    expect(resumeCouchers(couchers, 'UTC')).toMatchObject({ texte: 'de 22:10 à 01:12 · écart 3 h 02 (repère 2 h)', classe: 'text-avertissement' });
+    const sous = { ...couchers, amplitude: { ...couchers.amplitude!, plus_tard: '2026-11-02T23:10:00Z', ecart_min: 60 } };
+    expect(resumeCouchers(sous, 'UTC')).toMatchObject({ texte: 'de 22:10 à 23:10 · écart 1 h (repère 2 h)', classe: 'text-foreground' });
+    const exclues = { ...couchers, nuits: [nuit({ ignore: 'decalage_horaire' }), nuit({ nuit: '2026-11-02', ignore: 'decalage_horaire' })], amplitude: null };
+    expect(resumeCouchers(exclues, 'UTC').texte).toBe('pas encore assez de mesures · 2 nuits exclues');
+  });
+
+  it('par nuit : endormi plus tard ou plus tôt que prévu, en mots', () => {
+    expect(detailCoucher(nuit({}), 'UTC')).toBe('3 h 12 plus tard que prévu (22:00)');
+    expect(detailCoucher(nuit({ mesure: '2026-11-01T21:40:00Z', ecart_min: -20 }), 'UTC')).toBe('20 min plus tôt que prévu (22:00)');
+    expect(detailCoucher(nuit({ mesure: '2026-11-01T22:03:00Z', ecart_min: 3 }), 'UTC')).toBe('comme prévu');
+    expect(detailCoucher(nuit({ mesure: null, ecart_min: null }), 'UTC')).toBe('prévu 22:00, pas de mesure');
+    expect(detailCoucher(nuit({ ignore: 'decalage_horaire' }), 'UTC')).toBe('décalage horaire, non compté');
+  });
+
+  it('mode simulé : onglet Couchers d’abord, 7 nuits ; Levers sur un clic', async () => {
+    const s = await statut();
+    const { container } = render(<CarteRegularite statut={s} />);
+    expect(screen.getByText('Régularité')).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Couchers' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByText('Endormissements sur 7 nuits :', { exact: false })).toBeTruthy();
+    expect(screen.getAllByRole('listitem')).toHaveLength(7);
+    const texte = container.textContent ?? '';
+    // Dimanche : 21:30 prévu, endormi 00:55 ; écart compté depuis midi (2 h 15, pas 21 h 45).
+    expect(texte).toContain('de 22:40 à 00:55 · écart 2 h 15 (repère 2 h)');
+    expect(texte).toContain('3 h 25 plus tard que prévu (21:30)');
+    expect(texte.match(/repère/g)).toHaveLength(1);
+    expect(texte).not.toMatch(/limite|null|undefined/);
+    // Radix active un onglet au clic principal (mousedown).
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Levers' }), { button: 0 });
+    expect(screen.getByText('Levers sur 7 jours :', { exact: false })).toBeTruthy();
+    expect(screen.getByText("aujourd'hui")).toBeTruthy();
+  });
+
+  it('API sans journal des couchers : les levers seuls, sans onglets', async () => {
+    const s = await statut();
+    render(<CarteRegularite statut={{ ...s, couchers: undefined }} />);
+    expect(screen.queryByRole('tab')).toBeNull();
+    expect(screen.getByText('Levers sur 7 jours :', { exact: false })).toBeTruthy();
+  });
+});
+
+describe('carte « Régularité » : levers', () => {
   it('résumé : plage, écart et limite ; au-dessus de la limite ; sans assez de mesures', () => {
     const levers: RegulariteLevers = {
       jours: [],
@@ -53,8 +111,7 @@ describe('carte « Régularité des levers »', () => {
 
   it('mode simulé : une ligne de résumé et les 7 jours', async () => {
     const s = await statut();
-    const { container } = render(<CarteRegularite statut={s} />);
-    expect(screen.getByText('Régularité des levers')).toBeTruthy();
+    const { container } = render(<CarteRegularite statut={{ ...s, couchers: undefined }} />);
     expect(screen.getByText('Levers sur 7 jours :', { exact: false })).toBeTruthy();
     expect(screen.getAllByRole('listitem')).toHaveLength(7);
     expect(screen.getByText("aujourd'hui")).toBeTruthy();
@@ -65,9 +122,9 @@ describe('carte « Régularité des levers »', () => {
     expect(texte).not.toMatch(/[+−]\d|amplitude|null|undefined/);
   });
 
-  it('API plus ancienne, sans journal des levers : rien', async () => {
+  it('API plus ancienne, sans aucun journal : rien', async () => {
     const s = await statut();
-    const { container } = render(<CarteRegularite statut={{ ...s, levers: undefined }} />);
+    const { container } = render(<CarteRegularite statut={{ ...s, levers: undefined, couchers: undefined }} />);
     expect(container.textContent).toBe('');
   });
 });

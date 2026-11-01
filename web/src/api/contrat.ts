@@ -213,6 +213,31 @@ export interface RegulariteLevers {
   limite_min: number;
 }
 
+/** Coucher d'une nuit : prévu (plan au coucher) et endormissement mesuré par la montre. */
+export interface CoucherDeLaNuit {
+  /** Date du soir. */
+  nuit: DateLocale;
+  prevu: Instant;
+  /** Vrai si le prévu a été figé par la photo de la nuit ; faux s'il est recalculé. */
+  prevu_fige: boolean;
+  /** Endormissement mesuré (début de la nuit principale) ; null sans mesure. */
+  mesure: Instant | null;
+  /** Mesuré − prévu en minutes (positif : endormi plus tard que prévu) ; null sans mesure. */
+  ecart_min: number | null;
+  /** Mesure non comptée dans l'amplitude : retour d'un autre fuseau. Absent sinon. */
+  ignore?: 'decalage_horaire';
+}
+
+/** Régularité des couchers : affichage seul, aucune contrainte (le coucher prévu découle du lever). */
+export interface RegulariteCouchers {
+  /** 7 nuits avant la journée en cours, de la plus ancienne à la plus récente. */
+  nuits: CoucherDeLaNuit[];
+  /** Endormissement mesuré le plus tôt et le plus tard (comptés depuis midi : 23:30 et 00:30 font 1 h) ; null sous 2 mesures. */
+  amplitude: { plus_tot: Instant; plus_tard: Instant; ecart_min: number; mesures: number } | null;
+  /** Repère : le même écart maximal que les levers (`sommeil.ecart_lever_max`). */
+  limite_min: number;
+}
+
 /** Moment de la journée, décidé par l'API. */
 export type Phase = 'journee' | 'soiree' | 'nuit';
 
@@ -275,6 +300,8 @@ export interface ReponseStatut {
   objectif_sommeil_min?: number;
   /** Levers prévus et mesurés des 7 derniers jours (absent d'une API plus ancienne). */
   levers?: RegulariteLevers;
+  /** Couchers prévus et endormissements mesurés des 7 dernières nuits (absent d'une API plus ancienne). */
+  couchers?: RegulariteCouchers;
   /** Minutes de sieste sur la période (journées des 7 nuits et journée en cours). */
   siestes_total_min?: number;
   /** Siestes de la journée en cours (après la dernière nuit). */

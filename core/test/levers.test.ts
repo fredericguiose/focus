@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { lireConfig } from '../src/config';
 import { prixException } from '../src/exceptions';
 import { journee, journeeCourante, lever, leverPrevu, mesureIgnoree } from '../src/journee';
-import { journalDesLevers } from '../src/levers';
+import { journalDesCouchers, journalDesLevers } from '../src/levers';
 import type { Contexte, Exception } from '../src/types';
 import { ecartDeFuseauxMin, instantLocal } from '../src/temps';
 import { contexte, EXEMPLE, exception, remplacer } from './aides';
@@ -203,6 +203,48 @@ describe('journal des levers', () => {
   });
 });
 
+describe('journal des couchers (affichage seul)', () => {
+  // Nuits du dim. 01/11 au sam. 07/11 (jusqua dim. 08/11). Couchers prévus : lever du lendemain − 8 h 30.
+  const endormissements = {
+    '2026-11-01': '2026-11-01T23:30:00Z', // prévu 20:00 (lever lun. 04:30)
+    '2026-11-03': '2026-11-04T00:30:00Z', // prévu 21:30 (lever mer. 06:00), figé à 21:00
+    '2026-11-04': '2026-11-04T20:10:00Z', // prévu 20:00
+  };
+  const figes = { '2026-11-03': '2026-11-03T21:00:00Z' };
+
+  it('prévu (figé ou recalculé), endormi, écart ; nuits d’avant jusqua', () => {
+    const c = ctx('2026-11-08T12:00:00Z');
+    const j = journalDesCouchers(c, '2026-11-08', endormissements, figes);
+    expect(j.nuits.map((x) => x.nuit)).toEqual(['2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05', '2026-11-06', '2026-11-07']);
+    expect(j.nuits[0]).toEqual({ nuit: '2026-11-01', prevu: '2026-11-01T20:00:00Z', prevuFige: false, mesure: '2026-11-01T23:30:00Z', ecartMin: 210 });
+    expect(j.nuits[1]).toMatchObject({ prevu: '2026-11-02T20:00:00Z', mesure: null, ecartMin: null });
+    expect(j.nuits[2]).toEqual({ nuit: '2026-11-03', prevu: '2026-11-03T21:00:00Z', prevuFige: true, mesure: '2026-11-04T00:30:00Z', ecartMin: 210 });
+    expect(j.nuits[3]).toMatchObject({ ecartMin: 10 });
+    // Le prévu recalculé est le coucher prévu du moteur, inchangé.
+    for (const x of j.nuits.filter((n) => !n.prevuFige)) expect(x.prevu).toBe(journee(c, x.nuit).coucherPrevu);
+    expect(j.limiteMin).toBe(120);
+  });
+
+  it('amplitude autour de minuit : 23:30 et 00:30 font 1 h, pas 23 h', () => {
+    const j = journalDesCouchers(ctx('2026-11-08T12:00:00Z'), '2026-11-08', {
+      '2026-11-01': '2026-11-01T23:30:00Z',
+      '2026-11-03': '2026-11-04T00:30:00Z',
+    });
+    expect(j.amplitude).toEqual({ plusTot: '2026-11-01T23:30:00Z', plusTard: '2026-11-04T00:30:00Z', ecartMin: 60, mesures: 2 });
+  });
+
+  it('amplitude sur les 7 nuits : du plus tôt (20:10) au plus tard (00:30 le lendemain)', () => {
+    const j = journalDesCouchers(ctx('2026-11-08T12:00:00Z'), '2026-11-08', endormissements, figes);
+    expect(j.amplitude).toEqual({ plusTot: '2026-11-04T20:10:00Z', plusTard: '2026-11-04T00:30:00Z', ecartMin: 260, mesures: 3 });
+  });
+
+  it('une mesure hors des 7 nuits est ignorée ; moins de deux mesures : pas d’amplitude', () => {
+    const j = journalDesCouchers(ctx('2026-11-08T12:00:00Z'), '2026-11-08', { '2026-10-31': '2026-10-31T23:00:00Z', '2026-11-07': '2026-11-07T22:00:00Z' });
+    expect(j.nuits.filter((n) => n.mesure !== null)).toHaveLength(1);
+    expect(j.amplitude).toBeNull();
+  });
+});
+
 describe('performances', () => {
   it('une année de journées se calcule vite (série calculée une fois par bloc)', () => {
     const c = ctx();
@@ -301,5 +343,23 @@ describe('décalage horaire : mesures ignorées après un séjour dans un autre 
     ]);
     expect(j.jours[0]!.mesure).not.toBeNull();
     expect(j.amplitude).toMatchObject({ ecartMin: 70, mesures: 2 });
+  });
+
+  it('journal des couchers : même règle, appliquée au soir de la nuit', () => {
+    const a23h = (nuit: string, fuseau: string) => new Date(instantLocal(nuit, 23 * 60, fuseau)).toISOString().replace('.000Z', 'Z');
+    const endormissements = Object.fromEntries(jours('2026-10-29', 7).map((d) => [d, a23h(d, d <= '2026-10-30' ? PARIS : CAYENNE)]));
+    const c = contexte('2026-11-05T12:00:00Z', { config: cfg });
+    const j = journalDesCouchers(c, '2026-11-05', endormissements);
+    expect(j.nuits.map((x) => [x.nuit, x.ignore ?? null])).toEqual([
+      ['2026-10-29', 'decalage_horaire'],
+      ['2026-10-30', 'decalage_horaire'],
+      ['2026-10-31', 'decalage_horaire'],
+      ['2026-11-01', 'decalage_horaire'],
+      ['2026-11-02', 'decalage_horaire'],
+      ['2026-11-03', 'decalage_horaire'],
+      ['2026-11-04', null],
+    ]);
+    expect(j.nuits[0]!.mesure).not.toBeNull();
+    expect(j.amplitude).toBeNull();
   });
 });

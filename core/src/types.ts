@@ -375,6 +375,32 @@ export interface JournalDesLevers {
   limiteMin: number;
 }
 
+// ─── Journal des couchers ────────────────────────────────────────────────────
+
+export interface CoucherJournalise {
+  /** Date de la nuit (le soir). */
+  nuit: DateLocale;
+  /** Coucher prévu de la nuit : celui du plan au coucher (photo de la nuit). */
+  prevu: Instant;
+  /** Vrai si le prévu a été figé par la photo de la nuit ; faux s'il est recalculé. */
+  prevuFige: boolean;
+  /** Endormissement mesuré (montre, nuit principale), ou null. */
+  mesure: Instant | null;
+  /** Mesuré − prévu, en minutes (positif : endormi plus tard que prévu) ; null sans mesure. */
+  ecartMin: number | null;
+  /** Mesure ignorée (et hors de l'amplitude) : décalage horaire, même règle que les levers (§3.1). */
+  ignore?: 'decalage_horaire';
+}
+
+/** Affiché seulement : ne contraint rien, le coucher prévu reste déduit du lever (§3.1). */
+export interface JournalDesCouchers {
+  nuits: CoucherJournalise[];
+  /** Endormissement mesuré le plus tôt et le plus tard (minutes depuis midi, mesures ignorées exclues) ; null sous 2 mesures. */
+  amplitude: { plusTot: Instant; plusTard: Instant; ecartMin: number; mesures: number } | null;
+  /** sommeil.ecart_lever_max, en minutes : repère, pas une limite des couchers. */
+  limiteMin: number;
+}
+
 // ─── Fonctions exposées par le moteur (core/src/index.ts) ─────────────────────
 
 export interface Moteur {
@@ -392,6 +418,14 @@ export interface Moteur {
   verifierEngagements(contexte: Contexte, mesures: Mesure[], du: DateLocale, au: DateLocale): EngagementVerifie[];
   /** Levers prévus et mesurés des jours finissant à `jusqua`, et leur écart (§3.1). */
   journalDesLevers(contexte: Contexte, jusqua: DateLocale, prevusFiges?: Record<DateLocale, Instant>, nbJours?: number): JournalDesLevers;
+  /** Couchers prévus et endormissements mesurés des nuits finissant avant `jusqua`, et leur écart (§3.1). Affichage seul. */
+  journalDesCouchers(
+    contexte: Contexte,
+    jusqua: DateLocale,
+    endormissements: Record<DateLocale, Instant>,
+    prevusFiges?: Record<DateLocale, Instant>,
+    nbNuits?: number,
+  ): JournalDesCouchers;
   /** Secondes d'attente exigées pour le n-ième « continue » (n commence à 0). */
   attenteContinue(config: Config, n: number): number;
 }

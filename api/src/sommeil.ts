@@ -232,6 +232,8 @@ export interface SommeilMesure {
   sieste: boolean;
   /** Xiaomi marque la session incomplète (montre retirée, batterie…). */
   incomplete?: boolean;
+  /** Début de la première tranche de sommeil (léger, profond, REM) de la chronologie, si Xiaomi la donne. */
+  premier_sommeil?: string;
 }
 
 /**
@@ -295,6 +297,13 @@ export interface NuitMesuree {
   endormi_min: number;
   phases: PhasesSommeil | null;
   incomplete: boolean;
+  /** Endormissement : premier sommeil de la première session de la nuit (son début à défaut). */
+  endormissement: string;
+}
+
+/** Endormissement d'une session : sa première tranche de sommeil si la chronologie la donne, sinon son début. */
+function endormissementDe(s: SommeilMesure): string {
+  return s.premier_sommeil ?? s.debut;
 }
 
 /** Temps endormi et phases cumulés par nuit, siestes exclues. Une nuit sans session est absente. */
@@ -304,8 +313,10 @@ export function rattacherAuxNuits(sessions: SommeilMesure[], nuits: { nuit: stri
     const siennes = sessions.filter((s) => !s.sieste && nuitDeLaSession(s, fuseau) === nuit);
     if (siennes.length === 0) continue;
     const avecPhases = siennes.filter((s) => s.phases !== null);
+    const premiere = siennes.reduce((a, s) => (Date.parse(s.debut) < Date.parse(a.debut) ? s : a));
     resultat.set(nuit, {
       endormi_min: siennes.reduce((t, s) => t + s.endormi_min, 0),
+      endormissement: endormissementDe(premiere),
       incomplete: siennes.some((s) => s.incomplete === true),
       phases:
         avecPhases.length === 0
@@ -341,8 +352,12 @@ export interface LigneSommeil {
   details: string | null;
 }
 
+/** Phases de sommeil de la chronologie (l'éveil n'en est pas une). */
+const PHASES_ENDORMIES = new Set(['legere', 'profonde', 'rem']);
+
 export function versSommeilMesure(l: LigneSommeil): SommeilMesure {
   const d = (l.details ? JSON.parse(l.details) : {}) as Partial<DetailsSommeil>;
+  const premier = Array.isArray(d.chronologie) ? d.chronologie.find((t) => t.phase !== null && PHASES_ENDORMIES.has(t.phase)) : undefined;
   return {
     debut: l.debut,
     fin: l.fin,
@@ -350,6 +365,7 @@ export function versSommeilMesure(l: LigneSommeil): SommeilMesure {
     phases: d.phases ?? null,
     sieste: d.sieste === true,
     incomplete: d.incomplete === true,
+    ...(premier ? { premier_sommeil: premier.debut } : {}),
   };
 }
 

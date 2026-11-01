@@ -368,6 +368,17 @@ describe('mode simulé : journal des levers', () => {
     expect(levers.limite_min).toBe(120);
   });
 
+  it('couchers : les 7 nuits d’avant ; endormi = prévu + écart fictif ; amplitude comptée depuis midi', async () => {
+    const couchers = (await simulation().api.statut()).couchers!;
+    expect(couchers.nuits.map((n) => n.nuit)).toEqual(['2026-10-27', '2026-10-28', '2026-10-29', '2026-10-30', '2026-10-31', '2026-11-01', '2026-11-02']);
+    expect(couchers.nuits[0]).toMatchObject({ mesure: null, ecart_min: null });
+    for (const n of couchers.nuits) if (n.mesure) expect((Date.parse(n.mesure) - Date.parse(n.prevu)) / 60_000).toBe(n.ecart_min);
+    // Dimanche : prévu 21:30 (Paris), endormi 00:55 le lundi ; du plus tôt (22:40) au plus tard : 2 h 15, pas 21 h 45.
+    expect(couchers.nuits[5]).toEqual({ nuit: '2026-11-01', prevu: '2026-11-01T20:30:00Z', prevu_fige: true, mesure: '2026-11-01T23:55:00Z', ecart_min: 205 });
+    expect(couchers.amplitude).toEqual({ plus_tot: '2026-10-29T21:40:00Z', plus_tard: '2026-11-01T23:55:00Z', ecart_min: 135, mesures: 5 });
+    expect(couchers.limite_min).toBe(120);
+  });
+
   it('le lever du jour n’est mesuré qu’une fois passé', async () => {
     const sim = simulation(Date.parse('2026-11-03T05:32:00Z'));
     const s = await sim.api.statut();

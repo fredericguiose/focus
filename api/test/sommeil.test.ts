@@ -98,7 +98,12 @@ describe('rattachement d\'une session à sa nuit', () => {
         { nuit: '2026-11-02', fuseau: PARIS },
       ],
     );
-    expect(nuits.get('2026-11-01')).toEqual({ endormi_min: 420, phases: { legere: 210, profonde: 105, rem: 105, eveil: 20 }, incomplete: false });
+    expect(nuits.get('2026-11-01')).toEqual({
+      endormi_min: 420,
+      phases: { legere: 210, profonde: 105, rem: 105, eveil: 20 },
+      incomplete: false,
+      endormissement: '2026-11-01T21:00:00Z',
+    });
     expect(nuits.has('2026-11-02')).toBe(false);
   });
 });
@@ -548,10 +553,72 @@ describe('levers mesurés et journal des levers (§3.1)', () => {
     expect(r.corps.levers.amplitude).toBeNull();
   });
 
+  it('couchers : endormissement = début de la nuit principale (siestes et nuits incomplètes exclues), écart au coucher prévu', async () => {
+    await poser('n2', '2026-11-02T21:00:00Z', '2026-11-03T05:00:00Z', 420);
+    await poser('n1a', '2026-11-01T22:40:00Z', '2026-11-02T02:00:00Z', 230); // nuit du 01/11 en deux morceaux : endormi 23:40
+    await poser('n1b', '2026-11-02T02:30:00Z', '2026-11-02T06:00:00Z', 200);
+    await poser('s1', '2026-11-02T10:00:00Z', '2026-11-02T11:00:00Z', 55); // sieste non marquée
+    await poser('n0', '2026-10-31T20:30:00Z', '2026-11-01T05:30:00Z', 510, false, true); // incomplète : pas d'endormissement
+    const r = await api.get('/v1/statut', await creerJeton('interface', 'web'));
+    const { couchers, journee } = r.corps;
+    expect(couchers.nuits.map((n: { nuit: string }) => n.nuit)).toEqual([
+      '2026-10-27', '2026-10-28', '2026-10-29', '2026-10-30', '2026-10-31', '2026-11-01', '2026-11-02',
+    ]);
+    const par = Object.fromEntries(couchers.nuits.map((n: { nuit: string }) => [n.nuit, n]));
+    expect(par['2026-11-01']).toMatchObject({ mesure: '2026-11-01T22:40:00Z', prevu_fige: false });
+    expect(par['2026-11-02']).toMatchObject({ mesure: '2026-11-02T21:00:00Z', prevu_fige: false });
+    expect(par['2026-10-31']).toMatchObject({ mesure: null, ecart_min: null });
+    for (const n of couchers.nuits) if (n.mesure) expect(n.ecart_min).toBe((Date.parse(n.mesure) - Date.parse(n.prevu)) / 60_000);
+    // 22:00 et 23:40 (Paris) : 1 h 40 d'écart ; repère = écart maximal des levers.
+    expect(couchers.amplitude).toEqual({ plus_tot: '2026-11-02T21:00:00Z', plus_tard: '2026-11-01T22:40:00Z', ecart_min: 100, mesures: 2 });
+    expect(couchers.limite_min).toBe(120);
+    // Affichage seul : le plan du jour est le même qu'avec les levers seuls.
+    expect(journee.lever).toBe('2026-11-03T05:00:00Z');
+  });
+
+  it('couchers : premier sommeil de la chronologie s’il y en a une ; coucher prévu figé par la photo de la nuit', async () => {
+    const chronologie = [
+      { debut: '2026-11-01T21:00:00Z', fin: '2026-11-01T21:25:00Z', etat: 5, phase: 'eveil' },
+      { debut: '2026-11-01T21:25:00Z', fin: '2026-11-02T01:00:00Z', etat: 3, phase: 'legere' },
+    ];
+    await env.DB.prepare(
+      `INSERT INTO mesures (utilisateur, type, source, cle, debut, fin, valeur, details, recu_le) VALUES ('alice', 'sommeil', 'xiaomi', 'n1', ?, ?, ?, ?, ?)`,
+    )
+      .bind('2026-11-01T21:00:00Z', '2026-11-02T06:00:00Z', 500, JSON.stringify({ eveille_min: 25, phases: null, score: 75, sieste: false, chronologie }), MARDI.matin)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO nuits (utilisateur, nuit, routine, lever, coucher_prevu, coucher_applique, decision_de_nuit, photo_le, version_config)
+       VALUES ('alice', '2026-11-01', 'semaine', '2026-11-02T04:45:00Z', '2026-11-01T20:45:00Z', '2026-11-01T21:15:00Z', 0, '2026-11-01T21:15:00Z', 'c0ffee1')`,
+    ).run();
+    const r = await api.get('/v1/statut', await creerJeton('interface', 'web'));
+    const dimanche = r.corps.couchers.nuits.find((n: { nuit: string }) => n.nuit === '2026-11-01');
+    expect(dimanche).toEqual({ nuit: '2026-11-01', prevu: '2026-11-01T20:45:00Z', prevu_fige: true, mesure: '2026-11-01T21:25:00Z', ecart_min: 40 });
+  });
+
+  it('couchers après un séjour dans un autre fuseau : marqués « decalage_horaire », hors de l’amplitude', async () => {
+    const base = configExemple();
+    const config = {
+      ...base,
+      routines: { ...base.routines, sejour: { ...base.routines.semaine!, fuseau: 'America/Cayenne' } },
+      calendrier: [...base.calendrier, { routine: 'sejour', du: '2026-10-28', au: '2026-11-01' }],
+    };
+    await env.DB.prepare(`DELETE FROM config_versions`).run();
+    await installerConfig(config, 'c0ffee2');
+    await poser('n1', '2026-11-01T21:00:00Z', '2026-11-02T06:00:00Z', 500);
+    await poser('n2', '2026-11-02T21:00:00Z', '2026-11-03T05:00:00Z', 420);
+    const r = await api.get('/v1/statut', await creerJeton('interface', 'web'));
+    const par = Object.fromEntries(r.corps.couchers.nuits.map((n: { nuit: string }) => [n.nuit, n]));
+    expect(par['2026-11-01']).toMatchObject({ mesure: '2026-11-01T21:00:00Z', ignore: 'decalage_horaire' });
+    expect(par['2026-11-02']).toMatchObject({ mesure: '2026-11-02T21:00:00Z', ignore: 'decalage_horaire' });
+    expect(r.corps.couchers.amplitude).toBeNull();
+  });
+
   it('sans mesure : journal sans mesure, lever prévu', async () => {
     const r = await api.get('/v1/statut', await creerJeton('interface', 'web'));
     expect(r.corps.journee.lever).toBe(MARDI.lever);
     for (const j of r.corps.levers.jours) expect(j).toMatchObject({ mesure: null, ecart_min: null, prevu_fige: false });
     expect(r.corps.levers.amplitude).toBeNull();
+    for (const n of r.corps.couchers.nuits) expect(n).toMatchObject({ mesure: null, ecart_min: null, prevu_fige: false });
+    expect(r.corps.couchers.amplitude).toBeNull();
   });
 });

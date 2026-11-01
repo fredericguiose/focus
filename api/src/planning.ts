@@ -1,5 +1,5 @@
 // Planning d'un appareil (§4.3), statut pour l'interface, tâches du jour, raison d'un blocage.
-import type { ActionsIphone, ActionsPc, Config, Contexte, EngagementPrevu, JournalDesLevers, Journee, Mesure, Moteur, Segment, SortieMode } from '../../core/src/types';
+import type { ActionsIphone, ActionsPc, Config, Contexte, EngagementPrevu, JournalDesCouchers, JournalDesLevers, Journee, Mesure, Moteur, Segment, SortieMode } from '../../core/src/types';
 import { dettesHebdomadaires, lundiDe, SEMAINES_DE_BILAN } from '../../core/src/dette';
 import { JOURS_DU_JOURNAL_DES_LEVERS } from '../../core/src/levers';
 import { dateCourte, JOURS_SEMAINE, jourSemaine } from '../../core/src/temps';
@@ -217,7 +217,10 @@ export function dernieresNuits(moteur: Moteur, contexte: Contexte, j: Journee, s
       siestes,
     };
   });
-  return { nuits, aujourdhui: separees.siestes.get(j.date) ?? [] };
+  // Endormissements des nuits complètes : une nuit incomplète (montre retirée) n'a pas de début sûr.
+  const endormissements: Record<string, string> = {};
+  for (const [nuit, m] of mesurees) if (!m.incomplete) endormissements[nuit] = m.endormissement;
+  return { nuits, endormissements, aujourdhui: separees.siestes.get(j.date) ?? [] };
 }
 
 /**
@@ -239,15 +242,36 @@ export function siesteTardive(j: Journee, siestes: Sieste[], maintenant: Date): 
 }
 
 /**
- * Lever prévu figé la veille au soir, par date du lever : la photo de la nuit (prise au coucher
- * appliqué) garde le lever du lendemain que le plan donnait alors.
+ * Prévus figés par la photo de la nuit (prise au coucher appliqué) : le lever du lendemain, par
+ * date du lever, et le coucher prévu, par date de la nuit, tels que le plan les donnait alors.
  */
-export async function leversPrevusFiges(db: D1Database, utilisateur: string, depuisNuit: string): Promise<Record<string, string>> {
+export async function prevusFiges(db: D1Database, utilisateur: string, depuisNuit: string) {
   const { results } = await db
-    .prepare(`SELECT nuit, lever FROM nuits WHERE utilisateur = ? AND nuit >= ?`)
+    .prepare(`SELECT nuit, lever, coucher_prevu FROM nuits WHERE utilisateur = ? AND nuit >= ?`)
     .bind(utilisateur, depuisNuit)
-    .all<{ nuit: string; lever: string }>();
-  return Object.fromEntries(results.map((l) => [ajouterJours(l.nuit, 1), l.lever]));
+    .all<{ nuit: string; lever: string; coucher_prevu: string }>();
+  return {
+    levers: Object.fromEntries(results.map((l) => [ajouterJours(l.nuit, 1), l.lever])) as Record<string, string>,
+    couchers: Object.fromEntries(results.map((l) => [l.nuit, l.coucher_prevu])) as Record<string, string>,
+  };
+}
+
+/** Journal des couchers (§3.1), affichage seul : par nuit, coucher prévu et endormissement mesuré ; amplitude face au repère. */
+export function vueCouchers(j: JournalDesCouchers) {
+  return {
+    nuits: j.nuits.map((x) => ({
+      nuit: x.nuit,
+      prevu: x.prevu,
+      prevu_fige: x.prevuFige,
+      mesure: x.mesure,
+      ecart_min: x.ecartMin,
+      ...(x.ignore ? { ignore: x.ignore } : {}),
+    })),
+    amplitude: j.amplitude
+      ? { plus_tot: j.amplitude.plusTot, plus_tard: j.amplitude.plusTard, ecart_min: j.amplitude.ecartMin, mesures: j.amplitude.mesures }
+      : null,
+    limite_min: j.limiteMin,
+  };
 }
 
 /** Journal des levers (§3.1) : par jour, prévu et mesuré (`ignore` : décalage horaire) ; amplitude des mesurés comptés face à la limite. */
@@ -290,7 +314,7 @@ export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuth
   const { config } = contexte;
   const journee = deps.moteur.journeeCourante(contexte);
   const jourCivil = dateLocale(maintenant, journee.fuseau);
-  const [pings, etiquettes, sessions, cumulS, sommeil, synchro, seances, synchroSeances, prevusFiges] = await Promise.all([
+  const [pings, etiquettes, sessions, cumulS, sommeil, synchro, seances, synchroSeances, figes] = await Promise.all([
     db
       .prepare(
         `SELECT nom, MAX(vu_le) AS vu_le FROM appareils
@@ -305,7 +329,7 @@ export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuth
     etatSynchro(db, jeton.utilisateur),
     lireSeances(db, jeton.utilisateur, versInstant(debutJourLocal(ajouterJours(jourCivil, -JOURS_VERIFIES - 1), journee.fuseau))),
     etatSynchroHevy(db, jeton.utilisateur),
-    leversPrevusFiges(db, jeton.utilisateur, ajouterJours(journee.date, -JOURS_DU_JOURNAL_DES_LEVERS - 1)),
+    prevusFiges(db, jeton.utilisateur, ajouterJours(journee.date, -JOURS_DU_JOURNAL_DES_LEVERS - 1)),
   ]);
   const vuLe = new Map(pings.results.map((p) => [p.nom, p.vu_le]));
   const phase = phaseDe(journee, maintenant);
@@ -329,7 +353,8 @@ export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuth
     sieste_tardive: siesteTardive(journee, aujourdhui, maintenant),
     objectif_sommeil_min: config.sommeil.cibleMin,
     sommeil_mesure: synchro,
-    levers: vueLevers(deps.moteur.journalDesLevers(contexte, journee.date, prevusFiges)),
+    levers: vueLevers(deps.moteur.journalDesLevers(contexte, journee.date, figes.levers)),
+    couchers: vueCouchers(deps.moteur.journalDesCouchers(contexte, journee.date, lues.endormissements, figes.couchers)),
     ...engagementsVerifies(deps.moteur, contexte, seances, jourCivil),
     seances_mesurees: synchroSeances,
     appareils: Object.entries(config.appareils).map(([nom, def]) => {

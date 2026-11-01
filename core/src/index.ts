@@ -6,7 +6,7 @@ import { etat } from './etat';
 import { expliquer, sortie } from './explication';
 import { prixException } from './exceptions';
 import { engagementsPrevus, journee, journeeCourante } from './journee';
-import { journalDesLevers } from './levers';
+import { journalDesCouchers, journalDesLevers } from './levers';
 import { planifier } from './planning';
 import { verifierEngagements } from './verification';
 
@@ -29,13 +29,14 @@ export const moteur: Moteur = {
   prixException,
   verifierEngagements,
   journalDesLevers,
+  journalDesCouchers,
   attenteContinue,
 };
 
 export { validerConfig, lireConfig } from './config';
 export { journee, journeeCourante, routineDuJour, nuitDe, engagementsPrevus, lever, leverPrevu, leverMesure, coucherPrevu, mesureIgnoree } from './journee';
 export type { RaisonMesureIgnoree } from './journee';
-export { journalDesLevers, JOURS_DU_JOURNAL_DES_LEVERS } from './levers';
+export { journalDesCouchers, journalDesLevers, JOURS_DU_JOURNAL_DES_LEVERS } from './levers';
 export { etat, actionsDuMode } from './etat';
 export { planifier } from './planning';
 export { expliquer, sortie, NOMS_DES_MODES } from './explication';

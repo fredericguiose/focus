@@ -236,6 +236,15 @@ prix_du_report:
   minutes (mesuré − prévu), `ignore: 'decalage_horaire'` si la mesure est ignorée (étape 3, vu
   du fuseau de J) ; sur la période, l'amplitude des levers mesurés non ignorés (le plus tard − le
   plus tôt, en heures locales ; null sous 2 mesures) face à `ecart_lever_max`.
+- **Journal des couchers** (`journalDesCouchers`, **affichage seul** : aucune règle, aucune
+  contrainte ; le coucher prévu reste déduit du lever, une deuxième contrainte entrerait en
+  conflit avec lui) : pour chacune des 7 nuits d'avant J (J−7 à J−1, celles des levers du
+  journal), coucher prévu (figé par la photo de la nuit, §4.4 ; à défaut, `coucherPrevu` du
+  moteur, `prevuFige: false`), endormissement mesuré (fourni par l'API, §4.6) et écart en minutes
+  (mesuré − prévu) ; `ignore: 'decalage_horaire'` selon la règle des levers appliquée au soir de
+  la nuit (`mesureIgnoree(nuit)`, vu du fuseau de J). Amplitude des endormissements non ignorés
+  comptés **en minutes depuis midi du soir** (23:30 et 00:30 font 1 h, pas 23 h), face au même
+  `ecart_lever_max`, donné comme simple repère.
 
 ### 3.2 Choix du mode
 À l'instant t, pour un appareil A : parcourir les modes de la routine du jour courant (moins
@@ -377,7 +386,7 @@ Actions). Chaque jeton appartient à un utilisateur. Création par un script loc
 | GET | `/v1/planning` | appareil | planning de l'appareil (§4.3) ; vaut ping (met à jour `vu_le`) |
 | POST | `/v1/accuses` | appareil | `{ action, pose_le }` : verrou posé |
 | POST | `/v1/evenements` | appareil | lot : `{ type: reconnexion \| acces, ... }` |
-| GET | `/v1/statut` | interface | mode par appareil et raison, journée (lever, coucher, ouverture), phase, actions possibles, engagements de demain, dette des 7 dernières nuits, régularité des levers, sessions, dernier ping (§4.6) |
+| GET | `/v1/statut` | interface | mode par appareil et raison, journée (lever, coucher, ouverture), phase, actions possibles, engagements de demain, dette des 7 dernières nuits, régularité des couchers et des levers, sessions, dernier ping (§4.6) |
 | GET | `/v1/taches` | interface, appareil | tâches du jour éligibles à une session (`eligible_le` : création + 15 min) |
 | GET | `/v1/blocage?appareil=<nom>&domaine=<d>` | interface, appareil | pour l'extension : `{ bloque, app, mode, raison, sessions: autorisees \| interdites }` (`bloque` tient compte des sessions ouvertes ; un jeton appareil ne lit que son appareil) |
 | POST | `/v1/sessions` | interface, appareil | ouvrir : `{ appareil, tache_id, apps: [id] }` ; `apps` accepte des identifiants d'apps **ou de groupes** du catalogue (§4.5) |
@@ -541,6 +550,11 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
                            "ignore"?: "decalage_horaire" } ],
               "amplitude": { "plus_tot": "…Z", "plus_tard": "…Z", "ecart_min": number, "mesures": number } | null,
               "limite_min": number },
+  "couchers": { "nuits": [ { "nuit": "YYYY-MM-DD", "prevu": "…Z", "prevu_fige": bool,
+                             "mesure": "…Z" | null, "ecart_min": number | null,
+                             "ignore"?: "decalage_horaire" } ],
+                "amplitude": { "plus_tot": "…Z", "plus_tard": "…Z", "ecart_min": number, "mesures": number } | null,
+                "limite_min": number },
   "sommeil_mesure": { "derniere_synchro": "…Z" | null, "erreur": string | null } | null,
   "aujourdhui": "YYYY-MM-DD",
   "engagements_verifies": [ { "date", "engagement", "nom",
@@ -657,9 +671,24 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   fin de sa dernière session : c'est le lever mesuré de D (`contexte.leversMesures`). Une nuit
   marquée incomplète par la montre ne donne pas de lever (sa fin n'est pas un réveil sûr), ni
   une session qui finit après maintenant.
+- **Endormissements mesurés** : pour chaque nuit D, celle de la dette réelle (mêmes sessions,
+  siestes écartées de la même façon), le début de sa **première session** ; si la chronologie
+  Xiaomi est gardée, le début de sa première tranche de sommeil (léger, profond ou REM) : la
+  montre ouvre parfois la session sur une tranche d'éveil, qui n'est pas encore le sommeil. Une
+  nuit marquée incomplète ne donne pas d'endormissement (comme pour le lever : montre mise en
+  retard, début peu sûr).
+- `couchers` : `journalDesCouchers(contexte, J, endormissements, prévus figés)` (§3.1) ; prévus
+  figés = colonne `coucher_prevu` des photos de la table `nuits` (le prévu, pas l'appliqué :
+  un coucher décalé par exception compte donc comme un écart).
 - `levers` : `journalDesLevers(contexte, J, prévus figés)` (§3.1) ; prévus figés = colonne
-  `lever` des photos de la table `nuits` (nuit D−1 → lever de D). Carte **« Régularité des
-  levers »** de la web app : « Levers sur 7 jours : de 04:32 à 06:10 · écart 1 h 38 (limite
+  `lever` des photos de la table `nuits` (nuit D−1 → lever de D). Carte **« Régularité »** de la
+  web app, onglets « Couchers » (ouvert par défaut) et « Levers », même présentation : pour les
+  couchers, « Endormissements sur 7 nuits : de 22:10 à 01:12 · écart 3 h 02 (repère 2 h) »
+  (orange au-delà du repère, sans phrase de plus : ce n'est pas une règle ; « · 2 nuits
+  exclues » en cas de décalage horaire), puis une ligne par nuit (date du soir) : heure
+  d'endormissement et « 3 h 12 plus tard que prévu (22:00) », « comme prévu », « prévu 22:00, pas
+  de mesure » ou « décalage horaire, non compté ». Sans `couchers` (API plus ancienne), les
+  levers seuls, sans onglets. Pour les levers : « Levers sur 7 jours : de 04:32 à 06:10 · écart 1 h 38 (limite
   2 h) » (« écart 2 h 20, au-dessus de la limite de 2 h » en orange ; « pas encore assez de
   mesures » sous 2 mesures), puis une ligne par jour : heure mesurée, et « comme prévu » (à 5 min
   près), « 20 min plus tard que prévu (05:50) », « 8 min plus tôt que prévu (04:30) », ou
