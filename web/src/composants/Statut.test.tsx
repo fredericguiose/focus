@@ -56,7 +56,7 @@ describe('parcours de la journée (rendu)', () => {
     const actuelle = screen.getByRole('listitem', { current: 'step' });
     expect(within(actuelle).getByText('Travail')).toBeTruthy();
     expect(within(actuelle).getByText('en cours')).toBeTruthy();
-    expect(screen.getByText('2 restantes, dont 1 en retard depuis le 30 oct.')).toBeTruthy();
+    expect(screen.getByText('2 tâches restantes dont 1 en retard')).toBeTruthy();
     // Une seule mention de l'heure ; le report en détail.
     expect(screen.getByText('Ouverture à 19:50')).toBeTruthy();
     expect(screen.getByText('+20 min de report')).toBeTruthy();

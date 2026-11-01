@@ -137,7 +137,7 @@ describe('API simulée : phase et actions', () => {
     const evening = soiree.appareils[0]?.parcours?.find((e) => e.mode === 'EVENING_FREE');
     expect(evening?.conditions.map((c) => [c.libelle, c.vraie, c.detail])).toEqual([
       ['Ouverture à 19:50', true, '+20 min de report'],
-      ['Tâches P1/P2 faites', false, '2 restantes, dont 1 en retard depuis le 30 oct.'],
+      ['Tâches P1/P2 faites', false, '2 tâches restantes dont 1 en retard'],
       ["Récap d'hier", true, null],
     ]);
     // Groupes bloqués en WORK sur le PC : Safari n'a pas de domaine, le groupe Navigateurs n'y est pas.

@@ -105,13 +105,11 @@ function detailEcheance(taches: Tache[], attendue: DateLocale): string {
   return d === null || d >= attendue ? 'à faire' : `en retard depuis le ${dateCourte(d)}`;
 }
 
-/** « 3 restantes, dont 2 en retard depuis le 12 oct. » */
+/** « 3 tâches restantes dont 2 en retard » (formulation choisie par Frédéric, 01/11). */
 function detailPrioritaires(taches: Tache[], jour: DateLocale): string {
-  const enRetard = taches.filter((t) => t.echeance !== null && t.echeance < jour);
-  const total = pluriel(taches.length, 'restante');
-  if (enRetard.length === 0) return total;
-  const depuis = `en retard depuis le ${dateCourte(plusAncienne(enRetard)!)}`;
-  return enRetard.length === taches.length ? `${total}, ${depuis}` : `${total}, dont ${enRetard.length} ${depuis}`;
+  const enRetard = taches.filter((t) => t.echeance !== null && t.echeance < jour).length;
+  const total = `${taches.length} tâche${taches.length > 1 ? 's' : ''} restante${taches.length > 1 ? 's' : ''}`;
+  return enRetard === 0 ? total : `${total} dont ${enRetard} en retard`;
 }
 
 // ─── Feuilles ─────────────────────────────────────────────────────────────────

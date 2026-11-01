@@ -40,6 +40,16 @@ const DELAI_NOUVELLE_TACHE_MIN = 15;
 const PLAFOND_SESSIONS_MIN = 180;
 /** Dettes fictives des sept dernières nuits, en minutes (négatif = avance). */
 const DETTES_FICTIVES = [35, -10, 50, 0, 75, 20, -25];
+/** Sommeil mesuré fictif (montre) : la plus ancienne nuit n'a pas de mesure. */
+const MESURES_FICTIVES: (null | { legere: number; profonde: number; rem: number; eveil: number })[] = [
+  null,
+  { legere: 250, profonde: 95, rem: 105, eveil: 25 },
+  { legere: 230, profonde: 70, rem: 85, eveil: 40 },
+  { legere: 255, profonde: 100, rem: 110, eveil: 20 },
+  { legere: 210, profonde: 65, rem: 80, eveil: 35 },
+  { legere: 240, profonde: 85, rem: 95, eveil: 30 },
+  { legere: 262, profonde: 92, rem: 104, eveil: 18 },
+];
 // La vraie API pose la question après 25 min (PC) ou 10 min (iPhone) ; 30 s suffisent pour essayer.
 const INTERVALLE_QUESTION_SIMULE_S = 30;
 
@@ -141,11 +151,10 @@ const copie = <T,>(valeur: T): T => (valeur === undefined ? valeur : (JSON.parse
 const minuscule = (texte: string) => texte.charAt(0).toLowerCase() + texte.slice(1);
 const majuscule = (texte: string) => texte.charAt(0).toUpperCase() + texte.slice(1);
 
-/** Comme le moteur : « 2 restantes, dont 1 en retard depuis le 30 oct. » (une sur deux est en retard). */
-function detailPrioritaires(n: number, date: DateLocale): string {
-  const total = `${n} restante${n > 1 ? 's' : ''}`;
-  if (n < 2) return total;
-  return `${total}, dont ${Math.floor(n / 2)} en retard depuis le ${dateCourte(ajouterJours(date, -4))}`;
+/** Comme le moteur : « 2 tâches restantes dont 1 en retard » (une sur deux est en retard). */
+function detailPrioritaires(n: number, _date: DateLocale): string {
+  const total = `${n} tâche${n > 1 ? 's' : ''} restante${n > 1 ? 's' : ''}`;
+  return n < 2 ? total : `${total} dont ${Math.floor(n / 2)} en retard`;
 }
 const HEURE_VALIDE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DATE_VALIDE = /^\d{4}-\d{2}-\d{2}$/;
@@ -654,7 +663,18 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
         const t = maintenant();
         avancer(t);
         const j = journee(t);
-        const nuits = DETTES_FICTIVES.map((dette_min, i) => ({ nuit: ajouterJours(j.date, i - DETTES_FICTIVES.length), dette_min }));
+        const nuits = DETTES_FICTIVES.map((dette_min, i) => {
+          const phases = MESURES_FICTIVES[i] ?? null;
+          const endormi = phases ? phases.legere + phases.profonde + phases.rem : null;
+          return {
+            nuit: ajouterJours(j.date, i - DETTES_FICTIVES.length),
+            dette_min,
+            dette_reelle_min: endormi === null ? null : CIBLE_MIN - endormi,
+            endormi_min: endormi,
+            phases,
+          };
+        });
+        const reelles = nuits.filter((n) => n.dette_reelle_min !== null);
         const cumulMin = sessions.reduce((total, s) => total + Math.max(0, Math.round((t - Date.parse(s.session.ouverte_le)) / MINUTE)), 0);
         return {
           heure_serveur: versInstant(t),
@@ -669,6 +689,8 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
           sessions_du_jour: { cumul_min: Math.min(cumulMin + 35, PLAFOND_SESSIONS_MIN), plafond_min: PLAFOND_SESSIONS_MIN },
           nuits,
           dette_cumulee_min: nuits.reduce((total, n) => total + n.dette_min, 0),
+          dette_cumulee_reelle_min: reelles.length === 0 ? null : reelles.reduce((total, n) => total + n.dette_reelle_min!, 0),
+          sommeil_mesure: { derniere_synchro: versInstant(t - 20 * MINUTE), erreur: null },
           phase: phaseA(t),
           actions: actionsA(t),
           engagements_demain: engagementsDemain(t),

@@ -50,7 +50,7 @@ describe('expliquer et sortie (§3.7)', () => {
     expect(mode(parcours, 'WORK').actif).toBe(true);
     expect(mode(parcours, 'EVENING_FREE').conditions.map((c) => [c.libelle, c.vraie, c.detail])).toEqual([
       ['Ouverture à 20:30', true, null],
-      ['Tâches P1/P2 faites', false, '1 restante'],
+      ['Tâches P1/P2 faites', false, '1 tâche restante'],
       ["Récap d'hier", true, null],
     ]);
     expect(moteur.sortie(ctx, 'pc_linux')).toEqual({
@@ -119,10 +119,10 @@ describe('expliquer et sortie (§3.7)', () => {
     ];
     const ctx = contexte('2026-11-02T20:00:00Z', { faits: faits({ taches }) });
     const soiree = mode(expliquer(ctx, 'pc_linux'), 'EVENING_FREE');
-    expect(soiree.conditions[1]).toMatchObject({ vraie: false, detail: '3 restantes, dont 2 en retard depuis le 12 oct.' });
+    expect(soiree.conditions[1]).toMatchObject({ vraie: false, detail: '3 tâches restantes dont 2 en retard' });
     expect(mode(expliquer(ctx, 'pc_linux'), 'WORK').actif).toBe(true);
     const seule = contexte('2026-11-02T20:00:00Z', { faits: faits({ taches: [tache({ echeance: '2026-11-01' })] }) });
-    expect(mode(expliquer(seule, 'pc_linux'), 'EVENING_FREE').conditions[1]!.detail).toBe('1 restante, en retard depuis le 1er nov.');
+    expect(mode(expliquer(seule, 'pc_linux'), 'EVENING_FREE').conditions[1]!.detail).toBe('1 tâche restante dont 1 en retard');
   });
 
   it('planning et récap : la date de la plus ancienne échéance, jamais un compte', () => {

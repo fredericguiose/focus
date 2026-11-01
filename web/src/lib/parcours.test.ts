@@ -52,7 +52,7 @@ describe('parcours de la journée', () => {
     expect(ceQuiManque(appareilPrincipal(journee), journee.journee)).toEqual([{ texte: 'Planning à faire', detail: null, etat: 'a_faire' }]);
     const soiree = await statutEnPhase('soiree');
     expect(ceQuiManque(appareilPrincipal(soiree), soiree.journee)).toEqual([
-      { texte: 'Tâches P1/P2 à faire', detail: '2 restantes, dont 1 en retard depuis le 30 oct.', etat: 'a_faire' },
+      { texte: 'Tâches P1/P2 à faire', detail: '2 tâches restantes dont 1 en retard', etat: 'a_faire' },
     ]);
   });
 
