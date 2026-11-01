@@ -1,0 +1,23 @@
+# Dépendances et constructions
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# Cloudflare
+.wrangler/
+.dev.vars
+
+# Go
+/clients/pc/bin/
+*.exe
+
+# Secrets et config personnelle : jamais ici
+.env
+.env.*
+focus.yaml
+
+# Éditeurs et système
+.vscode/
+.idea/
+.DS_Store
