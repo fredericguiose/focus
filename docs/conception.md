@@ -587,21 +587,27 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   le coucher passé (information seulement, rien n'est bloqué).
 - **Dette hebdomadaire** (CDC §4, 01/11 ; règle comptable, pas biologique : la récupération
   réelle est partielle, d'où « objectif du soir atteint » et jamais « dette remboursée ») :
-  semaine du lundi au dimanche en dates locales ; la nuit D appartient à la semaine de la date D
-  (la nuit du dimanche au lundi clôt la semaine). Par semaine, sur les nuits finies :
+  semaine du lundi au dimanche en dates locales ; une nuit appartient à la semaine du **matin**
+  où elle se termine : la nuit D compte pour la semaine de D + 1 (`lundiDeLaNuit`). La nuit de
+  dimanche à lundi ouvre donc la semaine, celle de samedi à dimanche la clôt : la semaine se clôt
+  vraiment le dimanche (règle validée par Frédéric, « c'est mieux et plus compréhensif »). Par
+  semaine, sur les nuits finies :
   `dette_min` = Σ (cible − endormi) > 0 des nuits mesurées ; `rattrape_min` = Σ (endormi − cible)
   > 0 + les siestes rangées sur les nuits de la semaine, une sieste rattrapant la nuit d'avant :
-  celle de la journée D + 1 compte pour la nuit D (la sieste du lundi va donc à la semaine
-  précédente, comme dans le graphique de la carte) ; reste = max(0, dette − rattrapé). Une nuit
+  celle de la journée D + 1 compte pour la nuit D, donc pour la même semaine (la sieste du lundi
+  rattrape la nuit de dimanche à lundi : nouvelle semaine, comme dans le graphique) ; reste = max(0, dette − rattrapé). Une nuit
   non mesurée ne compte ni en dette ni en surplus (sa sieste du lendemain compte) ; elle se voit
-  dans `nuits_mesurees` / `nuits_total`. `dette_semaine` : semaine de J, nuits finies (lundi …
-  J − 1) et siestes jusqu'à aujourd'hui ; `nuits_restantes` = de la nuit J (ce soir) à celle du
-  dimanche, incluses (7 le lundi, 1 le dimanche). `bilans_semaines` : les 4 semaines closes, la
+  dans `nuits_mesurees` / `nuits_total`. `dette_semaine` : semaine de la nuit de ce soir (J → J +
+  1 ; le dimanche soir, c'est déjà la semaine suivante, encore vide : pas de dette, pas de
+  popup), nuits finies (du dimanche soir d'ouverture à J − 1) et siestes jusqu'à aujourd'hui ;
+  `nuits_restantes` = de la nuit J (ce soir) à celle de samedi à dimanche, incluses (7 le
+  dimanche soir, 6 le lundi, 1 le samedi). `bilans_semaines` : les 4 semaines closes, la
   plus récente d'abord (`non_rattrape_min` = reste). Rien n'est stocké : tout est recalculé à
-  chaque statut à partir des mesures (le sommeil est relu jusqu'au lundi de J − 28 jours, et
+  chaque statut à partir des mesures (le sommeil est relu jusqu'au dimanche soir qui ouvre la
+  plus ancienne semaine close, `nuitsALire`, et
   `moteur.journee` pour chaque jour sert à reconnaître les siestes). Conséquence assumée : changer
   `sommeil.cible` ou réimporter des mesures réécrit les bilans passés. Calcul pur dans
-  `core/src/dette.ts` (`compteSemaine`, `dettesHebdomadaires`), partagé par l'API et le mode
+  `core/src/dette.ts` (`lundiDeLaNuit`, `compteSemaine`, `dettesHebdomadaires`), partagé par l'API et le mode
   simulé de la web app. Remplace `dette_cumulee_reelle_min` (fenêtre glissante de 7 nuits, qui
   oubliait une dette au bout de 7 jours), supprimé.
 - **Popup « rattraper le sommeil »** (web app, facultative, CDC §4 01/11) : une fois par soir, à
@@ -610,7 +616,7 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   à gagner), si `dette_semaine.reste_min` > 5 min. Objectif du soir = reste ÷ `nuits_restantes`,
   arrondi au quart d'heure supérieur, entre 15 min et 1 h. Titre « Ce soir : 45 min de sommeil en
   plus », sous-titre « Cette semaine : 3 h à rattraper, sur 4 nuits » (« sur cette dernière
-  nuit » le dimanche). Le curseur (heures de quart d'heure en quart d'heure, du coucher appliqué
+  nuit » le samedi). Le curseur (heures de quart d'heure en quart d'heure, du coucher appliqué
   à maintenant arrondi) démarre sur l'heure suggérée : la plus tardive qui atteint l'objectif
   (coucher − objectif), sinon la plus tôt ; il se déplace dans les deux sens. Barre verte :
   progression vers l'objectif du soir (0 → 100 %, pleine au-delà) ; texte « +30 min · objectif du

@@ -220,9 +220,13 @@ export function dernieresNuits(moteur: Moteur, contexte: Contexte, j: Journee, s
   return { nuits, aujourdhui: separees.siestes.get(j.date) ?? [] };
 }
 
-/** Nuits à lire pour le statut : les 7 barres, et assez pour la semaine en cours et les bilans. */
+/**
+ * Nuits à lire pour le statut : les 7 barres, et assez pour la semaine en cours et les bilans. La
+ * nuit D compte pour la semaine du matin D + 1 : la plus ancienne utile est le dimanche soir qui
+ * ouvre la plus ancienne semaine close.
+ */
 export function nuitsALire(jour: string): number {
-  return Math.max(NUITS_DU_STATUT, JOURS_SEMAINE.indexOf(jourSemaine(jour)) + 7 * SEMAINES_DE_BILAN);
+  return Math.max(NUITS_DU_STATUT, JOURS_SEMAINE.indexOf(jourSemaine(ajouterJours(jour, 1))) + 7 * SEMAINES_DE_BILAN);
 }
 
 /** La dernière sieste du jour finie moins de 4 h avant le coucher appliqué, ou null (et null une fois la nuit commencée). */

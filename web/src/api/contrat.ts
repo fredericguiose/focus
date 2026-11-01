@@ -152,7 +152,8 @@ export interface NuitPassee {
 }
 
 /**
- * Dette de sommeil d'une semaine (lundi → dimanche ; la nuit D appartient à la semaine de D), règle
+ * Dette de sommeil d'une semaine (lundi → dimanche ; une nuit appartient à la semaine du matin où elle
+ * se termine : celle de dimanche à lundi ouvre la semaine, celle de samedi à dimanche la clôt), règle
  * comptable : `dette_min` = Σ des manques des nuits mesurées ; `rattrape_min` = Σ des surplus +
  * siestes (celle de la journée D + 1 rattrape la nuit D) ; reste = max(0, dette − rattrapé).
  */
@@ -163,7 +164,7 @@ export interface DetteSemaine {
   dette_min: number;
   rattrape_min: number;
   reste_min: number;
-  /** Nuits de ce soir à celle du dimanche, incluses (1 le dimanche). */
+  /** Nuits de ce soir à celle de samedi à dimanche, incluses (1 le samedi, 7 le dimanche soir). */
   nuits_restantes: number;
   /** Nuits finies de la semaine, et celles que la montre a mesurées. */
   nuits_mesurees: number;

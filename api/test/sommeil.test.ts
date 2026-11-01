@@ -372,7 +372,7 @@ describe('GET /v1/statut : dette réelle (§4.6)', () => {
     for (const n of r.corps.nuits) expect(n).toMatchObject({ dette_reelle_min: null, phases: null });
     expect(r.corps.dette_cumulee_reelle_min).toBeUndefined();
     expect(r.corps.dette_semaine).toEqual({
-      debut: '2026-11-02', fin: '2026-11-08', dette_min: 0, rattrape_min: 0, reste_min: 0, nuits_restantes: 6, nuits_mesurees: 0, nuits_total: 1,
+      debut: '2026-11-02', fin: '2026-11-08', dette_min: 0, rattrape_min: 0, reste_min: 0, nuits_restantes: 5, nuits_mesurees: 0, nuits_total: 2,
     });
     expect(r.corps.bilans_semaines.map((b: { debut: string }) => b.debut)).toEqual(['2026-10-26', '2026-10-19', '2026-10-12', '2026-10-05']);
     expect(r.corps.bilans_semaines[0]).toEqual({
@@ -399,12 +399,12 @@ describe('GET /v1/statut : dette réelle (§4.6)', () => {
     expect(par['2026-11-02']).toMatchObject({ siestes_min: 55, siestes: [{ debut: '2026-11-02T13:00:00Z', fin: '2026-11-02T14:00:00Z', minutes: 55 }] });
     expect(par['2026-11-01']).toMatchObject({ siestes_min: 0, siestes: [] });
     expect(r.corps.siestes_total_min).toBe(55);
-    // Semaine du lundi 02/11 : la nuit du 02/11 (60 manquées), pas encore de sieste mardi.
-    expect(r.corps.dette_semaine).toMatchObject({ debut: '2026-11-02', dette_min: 60, rattrape_min: 0, reste_min: 60, nuits_mesurees: 1, nuits_total: 1 });
-    // Semaine close du 26/10 : nuit du dimanche 01/11 (50 manquées), du 31/10 (30 de plus), et la
-    // sieste du lundi 02/11 (55) qui rattrape la nuit du dimanche.
+    // Semaine du lundi 02/11 : nuits du dimanche 01/11 (50 manquées) et du 02/11 (60), la sieste du
+    // lundi 02/11 (55) qui rattrape la nuit du dimanche.
+    expect(r.corps.dette_semaine).toMatchObject({ debut: '2026-11-02', dette_min: 110, rattrape_min: 55, reste_min: 55, nuits_mesurees: 2, nuits_total: 2 });
+    // Semaine close du 26/10 (nuits du 25/10 au 31/10) : le 31/10, 30 de plus.
     expect(r.corps.bilans_semaines[0]).toEqual({
-      debut: '2026-10-26', fin: '2026-11-01', dette_min: 50, rattrape_min: 85, non_rattrape_min: 0, nuits_mesurees: 2, nuits_total: 7,
+      debut: '2026-10-26', fin: '2026-11-01', dette_min: 0, rattrape_min: 30, non_rattrape_min: 0, nuits_mesurees: 1, nuits_total: 7,
     });
     expect(r.corps.dette_cumulee_min).toBe(0);
   });
@@ -416,8 +416,9 @@ describe('GET /v1/statut : dette réelle (§4.6)', () => {
     const n2 = r.corps.nuits.find((n: { nuit: string }) => n.nuit === '2026-11-02');
     expect(n2).toMatchObject({ endormi_min: 420, dette_reelle_min: 60, siestes_min: 62 });
     expect(r.corps.siestes_total_min).toBe(62);
-    expect(r.corps.dette_semaine).toMatchObject({ dette_min: 60, rattrape_min: 0, reste_min: 60 });
-    expect(r.corps.bilans_semaines[0]).toMatchObject({ rattrape_min: 62 });
+    // La sieste du lundi rattrape la nuit de dimanche à lundi : semaine en cours.
+    expect(r.corps.dette_semaine).toMatchObject({ dette_min: 60, rattrape_min: 62, reste_min: 0 });
+    expect(r.corps.bilans_semaines[0]).toMatchObject({ rattrape_min: 0 });
     expect(r.corps.siestes_du_jour).toEqual([]);
     expect(r.corps.sieste_tardive).toBeNull();
   });
@@ -442,8 +443,9 @@ describe('GET /v1/statut : dette réelle (§4.6)', () => {
 
 describe('dette de sommeil hebdomadaire (CDC §4, 01/11)', () => {
   it('nuits à lire : la semaine en cours et les 4 semaines closes', () => {
-    expect(nuitsALire('2026-11-02')).toBe(28); // lundi
-    expect(nuitsALire('2026-11-08')).toBe(34); // dimanche
+    expect(nuitsALire('2026-11-02')).toBe(29); // lundi : jusqu'au dimanche soir 04/10
+    expect(nuitsALire('2026-11-07')).toBe(34); // samedi
+    expect(nuitsALire('2026-11-08')).toBe(28); // dimanche : la semaine en cours est déjà la suivante
   });
 
   describe('GET /v1/statut', () => {
@@ -468,7 +470,7 @@ describe('dette de sommeil hebdomadaire (CDC §4, 01/11)', () => {
       await poser('s3', '2026-11-03T12:00:00Z', '2026-11-03T12:40:00Z', 40, true); // sieste de mardi, ce jour
       const r = await api.get('/v1/statut', await creerJeton('interface', 'web'));
       expect(r.corps.dette_semaine).toEqual({
-        debut: '2026-11-02', fin: '2026-11-08', dette_min: 60, rattrape_min: 40, reste_min: 20, nuits_restantes: 6, nuits_mesurees: 1, nuits_total: 1,
+        debut: '2026-11-02', fin: '2026-11-08', dette_min: 60, rattrape_min: 40, reste_min: 20, nuits_restantes: 5, nuits_mesurees: 1, nuits_total: 2,
       });
       expect(r.corps.bilans_semaines.at(-1)).toEqual({
         debut: '2026-10-05', fin: '2026-10-11', dette_min: 80, rattrape_min: 0, non_rattrape_min: 80, nuits_mesurees: 1, nuits_total: 7,

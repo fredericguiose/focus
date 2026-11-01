@@ -69,12 +69,12 @@ describe('API simulée : dette de sommeil hebdomadaire', () => {
   it('semaine en cours et 4 bilans, comme l’API', async () => {
     const s = await simulation().api.statut();
     expect(s.dette_semaine).toEqual({
-      debut: '2026-11-02', fin: '2026-11-08', dette_min: 22, rattrape_min: 45, reste_min: 0, nuits_restantes: 6, nuits_mesurees: 1, nuits_total: 1,
+      debut: '2026-11-02', fin: '2026-11-08', dette_min: 82, rattrape_min: 45, reste_min: 37, nuits_restantes: 5, nuits_mesurees: 2, nuits_total: 2,
     });
     expect(s.bilans_semaines?.map((b) => [b.debut, b.non_rattrape_min])).toEqual([
-      ['2026-10-26', 305],
-      ['2026-10-19', 175],
-      ['2026-10-12', 120],
+      ['2026-10-26', 255],
+      ['2026-10-19', 135],
+      ['2026-10-12', 130],
       ['2026-10-05', 0],
     ]);
     expect(s).not.toHaveProperty('dette_cumulee_reelle_min');
@@ -86,9 +86,17 @@ describe('API simulée : dette de sommeil hebdomadaire', () => {
       expect(s.phase).toBe('soiree');
       expect(s.dette_semaine!.reste_min).toBeGreaterThan(5);
     }
-    // Dimanche 1er : la vraie semaine fictive (4 h 02 sur cette dernière nuit).
-    const dimanche = await creerApiSimulee({ maintenant: () => Date.parse('2026-11-01T14:00:00Z'), fuseau: 'Europe/Paris', scenario: 'dette' }).statut();
-    expect(dimanche.dette_semaine).toMatchObject({ reste_min: 242, nuits_restantes: 1, nuits_mesurees: 6, nuits_total: 6 });
+    // Samedi 7 : la vraie semaine fictive, sur cette dernière nuit.
+    const samedi = await creerApiSimulee({ maintenant: () => Date.parse('2026-11-07T14:00:00Z'), fuseau: 'Europe/Paris', scenario: 'dette' }).statut();
+    expect(samedi.dette_semaine).toMatchObject({ debut: '2026-11-02', nuits_restantes: 1, nuits_total: 6 });
+    expect(samedi.dette_semaine!.reste_min).toBeGreaterThan(5);
+  });
+
+  it('dimanche soir : la nuit de ce soir ouvre une nouvelle semaine, encore vide', async () => {
+    const s = await creerApiSimulee({ maintenant: () => Date.parse('2026-11-01T14:00:00Z'), fuseau: 'Europe/Paris', phase: 'soiree' }).statut();
+    expect(s.dette_semaine).toMatchObject({ debut: '2026-11-02', dette_min: 0, reste_min: 0, nuits_restantes: 7, nuits_total: 0 });
+    // La semaine qui finit ce matin est close : elle passe dans les bilans.
+    expect(s.bilans_semaines?.[0]).toMatchObject({ debut: '2026-10-26', nuits_total: 7 });
   });
 });
 

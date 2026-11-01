@@ -125,6 +125,29 @@ describe('apparition', () => {
     expect(fenetre()).toBeNull();
   });
 
+  it('dimanche soir : la nouvelle semaine est encore vide, pas de proposition', async () => {
+    // Dimanche 1er novembre, soirée : la semaine du 26/10 vient de se clore (dette non rattrapée),
+    // la nuit de ce soir ouvre celle du 02/11, sans dette.
+    const a = creerApiSimulee({ fuseau: 'Europe/Paris', phase: 'soiree', maintenant: () => Date.parse('2026-11-01T14:00:00Z') });
+    const s = await a.statut();
+    expect(s.phase).toBe('soiree');
+    expect(s.dette_semaine).toMatchObject({ debut: '2026-11-02', reste_min: 0, nuits_restantes: 7 });
+    expect(s.bilans_semaines![0]!.non_rattrape_min).toBeGreaterThan(5);
+    const vide = await rendre(new Date(Date.now()).toISOString(), a);
+    expect(fenetre()).toBeNull();
+    vide.rendu.unmount();
+    // Témoin : même soirée, avec une dette dans la semaine, la proposition s'ouvre.
+    const b = creerApiSimulee({ fuseau: 'Europe/Paris', phase: 'soiree', maintenant: () => Date.parse('2026-11-01T14:00:00Z') });
+    const statut = b.statut;
+    b.statut = async () => {
+      const x = await statut();
+      return { ...x, dette_semaine: { ...x.dette_semaine!, dette_min: 60, reste_min: 60 } };
+    };
+    await rendre(new Date(Date.now()).toISOString(), b);
+    expect(fenetre()).not.toBeNull();
+    expect(within(fenetre()!).getByText('Cette semaine : 1 h à rattraper, sur 7 nuits')).toBeTruthy();
+  });
+
   it('s’ouvre quand la soirée s’ouvre, tableau de bord déjà affiché', async () => {
     await rendre('2026-11-03T18:45:00Z'); // 19:45
     expect(fenetre()).toBeNull();

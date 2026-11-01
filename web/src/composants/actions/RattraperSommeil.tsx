@@ -20,7 +20,7 @@ export function texteBilan(gainMin: number, objectifMin: number): string {
   return `+${formaterDuree(gainMin)} · ${gainMin >= objectifMin ? 'objectif du soir atteint' : `objectif du soir ${formaterDuree(objectifMin)}`}`;
 }
 
-/** « Cette semaine : 3 h à rattraper, sur 4 nuits » ; « …, sur cette dernière nuit » le dimanche. */
+/** « Cette semaine : 3 h à rattraper, sur 4 nuits » ; « …, sur cette dernière nuit » le samedi. */
 export function texteSemaine(resteMin: number, nuits: number): string {
   return `Cette semaine : ${formaterDuree(resteMin)} à rattraper, sur ${nuits > 1 ? `${nuits} nuits` : 'cette dernière nuit'}`;
 }

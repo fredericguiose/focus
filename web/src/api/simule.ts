@@ -66,7 +66,7 @@ const ANCIENNES_FICTIVES: { endormi: number | null; sieste?: number }[] = [
   { endormi: 440 }, { endormi: 470, sieste: 40 }, { endormi: null }, { endormi: 415 }, { endormi: 495 }, { endormi: 430 }, { endormi: 455 },
   { endormi: 400 }, { endormi: 510 }, { endormi: 445, sieste: 60 }, { endormi: 380 }, { endormi: 470 }, { endormi: 465 }, { endormi: 490 },
   { endormi: 420 }, { endormi: 500 }, { endormi: 480 }, { endormi: 435, sieste: 30 }, { endormi: 510 }, { endormi: 455 }, { endormi: 490 },
-  { endormi: 460 }, { endormi: 395 }, { endormi: 450 }, { endormi: 485 }, { endormi: 430 }, { endormi: 470 }, { endormi: 440 },
+  { endormi: 480 }, { endormi: 495 }, { endormi: 450 }, { endormi: 485 }, { endormi: 430 }, { endormi: 470 }, { endormi: 440 },
 ];
 /** Semaine posée par le scénario « dette » quand les nuits fictives n'en laissent pas. */
 const SEMAINE_DETTE = { dette_min: 245, rattrape_min: 65, reste_min: 180 } as const;

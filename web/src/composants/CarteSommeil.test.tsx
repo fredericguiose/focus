@@ -28,10 +28,9 @@ describe('carte « Sommeil »', () => {
     expect(screen.getByText("22 min de moins que l'objectif, rattrapées en sieste")).toBeTruthy();
     expect(screen.getByText('Profond')).toBeTruthy();
     expect(screen.getByText('1 h 32')).toBeTruthy();
-    // Semaine du lundi 02/11 : la nuit de lundi (22 min manquées), la sieste de mardi (45 min).
+    // Semaine du lundi 02/11 : nuits de dimanche à lundi (1 h) et de lundi à mardi (22 min), la sieste de mardi (45 min).
     expect(screen.getByText('Cette semaine')).toBeTruthy();
-    expect(screen.getByText('Cette semaine : 22 min manquées, 45 min rattrapées (nuits plus longues et siestes), tout rattrapé.')).toBeTruthy();
-    expect(screen.getByText('tout rattrapé', { selector: 'section[aria-label="Cette semaine"] span' })).toBeTruthy();
+    expect(screen.getByText('Cette semaine : 1 h 22 manquée, 45 min rattrapées (nuits plus longues et siestes), 37 min à rattraper.')).toBeTruthy();
     expect(screen.getByText('7 dernières nuits')).toBeTruthy();
     expect(screen.getByText('6/7 mesurées')).toBeTruthy();
     expect(screen.queryByText(/incompl/)).toBeNull();
@@ -41,17 +40,17 @@ describe('carte « Sommeil »', () => {
     // Pour les lecteurs d'écran, une phrase par semaine ; à l'écran, un petit tableau.
     const phrases = [...passees.querySelectorAll('li > .sr-only')].map((l) => l.textContent);
     expect(phrases).toEqual([
-      'Semaine du 26 oct. : 6 h 05 de dette, 5 h 05 non rattrapées (6/7 nuits mesurées).',
-      'Semaine du 19 oct. : 3 h 50 de dette, 2 h 55 non rattrapées (6/7 nuits mesurées).',
-      'Semaine du 12 oct. : 3 h 40 de dette, 2 h non rattrapées.',
-      'Semaine du 5 oct. : 1 h 30 de dette, tout rattrapé.',
+      'Semaine du 26 oct. : 5 h 15 de dette, 4 h 15 non rattrapées (6/7 nuits mesurées).',
+      'Semaine du 19 oct. : 3 h 40 de dette, 2 h 15 non rattrapées (6/7 nuits mesurées).',
+      'Semaine du 12 oct. : 3 h 40 de dette, 2 h 10 non rattrapées.',
+      'Semaine du 5 oct. : 1 h 10 de dette, tout rattrapé.',
     ]);
     const cases = [...passees.querySelectorAll('li:not(:first-child)')].map((l) => [...l.children].slice(1).map((c) => c.textContent?.trim()));
     expect(cases).toEqual([
-      ['Sem. du 26 oct.', '6 h 05', '5 h 05', '6/7'],
-      ['Sem. du 19 oct.', '3 h 50', '2 h 55', '6/7'],
-      ['Sem. du 12 oct.', '3 h 40', '2 h', ''],
-      ['Sem. du 5 oct.', '1 h 30', 'tout rattrapé', ''],
+      ['Sem. du 26 oct.', '5 h 15', '4 h 15', '6/7'],
+      ['Sem. du 19 oct.', '3 h 40', '2 h 15', '6/7'],
+      ['Sem. du 12 oct.', '3 h 40', '2 h 10', ''],
+      ['Sem. du 5 oct.', '1 h 10', 'tout rattrapé', ''],
     ]);
     expect(passees.textContent).toContain('non rattrapé');
     const texte = container.textContent ?? '';
