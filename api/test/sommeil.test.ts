@@ -425,3 +425,58 @@ describe('GET /v1/statut : dette réelle (§4.6)', () => {
     expect(r.corps.sieste_tardive).toBeNull();
   });
 });
+
+describe('levers mesurés et journal des levers (§3.1)', () => {
+  const horloge = Horloge.a(MARDI.matin);
+  const api = client(horloge);
+
+  beforeEach(async () => {
+    horloge.regler(MARDI.matin);
+    await installerConfig();
+  });
+
+  const poser = (cle: string, debut: string, fin: string, endormi: number, sieste = false, incomplete = false) =>
+    env.DB.prepare(
+      `INSERT INTO mesures (utilisateur, type, source, cle, debut, fin, valeur, details, recu_le) VALUES ('alice', 'sommeil', 'xiaomi', ?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(cle, debut, fin, endormi, JSON.stringify({ eveille_min: 10, phases: null, score: 75, sieste, incomplete }), MARDI.matin)
+      .run();
+
+  it('lever mesuré = fin de la nuit principale (siestes et nuits incomplètes exclues) ; prévu, écart, amplitude', async () => {
+    await poser('n2', '2026-11-02T21:00:00Z', '2026-11-03T05:00:00Z', 420); // levé mar. 06:00 (prévu 06:30)
+    await poser('n1a', '2026-11-01T22:00:00Z', '2026-11-02T02:00:00Z', 230); // nuit du 01/11 en deux morceaux
+    await poser('n1b', '2026-11-02T02:30:00Z', '2026-11-02T06:00:00Z', 200); // levé lun. 07:00 (prévu 05:30)
+    await poser('s1', '2026-11-02T10:00:00Z', '2026-11-02T11:00:00Z', 55); // sieste non marquée, lun. 11:00
+    await poser('n0', '2026-10-31T20:30:00Z', '2026-11-01T05:30:00Z', 510, false, true); // incomplète : pas de lever
+    const r = await api.get('/v1/statut', await creerJeton('interface', 'web'));
+    expect(r.corps.journee.lever).toBe('2026-11-03T05:00:00Z');
+    const par = Object.fromEntries(r.corps.levers.jours.map((j: { date: string }) => [j.date, j]));
+    expect(r.corps.levers.jours.map((j: { date: string }) => j.date)).toEqual([
+      '2026-10-28', '2026-10-29', '2026-10-30', '2026-10-31', '2026-11-01', '2026-11-02', '2026-11-03',
+    ]);
+    expect(par['2026-11-03']).toEqual({ date: '2026-11-03', prevu: '2026-11-03T05:30:00Z', prevu_fige: false, mesure: '2026-11-03T05:00:00Z', ecart_min: -30 });
+    expect(par['2026-11-02']).toEqual({ date: '2026-11-02', prevu: '2026-11-02T04:30:00Z', prevu_fige: false, mesure: '2026-11-02T06:00:00Z', ecart_min: 90 });
+    expect(par['2026-11-01']).toMatchObject({ mesure: null, ecart_min: null });
+    expect(r.corps.levers.amplitude).toEqual({ plus_tot: '2026-11-03T05:00:00Z', plus_tard: '2026-11-02T06:00:00Z', ecart_min: 60, mesures: 2 });
+    expect(r.corps.levers.limite_min).toBe(120);
+  });
+
+  it('le prévu figé la veille au soir (photo de la nuit) l’emporte sur le recalcul', async () => {
+    await poser('n1', '2026-11-01T21:00:00Z', '2026-11-02T06:00:00Z', 500);
+    await env.DB.prepare(
+      `INSERT INTO nuits (utilisateur, nuit, routine, lever, coucher_prevu, coucher_applique, decision_de_nuit, photo_le, version_config)
+       VALUES ('alice', '2026-11-01', 'semaine', '2026-11-02T04:45:00Z', '2026-11-01T20:45:00Z', '2026-11-01T20:45:00Z', 0, '2026-11-01T20:45:00Z', 'c0ffee1')`,
+    ).run();
+    const r = await api.get('/v1/statut', await creerJeton('interface', 'web'));
+    const lundi = r.corps.levers.jours.find((j: { date: string }) => j.date === '2026-11-02');
+    expect(lundi).toEqual({ date: '2026-11-02', prevu: '2026-11-02T04:45:00Z', prevu_fige: true, mesure: '2026-11-02T06:00:00Z', ecart_min: 75 });
+    expect(r.corps.levers.amplitude).toBeNull();
+  });
+
+  it('sans mesure : journal sans mesure, lever prévu', async () => {
+    const r = await api.get('/v1/statut', await creerJeton('interface', 'web'));
+    expect(r.corps.journee.lever).toBe(MARDI.lever);
+    for (const j of r.corps.levers.jours) expect(j).toMatchObject({ mesure: null, ecart_min: null, prevu_fige: false });
+    expect(r.corps.levers.amplitude).toBeNull();
+  });
+});

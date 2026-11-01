@@ -105,8 +105,9 @@ describe('calendrier', () => {
   });
 
   it('le coucher se cale sur le lever du lendemain, routine du lendemain', () => {
-    // Ven 18/12 (semaine) ; sam 19/12 (congés) lever 08:00 = 07:00Z → coucher vendredi 00:00.
-    expect(journee(ctx, '2026-12-18').coucherApplique).toBe('2026-12-18T23:00:00Z');
+    // Ven 18/12 (semaine) ; sam 19/12 (congés) : plafond 08:00, mais à moins de 7 jours du lever
+    // de 05:30 du vendredi → 07:30 = 06:30Z → coucher vendredi 23:30.
+    expect(journee(ctx, '2026-12-18').coucherApplique).toBe('2026-12-18T22:30:00Z');
     // Dim 03/01 (congés) ; lun 04/01 (semaine) lever 05:30 = 04:30Z → coucher 21:30.
     expect(journee(ctx, '2027-01-03').coucherApplique).toBe('2027-01-03T20:30:00Z');
   });
@@ -114,7 +115,8 @@ describe('calendrier', () => {
   it('reveil_libre surchargé et sport « heure: libre » en congés', () => {
     const lundi = journee(ctx, '2026-12-21');
     expect(lundi.engagements).toEqual(['sport']);
-    expect(lundi.lever).toBe('2026-12-21T07:00:00Z'); // 08:00, le sport ne donne pas de réveil
+    // Le sport ne donne pas de réveil : plafond 08:00, ramené à 07:30 (05:30 du ven. 18/12 + 2 h).
+    expect(lundi.lever).toBe('2026-12-21T06:30:00Z');
     expect(lundi.ouverture).toBe('2026-12-21T15:00:00Z'); // paramètre de la routine : 16:00
   });
 });

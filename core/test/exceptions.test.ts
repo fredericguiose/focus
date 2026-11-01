@@ -150,16 +150,17 @@ describe('exceptions — engagements', () => {
   });
 
   it('donner une heure à un engagement sans heure : resserrer, libre, réveil fixé', () => {
-    // Congés : sport « heure: libre » le lundi 21/12 (Paris, UTC+1), réveil libre 08:00.
+    // Congés : sport « heure: libre » le lundi 21/12 (Paris, UTC+1), plafond 08:00 ramené à 07:30
+    // (à moins de 7 jours du lever de 05:30 du vendredi 18/12).
     const ctx = contexte('2026-12-20T10:00:00Z');
     const p = prixException(ctx, { type: 'decale', date: '2026-12-21', engagement: 'sport', heure: '07:00' });
     // Préparation de la config (30 min) : réveil 06:30.
-    expect(p).toMatchObject({ admissible: true, friction: 'aucune', resserre: true, leverAvant: '2026-12-21T07:00:00Z', leverApres: '2026-12-21T05:30:00Z' });
+    expect(p).toMatchObject({ admissible: true, friction: 'aucune', resserre: true, leverAvant: '2026-12-21T06:30:00Z', leverApres: '2026-12-21T05:30:00Z' });
     const prep = prixException(ctx, { type: 'decale', date: '2026-12-21', engagement: 'sport', heure: '07:00', preparationMin: 10 });
     expect(prep.leverApres).toBe('2026-12-21T05:50:00Z');
-    // Plus tard que le réveil libre : le lever ne bouge pas, toujours libre.
+    // Plus tard que le lever calculé : le lever ne bouge pas, toujours libre.
     expect(prixException(ctx, { type: 'decale', date: '2026-12-21', engagement: 'sport', heure: '09:00' })).toMatchObject({
-      admissible: true, friction: 'aucune', leverApres: '2026-12-21T07:00:00Z',
+      admissible: true, friction: 'aucune', leverApres: '2026-12-21T06:30:00Z',
     });
     expect(prixException(ctx, { type: 'decale', date: '2026-12-21', engagement: 'sport', heure: '07:00', preparationMin: -5 }).motifRefus).toBe(
       'préparation invalide : attendu un nombre entier de minutes',

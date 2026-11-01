@@ -1,6 +1,8 @@
 // Lecture de ce dont le moteur a besoin : config active, faits Todoist en cache, exceptions.
 import type { Config, Contexte, DateLocale, Exception, FaitsTodoist, Report, Tache } from '../../core/src/types';
+import { journee } from '../../core/src/journee';
 import { configAbsente } from './erreurs';
+import { type JourneeDeVeille, leversMesures, type LigneSommeil, requeteSommeil, versSommeilMesure } from './sommeil';
 import { ajouterJours, versInstant } from './temps';
 
 export const CLES_CACHE = {
@@ -18,6 +20,11 @@ export const CLES_CACHE = {
 /** Assez pour recalculer les 7 dernières nuits du statut (jour UTC et jour local peuvent différer d'un). */
 const JOURS_EXCEPTIONS = 9;
 const JOURS_PHOTOS = 7;
+/**
+ * Levers mesurés lus : la régularité (fenêtre de 7 jours) et le journal des levers (7 jours, plan
+ * de la veille au soir) remontent au plus de 13 jours ; marge pour le décalage UTC / local.
+ */
+export const JOURS_LEVERS_MESURES = 15;
 
 export interface ConfigActive {
   config: Config;
@@ -75,7 +82,7 @@ interface LigneException {
 /** Charge config, faits et exceptions en un seul aller-retour vers D1. */
 export async function chargerContexte(db: D1Database, utilisateur: string, maintenant: Date): Promise<ContexteCharge> {
   const aujourdhuiUtc: DateLocale = versInstant(maintenant).slice(0, 10);
-  const [configs, cache, photos, exceptions] = await db.batch([
+  const [configs, cache, photos, exceptions, sommeil] = await db.batch([
     db
       .prepare(
         `SELECT commit_id, json_normalise FROM config_versions
@@ -98,6 +105,7 @@ export async function chargerContexte(db: D1Database, utilisateur: string, maint
          WHERE utilisateur = ? AND annulee_le IS NULL AND jour >= ? ORDER BY cree_le, rowid`,
       )
       .bind(utilisateur, ajouterJours(aujourdhuiUtc, -JOURS_EXCEPTIONS)),
+    requeteSommeil(db, utilisateur, `${ajouterJours(aujourdhuiUtc, -JOURS_LEVERS_MESURES - 2)}T00:00:00Z`),
   ]);
 
   const config = (configs!.results as { commit_id: string; json_normalise: string }[])[0];
@@ -120,15 +128,30 @@ export async function chargerContexte(db: D1Database, utilisateur: string, maint
   }
 
   const faits: FaitsTodoist = { recupereLe, taches, reports, photosRetards };
-  return {
-    version: config.commit_id,
-    contexte: {
-      config: JSON.parse(config.json_normalise) as Config,
-      maintenant: versInstant(maintenant),
-      faits,
-      exceptions: (exceptions!.results as LigneException[]).map(versException),
-    },
+  const contexte: Contexte = {
+    config: JSON.parse(config.json_normalise) as Config,
+    maintenant: versInstant(maintenant),
+    faits,
+    exceptions: (exceptions!.results as LigneException[]).map(versException),
   };
+  const sessions = (sommeil!.results as LigneSommeil[]).map(versSommeilMesure);
+  if (sessions.length > 0) contexte.leversMesures = mesurerLevers(contexte, sessions, aujourdhuiUtc);
+  return { version: config.commit_id, contexte };
+}
+
+/**
+ * Levers mesurés des derniers jours. Les siestes se reconnaissent aux journées du plan, sans
+ * mesure : le contexte reçu n'en a pas encore.
+ */
+function mesurerLevers(plan: Contexte, sessions: ReturnType<typeof versSommeilMesure>[], aujourdhuiUtc: DateLocale): Record<DateLocale, string> {
+  const journees: JourneeDeVeille[] = [];
+  for (let n = JOURS_LEVERS_MESURES; n >= -1; n--) {
+    const j = journee(plan, ajouterJours(aujourdhuiUtc, -n));
+    journees.push({ date: j.date, fuseau: j.fuseau, lever: j.lever, coucher: j.coucherApplique });
+  }
+  // Une session encore en cours de synchro après maintenant n'est pas un lever.
+  const avant = sessions.filter((s) => Date.parse(s.fin) <= Date.parse(plan.maintenant));
+  return leversMesures(avant, journees);
 }
 
 function versException(l: LigneException): Exception {

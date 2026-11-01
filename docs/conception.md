@@ -37,11 +37,17 @@ Todoist ◀──── tâche planifiée chaque minute (faits mis en cache) ─
 ### 2.2 Sommeil
 ```yaml
 sommeil:
-  cible: "8h"            # coucher prévu = réveil du lendemain − cible
+  cible: "8h"            # coucher prévu = lever du lendemain − cible − endormissement
   minimum: "7h"          # plafond de l'exception « décaler le coucher » avant l'ouverture
   plancher_nuit: "6h"    # plafond de la décision de nuit (après l'ouverture)
-  lever_plancher: "04:30" # sans engagement, jamais de lever avant cette heure
+  lever_plancher: "04:30" # sans engagement à heure, jamais de lever avant cette heure
+  endormissement: "30min" # facultatif, défaut 0 : délai entre le coucher et l'endormissement
+  ecart_lever_max: "2h"  # facultatif, défaut 2h : écart maximal entre deux levers d'une même semaine
 ```
+`minimum` et `plancher_nuit` sont des durées de **sommeil**, comptées depuis l'endormissement :
+le coucher le plus tardif admissible est lever − minimum − endormissement (resp. plancher_nuit).
+`reveil_libre` (global, surchargé par routine, §2.7) est le **plafond** du lever : jamais plus
+tard, même sans engagement (§3.1).
 
 ### 2.3 Engagements
 Une raison de se lever. Un engagement répond à **trois questions indépendantes** :
@@ -145,7 +151,7 @@ routines:
     reveil_libre: "08:00"                   # surcharge
     engagements: { salle: { heure: libre } } # surcharge d'engagement
     ...
-reveil_libre: "07:00"                       # global, surchargé par la routine
+reveil_libre: "07:00"                       # plafond du lever, global, surchargé par la routine
 routine_par_defaut: cours
 calendrier:
   - { routine: vacances, du: "2026-12-19", au: "2027-01-01" }   # jours inclus, dates locales
@@ -175,23 +181,53 @@ prix_du_report:
 ## 3. Le moteur
 
 ### 3.1 Journée
-- **Lever(D)** pour un jour local D :
+- **Lever(D)** pour un jour local D = le lever **mesuré** de D s'il existe (fin de la nuit
+  principale D−1 mesurée par la montre, §4.4), sinon le **lever prévu** de D.
+- **Lever prévu(D)** :
   1. engagements du jour D = ceux de la routine de D pour ce jour de semaine, plus les
      exceptions `ajoute`, moins `retire`, avec `decale` appliqué (un engagement sans heure
      décalé reçoit l'heure demandée et réveil = heure − préparation) ;
-  2. si au moins un engagement donne un réveil : lever = min(réveils, `reveil_libre`) ;
-  3. sinon lever = `reveil_libre` ;
-  4. si la nuit D−1 porte une exception **avancer le coucher** et que D n'a aucun engagement
-     avec réveil : lever = borne(coucher appliqué(D−1) + cible, `lever_plancher`, `reveil_libre`).
-- **Coucher prévu(D)** = lever(D+1) − cible (routine de D+1 pour le lever).
+  2. **borne** B(D) = min(réveils des engagements à heure, `reveil_libre` de la routine de D) ;
+     sans engagement à heure : B(D) = `reveil_libre` (plafond absolu) ;
+  3. **régularité** : pour deux jours i, j à 6 jours ou moins d'écart (fenêtre de 7 jours),
+     lever(i) ≤ lever(j) + `ecart_lever_max` (heures locales). On ne fait que baisser :
+     L(D) = min(L(D), L(j) + X) pour |j − D| ≤ 6, jusqu'à stabilité (point fixe), en partant de
+     B. Les jours **mesurés avant D** sont fixes (leur mesure) ; les autres bougent. Le plan d'un
+     jour n'utilise donc que les mesures d'avant lui : c'est le plan de la veille au soir ;
+  4. **plancher** : un jour sans engagement à heure ne descend jamais sous `lever_plancher`…
+     sauf si la borne qui l'y pousse vient d'un engagement (directement ou par la régularité) :
+     l'engagement gagne (ex. réveil 02:00 un samedi → dimanche 04:00, pas 04:30). Une borne venue
+     d'une mesure ou d'un plafond ne passe jamais sous le plancher ;
+  5. si la nuit D−1 porte une exception **avancer le coucher** et que D n'a aucun engagement
+     avec réveil : lever = borne(coucher appliqué(D−1) + cible + endormissement, `lever_plancher`,
+     lever calculé aux étapes 1-4).
+
+  Les engagements gagnent toujours : un engagement tôt n'est jamais repoussé, un engagement
+  tardif est ramené à la limite (samedi 09:00, préparation 30 min, à moins de 7 jours d'un lever
+  à 04:30 → lever 06:30). Retirer un engagement recalcule le lever du jour selon la même règle.
+  Calcul : la série est calculée une fois par bloc de 21 jours (blocs fixes depuis le lundi
+  03/01/2000), avec 21 jours de marge de chaque côté, et gardée en mémoire tant que la config,
+  les exceptions et les mesures du contexte sont les mêmes objets (pas de récursion jour par jour).
+  Exemple fictif (`core/test/levers.test.ts` : sport 05:00 − 30 min = 04:30 lun/mar/jeu/ven,
+  travail réveil 06:00, plafond 07:00) : mer 06:00, sam et dim 06:30. Congés (plafond 08:00 du
+  19 au 31/12, puis plafond 06:30 du 01 au 03/01, reprise lun 04/01 à 04:30) : 19 → 24/12 06:30,
+  25 → 28/12 08:00, 29/12 → 03/01 06:30.
+- **Coucher prévu(D)** = lever calculé(D+1) (étapes 1-4, sans la mesure de D+1) − cible −
+  endormissement (routine de D+1 pour le lever).
 - **Coucher appliqué(D)** = coucher prévu, modifié par les exceptions de la nuit D (§3.4).
 - **Journée courante d'un instant t** = le jour D tel que lever(D) ≤ t < lever(D+1).
   `$lever` = lever(D), `$coucher` = coucher appliqué(D). (Une nuit appartient au jour du soir.)
 - **Ouverture(D)** = le paramètre `ouverture` d'EVENING_FREE résolu pour D, plus le prix du
   report du jour (plafonné) ; sans EVENING_FREE dans la routine : ouverture = coucher. Toujours
   bornée à ≤ coucher appliqué(D).
-- **Dette prévue de la nuit D** = cible − (lever(D+1) − coucher appliqué(D)) (négative si
-  on dort plus que la cible).
+- **Dette prévue de la nuit D** = cible − (lever prévu(D+1) − coucher appliqué(D) −
+  endormissement) (négative si on dort plus que la cible). Elle se calcule sur le plan, même
+  quand le lever de D+1 est mesuré. Le sommeil prévu d'une exception (§3.4) = cible − dette.
+- **Journal des levers** (`journalDesLevers`, information seulement, ne bloque rien) : pour
+  chacun des 7 jours finissant à J, lever prévu (figé la veille au soir par la photo de la nuit,
+  §4.4 ; à défaut, recalculé avec les seules mesures d'avant ce jour), lever mesuré et écart en
+  minutes (mesuré − prévu) ; sur la période, l'amplitude des levers mesurés (le plus tard − le
+  plus tôt, en heures locales ; null sous 2 mesures) face à `ecart_lever_max`.
 
 ### 3.2 Choix du mode
 À l'instant t, pour un appareil A : parcourir les modes de la routine du jour courant (moins
@@ -330,7 +366,7 @@ Actions). Chaque jeton appartient à un utilisateur. Création par un script loc
 | GET | `/v1/planning` | appareil | planning de l'appareil (§4.3) ; vaut ping (met à jour `vu_le`) |
 | POST | `/v1/accuses` | appareil | `{ action, pose_le }` : verrou posé |
 | POST | `/v1/evenements` | appareil | lot : `{ type: reconnexion \| acces, ... }` |
-| GET | `/v1/statut` | interface | mode par appareil et raison, journée (lever, coucher, ouverture), phase, actions possibles, engagements de demain, dette des 7 dernières nuits, sessions, dernier ping (§4.6) |
+| GET | `/v1/statut` | interface | mode par appareil et raison, journée (lever, coucher, ouverture), phase, actions possibles, engagements de demain, dette des 7 dernières nuits, régularité des levers, sessions, dernier ping (§4.6) |
 | GET | `/v1/taches` | interface, appareil | tâches du jour éligibles à une session (`eligible_le` : création + 15 min) |
 | GET | `/v1/blocage?appareil=<nom>&domaine=<d>` | interface, appareil | pour l'extension : `{ bloque, app, mode, raison, sessions: autorisees \| interdites }` (`bloque` tient compte des sessions ouvertes ; un jeton appareil ne lit que son appareil) |
 | POST | `/v1/sessions` | interface, appareil | ouvrir : `{ appareil, tache_id, apps: [id] }` ; `apps` accepte des identifiants d'apps **ou de groupes** du catalogue (§4.5) |
@@ -380,7 +416,8 @@ Règles côté client :
 Chaque minute : rafraîchir les faits Todoist en cache (réécrits seulement s'ils changent).
 À 00:00 locale (fuseau de la routine du jour qui commence) : **photo des retards** (tâches en
 retard à cet instant, toutes priorités, hors exclusions). Au coucher appliqué : photo de la
-nuit (table `nuits`, pour l'historique). Une fois par jour : vérifier que les étiquettes de la
+nuit (table `nuits`, pour l'historique ; sa colonne `lever` = lever du lendemain que le plan
+donnait au coucher : c'est le **lever prévu figé** du journal des levers, §3.1). Une fois par jour : vérifier que les étiquettes de la
 config existent dans Todoist.
 Une fois par heure, si les secrets `XIAOMI_USER_ID`, `XIAOMI_PASS_TOKEN` et `XIAOMI_UTILISATEUR`
 sont posés (`XIAOMI_REGION` : `de` pour un compte européen, vide = Chine) : **sommeil mesuré**.
@@ -484,6 +521,10 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   "siestes_total_min": number, "siestes_du_jour": [ { "debut", "fin", "minutes" } ], "siestes_du_jour_min": number,
   "sieste_tardive": { "fin": "…Z", "coucher": "…Z" } | null,
   "objectif_sommeil_min": number,
+  "levers": { "jours": [ { "date": "YYYY-MM-DD", "prevu": "…Z", "prevu_fige": bool,
+                           "mesure": "…Z" | null, "ecart_min": number | null } ],
+              "amplitude": { "plus_tot": "…Z", "plus_tard": "…Z", "ecart_min": number, "mesures": number } | null,
+              "limite_min": number },
   "sommeil_mesure": { "derniere_synchro": "…Z" | null, "erreur": string | null } | null,
   "aujourdhui": "YYYY-MM-DD",
   "engagements_verifies": [ { "date", "engagement", "nom",
@@ -553,6 +594,19 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   Σ nuits + `siestes_total_min` − objectif × nuits mesurées, dit « 5 h 47 de moins au total, dont
   1 h rattrapée en siestes » (« dont … » omis sans sieste). `sieste_tardive` : note discrète
   « Sieste tardive : vous endormir à 21:30 pourrait être plus difficile. »
+- **Levers mesurés** : à chaque chargement du contexte, l'API lit les sessions de sommeil des
+  15 derniers jours, écarte les siestes (même règle que ci-dessus, avec les journées du **plan**
+  sans mesure, pour que le lever ne dépende pas de lui-même) et prend, pour chaque nuit D−1, la
+  fin de sa dernière session : c'est le lever mesuré de D (`contexte.leversMesures`). Une nuit
+  marquée incomplète par la montre ne donne pas de lever (sa fin n'est pas un réveil sûr), ni
+  une session qui finit après maintenant.
+- `levers` : `journalDesLevers(contexte, J, prévus figés)` (§3.1) ; prévus figés = colonne
+  `lever` des photos de la table `nuits` (nuit D−1 → lever de D). Carte **« Régularité des
+  levers »** de la web app : « Levers sur 7 jours : de 04:32 à 06:10 · écart 1 h 38 (limite
+  2 h) » (« écart 2 h 20, au-dessus de la limite de 2 h » en orange ; « pas encore assez de
+  mesures » sous 2 mesures), puis une ligne par jour : heure mesurée, et « comme prévu » (à 5 min
+  près), « 20 min plus tard que prévu (05:50) », « 8 min plus tôt que prévu (04:30) », ou
+  « prévu 04:30, pas de mesure » (« pas encore mesuré » aujourd'hui).
 - **Engagements vérifiés** (§3.8) : `aujourdhui` = date civile de maintenant dans le fuseau de la
   journée courante ; `engagements_verifies` = `verifierEngagements` sur les séances mesurées, des 7
   derniers jours à la fin de la semaine en cours (dimanche) : les jours après aujourd'hui sont

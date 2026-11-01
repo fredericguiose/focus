@@ -3,7 +3,7 @@
 
 import type { Contexte, DemandeException, Exception, FrictionFournie, Journee, PrixException } from './types';
 import { engagementsDuJour, journee, nuitDe } from './journee';
-import { dateCourte, estDate, estHeure, lireInstant, local, MINUTE, minutesDe } from './temps';
+import { dateCourte, estDate, estHeure, lireInstant, local, minutesDe } from './temps';
 
 export const PHRASE_DECISION_DE_NUIT = 'JE NE PEUX PAS DECALER';
 export const RAISON_MIN_CARACTERES = 50;
@@ -138,7 +138,8 @@ export function prixException(contexte: Contexte, demande: DemandeException, fri
   if (t >= lireInstant(avant.leverSuivant)) return refuse(`la nuit du ${dateCourte(nuit)} est passée`);
   if (bilan.resserre) return accepte('aucune');
 
-  const sommeilApres = (lireInstant(apres.leverSuivant) - lireInstant(apres.coucherApplique)) / MINUTE;
+  // Sommeil prévu, compté depuis l'endormissement (coucher + délai d'endormissement).
+  const sommeilApres = sommeil.cibleMin - apres.detteNuitMin;
   if (facultatif(contexte, demande)) {
     const [plafond, nom] = t < lireInstant(avant.ouverture)
       ? [sommeil.minimumMin, 'le minimum'] : [sommeil.plancherNuitMin, 'le plancher de nuit'];

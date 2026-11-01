@@ -3,6 +3,7 @@
 
 import type {
   Config,
+  Instant,
   Contexte,
   DateLocale,
   DemandeException,
@@ -18,6 +19,7 @@ import { prixDuReport } from './report';
 import {
   ajouterJours,
   dateLocale,
+  ecartJours,
   ecrireInstant,
   instantLocal,
   jourSemaine,
@@ -34,6 +36,19 @@ export function routineDuJour(config: Config, date: DateLocale): { nom: string; 
   const routine = config.routines[nom];
   if (!routine) throw new Error(`routine inconnue « ${nom} »`);
   return { nom, routine };
+}
+
+/** Valeurs par défaut des réglages ajoutés le 01/11 (une config normalisée plus ancienne, gardée en base, ne les a pas). */
+export const ENDORMISSEMENT_PAR_DEFAUT_MIN = 0;
+export const ECART_LEVER_MAX_PAR_DEFAUT_MIN = 120;
+
+/** Délai d'endormissement et écart maximal des levers, défauts appliqués. */
+export function reglagesDuLever(config: Config): { endormissementMin: number; ecartLeverMaxMin: number } {
+  const { endormissementMin, ecartLeverMaxMin } = config.sommeil;
+  return {
+    endormissementMin: Number.isFinite(endormissementMin) ? endormissementMin : ENDORMISSEMENT_PAR_DEFAUT_MIN,
+    ecartLeverMaxMin: Number.isFinite(ecartLeverMaxMin) && ecartLeverMaxMin > 0 ? ecartLeverMaxMin : ECART_LEVER_MAX_PAR_DEFAUT_MIN,
+  };
 }
 
 export function reveilLibre(config: Config, routine: Routine): number {
@@ -169,33 +184,189 @@ function sansIndefinis<T extends object>(objet: T): T {
   return Object.fromEntries(Object.entries(objet).filter(([, v]) => v !== undefined)) as T;
 }
 
-// ─── Lever et coucher ─────────────────────────────────────────────────────────
+// ─── Lever calculé (docs/conception.md §3.1) ──────────────────────────────────
+//
+// Borne d'un jour D : le plus tôt des réveils de ses engagements à heure (exceptions appliquées),
+// plafonnée par le reveil_libre de sa routine. Régularité : deux jours à 6 jours ou moins d'écart
+// (fenêtre de 7 jours) ont des levers à moins de `ecart_lever_max` l'un de l'autre. On ne fait
+// que baisser : L(D) = min(L(D), L(j) + X) pour |j − D| ≤ 6, jusqu'à stabilité. Un jour mesuré
+// est fixe. Un jour sans engagement à heure ne descend pas sous lever_plancher, sauf si la borne
+// qui l'y pousse vient d'un engagement : l'engagement gagne.
+//
+// La série est calculée une fois par bloc de 21 jours, avec 21 jours de marge de chaque côté, et
+// gardée tant que la config, les exceptions et les mesures sont les mêmes objets.
 
-/** Lever(D), étapes 1 à 3 : engagements et réveil libre, sans l'effet d'« avancer le coucher ». */
-export function leverDeBase(contexte: Contexte, date: DateLocale): number {
-  const { routine } = routineDuJour(contexte.config, date);
-  const reveils = engagementsDuJour(contexte, date)
-    .map((e) => e.reveilMin)
-    .filter((r): r is number => r !== undefined);
-  return instantLocal(date, Math.min(reveilLibre(contexte.config, routine), ...reveils), routine.fuseau);
+const FENETRE_JOURS = 6;
+const BLOC_JOURS = 21;
+const MARGE_JOURS = 21;
+/** Un lundi : origine des blocs (les blocs ne dépendent pas de la date demandée). */
+const ORIGINE_DES_BLOCS = '2000-01-03';
+const MAX_PASSAGES = 200;
+
+interface BorneDuJour {
+  date: DateLocale;
+  fuseau: string;
+  /** Minutes depuis minuit local du jour. */
+  minutes: number;
+  /** Aucun engagement à heure : le plancher s'applique. */
+  libre: boolean;
+  /** La borne vient d'un engagement (et non du plafond reveil_libre). */
+  parEngagement: boolean;
 }
 
-export function lever(contexte: Contexte, date: DateLocale): number {
+interface SerieDeLevers {
+  debut: DateLocale;
+  bornes: BorneDuJour[];
+  minutes: number[];
+}
+
+const SANS_MESURE: Record<DateLocale, Instant> = {};
+const caches = new WeakMap<Config, WeakMap<Exception[], WeakMap<object, Map<string, unknown>>>>();
+
+function cacheDe(contexte: Contexte): Map<string, unknown> {
+  let parConfig = caches.get(contexte.config);
+  if (!parConfig) caches.set(contexte.config, (parConfig = new WeakMap()));
+  let parExceptions = parConfig.get(contexte.exceptions);
+  if (!parExceptions) parConfig.set(contexte.exceptions, (parExceptions = new WeakMap()));
+  const mesures = contexte.leversMesures ?? SANS_MESURE;
+  let cache = parExceptions.get(mesures);
+  if (!cache) parExceptions.set(mesures, (cache = new Map()));
+  return cache;
+}
+
+function bornesDuBloc(contexte: Contexte, debut: DateLocale, n: number): BorneDuJour[] {
+  const cache = cacheDe(contexte);
+  const cle = `bornes|${debut}|${n}`;
+  const deja = cache.get(cle) as BorneDuJour[] | undefined;
+  if (deja) return deja;
+  const bornes: BorneDuJour[] = [];
+  for (let i = 0; i < n; i++) {
+    const date = ajouterJours(debut, i);
+    const { routine } = routineDuJour(contexte.config, date);
+    const plafond = reveilLibre(contexte.config, routine);
+    const reveils = engagementsDuJour(contexte, date)
+      .map((e) => e.reveilMin)
+      .filter((r): r is number => r !== undefined);
+    const plusTot = reveils.length > 0 ? Math.min(...reveils) : undefined;
+    bornes.push({
+      date,
+      fuseau: routine.fuseau,
+      minutes: plusTot === undefined ? plafond : Math.min(plusTot, plafond),
+      libre: plusTot === undefined,
+      parEngagement: plusTot !== undefined && plusTot <= plafond,
+    });
+  }
+  cache.set(cle, bornes);
+  return bornes;
+}
+
+/** Minutes depuis minuit local du jour, pour un instant (peut sortir de [0, 1440)). */
+function minutesDuJour(date: DateLocale, instant: number, fuseau: string): number {
+  return Math.round((instant - instantLocal(date, 0, fuseau)) / MINUTE);
+}
+
+/** La dernière date mesurée strictement avant `date`, ou '' : seules les mesures d'avant comptent. */
+function derniereMesureAvant(contexte: Contexte, date: DateLocale): DateLocale {
+  let derniere = '';
+  for (const d of Object.keys(contexte.leversMesures ?? {})) if (d < date && d > derniere) derniere = d;
+  return derniere;
+}
+
+/**
+ * Série des levers prévus autour de `date`, avec pour jours fixes les levers mesurés avant
+ * `date` : c'est le plan tel qu'il se calculait la veille au soir.
+ */
+function serieDeLevers(contexte: Contexte, date: DateLocale): SerieDeLevers {
+  const rang = Math.floor(ecartJours(ORIGINE_DES_BLOCS, date) / BLOC_JOURS) * BLOC_JOURS;
+  const debut = ajouterJours(ORIGINE_DES_BLOCS, rang - MARGE_JOURS);
+  const coupure = derniereMesureAvant(contexte, date);
+  const cache = cacheDe(contexte);
+  const cle = `serie|${debut}|${coupure}`;
+  const deja = cache.get(cle) as SerieDeLevers | undefined;
+  if (deja) return deja;
+
+  const { sommeil } = contexte.config;
+  const ecart = reglagesDuLever(contexte.config).ecartLeverMaxMin;
+  const plancher = minutesDe(sommeil.leverPlancher);
+  const bornes = bornesDuBloc(contexte, debut, BLOC_JOURS + 2 * MARGE_JOURS);
+  const minutes = bornes.map((b) => b.minutes);
+  const parEngagement = bornes.map((b) => b.parEngagement);
+  const fixe = bornes.map(() => false);
+  bornes.forEach((b, i) => {
+    const mesure = contexte.leversMesures?.[b.date];
+    if (mesure === undefined || b.date > coupure) return;
+    minutes[i] = minutesDuJour(b.date, lireInstant(mesure), b.fuseau);
+    parEngagement[i] = false;
+    fixe[i] = true;
+  });
+
+  // Point fixe : chaque passage ne fait que baisser des valeurs entières, il s'arrête donc ; la
+  // borne du nombre de passages n'est qu'un garde-fou (une chaîne avance d'au moins 6 jours par passage).
+  for (let change = true, passe = 0; change && passe < MAX_PASSAGES; passe++) {
+    change = false;
+    for (let i = 0; i < bornes.length; i++) {
+      if (fixe[i]) continue;
+      for (let j = Math.max(0, i - FENETRE_JOURS); j <= Math.min(bornes.length - 1, i + FENETRE_JOURS); j++) {
+        if (j === i) continue;
+        let candidat = minutes[j]! + ecart;
+        if (candidat >= minutes[i]!) continue;
+        const viaEngagement = parEngagement[j]!;
+        if (bornes[i]!.libre && !viaEngagement) candidat = Math.max(candidat, plancher);
+        if (candidat >= minutes[i]!) continue;
+        minutes[i] = candidat;
+        parEngagement[i] = viaEngagement;
+        change = true;
+      }
+    }
+  }
+  const serie = { debut, bornes, minutes };
+  cache.set(cle, serie);
+  return serie;
+}
+
+/** Lever calculé de D (borne, régularité, plancher), sans l'effet d'« avancer le coucher ». */
+export function leverCalcule(contexte: Contexte, date: DateLocale): number {
+  const serie = serieDeLevers(contexte, date);
+  const i = ecartJours(serie.debut, date);
+  return instantLocal(date, serie.minutes[i]!, serie.bornes[i]!.fuseau);
+}
+
+/** Lever mesuré de D (fin de la nuit principale), ou null. */
+export function leverMesure(contexte: Contexte, date: DateLocale): number | null {
+  const m = contexte.leversMesures?.[date];
+  return m === undefined ? null : lireInstant(m);
+}
+
+/** Durée de la nuit, du coucher au lever : cible + endormissement. */
+function nuitPrevueMs(contexte: Contexte): number {
+  const { sommeil } = contexte.config;
+  return (sommeil.cibleMin + reglagesDuLever(contexte.config).endormissementMin) * MINUTE;
+}
+
+/**
+ * Lever prévu de D : le lever calculé, ou, après « je vais dormir » la veille et sans
+ * engagement à heure ce jour-là, coucher + cible + endormissement (entre le plancher et le
+ * lever calculé).
+ */
+export function leverPrevu(contexte: Contexte, date: DateLocale): number {
+  const calcule = leverCalcule(contexte, date);
   const veille = ajouterJours(date, -1);
   const avance = exceptionsDeNuit(contexte, veille).some((e) => e.demande.type === 'avancer_coucher');
-  const sansReveil = engagementsDuJour(contexte, date).every((e) => e.reveilMin === undefined);
-  if (!avance || !sansReveil) return leverDeBase(contexte, date);
-
-  const { config } = contexte;
-  const { routine } = routineDuJour(config, date);
-  const plancher = instantLocal(date, minutesDe(config.sommeil.leverPlancher), routine.fuseau);
-  const plafond = instantLocal(date, reveilLibre(config, routine), routine.fuseau);
-  const voulu = coucherApplique(contexte, veille) + config.sommeil.cibleMin * MINUTE;
-  return Math.min(Math.max(voulu, plancher), plafond);
+  if (!avance || !engagementsDuJour(contexte, date).every((e) => e.reveilMin === undefined)) return calcule;
+  const { routine } = routineDuJour(contexte.config, date);
+  const plancher = instantLocal(date, minutesDe(contexte.config.sommeil.leverPlancher), routine.fuseau);
+  const voulu = coucherApplique(contexte, veille) + nuitPrevueMs(contexte);
+  return Math.min(Math.max(voulu, plancher), calcule);
 }
 
+/** Lever de D : mesuré s'il l'est, sinon prévu. */
+export function lever(contexte: Contexte, date: DateLocale): number {
+  return leverMesure(contexte, date) ?? leverPrevu(contexte, date);
+}
+
+/** Coucher prévu de la nuit D = lever calculé de D + 1 − cible − endormissement. */
 export function coucherPrevu(contexte: Contexte, date: DateLocale): number {
-  return leverDeBase(contexte, ajouterJours(date, 1)) - contexte.config.sommeil.cibleMin * MINUTE;
+  return leverCalcule(contexte, ajouterJours(date, 1)) - nuitPrevueMs(contexte);
 }
 
 function exceptionsDeNuit(contexte: Contexte, nuit: DateLocale): Exception[] {
@@ -255,7 +426,8 @@ export function journee(contexte: Contexte, date: DateLocale): Journee {
     coucherApplique: ecrireInstant(coucher),
     ouverture: ecrireInstant(ouverture(contexte, date, leverD, coucher, prixMin)),
     prixDuReportMin: prixMin,
-    detteNuitMin: config.sommeil.cibleMin - (leverSuivant - coucher) / MINUTE,
+    // Dette prévue : comptée sur le lever prévu (le plan), endormissement déduit.
+    detteNuitMin: config.sommeil.cibleMin - ((leverPrevu(contexte, lendemain) - coucher) / MINUTE - reglagesDuLever(config).endormissementMin),
     decisionDeNuitPrise: contexte.exceptions.some((e) => e.pendantNuit && nuitDe(e.demande) === date),
   };
 }

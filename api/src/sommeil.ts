@@ -2,7 +2,7 @@
 import { type Chiffre, chiffrer, dechiffrer } from './chiffrement';
 import { CLES_CACHE, ecrireCache, lireCache } from './contexte';
 import type { Liaisons } from './env';
-import { dateLocale, decaler, versInstant } from './temps';
+import { ajouterJours, dateLocale, decaler, versInstant } from './temps';
 import {
   type ClientXiaomi,
   type ComplementsSommeil,
@@ -324,25 +324,63 @@ export function rattacherAuxNuits(sessions: SommeilMesure[], nuits: { nuit: stri
   return resultat;
 }
 
-export async function lireSommeil(db: D1Database, utilisateur: string, depuis: string): Promise<SommeilMesure[]> {
-  const { results } = await db
+/** Requête des sessions de sommeil terminées depuis `depuis` (pour un `db.batch`). */
+export function requeteSommeil(db: D1Database, utilisateur: string, depuis: string): D1PreparedStatement {
+  return db
     .prepare(
       `SELECT debut, fin, valeur, details FROM mesures
        WHERE utilisateur = ? AND type = 'sommeil' AND fin IS NOT NULL AND debut >= ? ORDER BY debut`,
     )
-    .bind(utilisateur, depuis)
-    .all<{ debut: string; fin: string; valeur: number | null; details: string | null }>();
-  return results.map((l) => {
-    const d = (l.details ? JSON.parse(l.details) : {}) as Partial<DetailsSommeil>;
-    return {
-      debut: l.debut,
-      fin: l.fin,
-      endormi_min: l.valeur ?? 0,
-      phases: d.phases ?? null,
-      sieste: d.sieste === true,
-      incomplete: d.incomplete === true,
-    };
-  });
+    .bind(utilisateur, depuis);
+}
+
+export interface LigneSommeil {
+  debut: string;
+  fin: string;
+  valeur: number | null;
+  details: string | null;
+}
+
+export function versSommeilMesure(l: LigneSommeil): SommeilMesure {
+  const d = (l.details ? JSON.parse(l.details) : {}) as Partial<DetailsSommeil>;
+  return {
+    debut: l.debut,
+    fin: l.fin,
+    endormi_min: l.valeur ?? 0,
+    phases: d.phases ?? null,
+    sieste: d.sieste === true,
+    incomplete: d.incomplete === true,
+  };
+}
+
+export async function lireSommeil(db: D1Database, utilisateur: string, depuis: string): Promise<SommeilMesure[]> {
+  const { results } = await requeteSommeil(db, utilisateur, depuis).all<LigneSommeil>();
+  return results.map(versSommeilMesure);
+}
+
+/**
+ * Lever mesuré de chaque jour (§3.1) : fin de la dernière session de la nuit principale de la
+ * veille, siestes exclues comme pour la dette réelle. Les journées servent à reconnaître les
+ * siestes : ce sont celles du plan, sans mesure (sinon le lever dépendrait de lui-même). Une nuit
+ * marquée incomplète par la montre (montre retirée, batterie) ne donne pas de lever : sa fin
+ * n'est pas un réveil sûr.
+ */
+export function leversMesures(sessions: SommeilMesure[], journees: JourneeDeVeille[]): Record<string, string> {
+  const fuseau = journees.at(-1)?.fuseau;
+  if (!fuseau) return {};
+  const dates = new Set(journees.map((j) => j.date));
+  const parNuit = new Map<string, SommeilMesure[]>();
+  for (const s of separerSiestes(sessions, journees, fuseau).nuits) {
+    const nuit = nuitDeLaSession(s, fuseau);
+    parNuit.set(nuit, [...(parNuit.get(nuit) ?? []), s]);
+  }
+  const levers: Record<string, string> = {};
+  for (const [nuit, siennes] of parNuit) {
+    const date = ajouterJours(nuit, 1);
+    if (!dates.has(date) || siennes.some((s) => s.incomplete === true)) continue;
+    levers[date] = siennes.reduce((fin, s) => (Date.parse(s.fin) > Date.parse(fin) ? s.fin : fin), siennes[0]!.fin);
+  }
+  return levers;
 }
 
 export async function etatSynchro(db: D1Database, utilisateur: string) {

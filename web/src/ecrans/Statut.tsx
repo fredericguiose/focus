@@ -6,6 +6,7 @@ import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CarteActions } from '@/composants/actions/CarteActions';
 import { CarteEngagements } from '@/composants/statut/CarteEngagements';
+import { CarteRegularite } from '@/composants/statut/CarteRegularite';
 import { CarteSommeil } from '@/composants/statut/CarteSommeil';
 import { CarteMode } from '@/composants/statut/CarteMode';
 import { Indicateur } from '@/composants/statut/Indicateur';
@@ -83,6 +84,7 @@ export function EcranStatut() {
         <div className="grid min-w-0 gap-4 md:gap-6 lg:col-span-2 [&>*]:min-w-0">
           <TableauAppareils appareils={statut.appareils} maintenant={maintenant} />
           <CarteSommeil statut={statut} />
+          <CarteRegularite statut={statut} />
         </div>
       </div>
     </div>

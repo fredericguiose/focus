@@ -13,7 +13,14 @@ describe('validerConfig — exemple', () => {
     const r = validerConfig(EXEMPLE);
     if (!r.ok) throw new Error(r.erreurs.join('\n'));
     const c = r.config;
-    expect(c.sommeil).toEqual({ cibleMin: 480, minimumMin: 420, plancherNuitMin: 360, leverPlancher: '04:30' });
+    expect(c.sommeil).toEqual({
+      cibleMin: 480,
+      minimumMin: 420,
+      plancherNuitMin: 360,
+      leverPlancher: '04:30',
+      endormissementMin: 0,
+      ecartLeverMaxMin: 120,
+    });
     expect(c.engagements.sport).toEqual({ heure: '06:00', preparationMin: 30, obligatoire: true, verification: { mesure: 'seance' } });
     expect(c.engagements.travail).toEqual({ reveil: '06:30', obligatoire: true });
     expect(c.apps.safari).toEqual({ nom: 'Safari', domaines: [], iphone: 'com.apple.mobilesafari' });

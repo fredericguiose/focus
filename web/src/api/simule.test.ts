@@ -319,3 +319,23 @@ describe('API simulée : exceptions', () => {
     expect(prix.motifRefus).toBe("pas d'engagement « Piscine » le 4 nov.");
   });
 });
+
+describe('mode simulé : journal des levers', () => {
+  it('7 jours finissant aujourd’hui ; mesuré = prévu + écart fictif ; amplitude des mesurés', async () => {
+    const s = await simulation().api.statut();
+    const levers = s.levers!;
+    expect(levers.jours.map((j) => j.date)).toEqual(['2026-10-28', '2026-10-29', '2026-10-30', '2026-10-31', '2026-11-01', '2026-11-02', '2026-11-03']);
+    expect(levers.jours[0]).toMatchObject({ mesure: null, ecart_min: null });
+    // Mardi : lever prévu 06:30 (travail), mesuré 6 min plus tard.
+    expect(levers.jours[6]).toEqual({ date: '2026-11-03', prevu: '2026-11-03T05:30:00Z', prevu_fige: true, mesure: '2026-11-03T05:36:00Z', ecart_min: 6 });
+    for (const j of levers.jours) if (j.mesure) expect((Date.parse(j.mesure) - Date.parse(j.prevu)) / 60_000).toBe(j.ecart_min);
+    expect(levers.amplitude?.mesures).toBe(6);
+    expect(levers.limite_min).toBe(120);
+  });
+
+  it('le lever du jour n’est mesuré qu’une fois passé', async () => {
+    const sim = simulation(Date.parse('2026-11-03T05:32:00Z'));
+    const s = await sim.api.statut();
+    expect(s.levers!.jours.at(-1)).toMatchObject({ date: '2026-11-03', mesure: null });
+  });
+});

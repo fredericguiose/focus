@@ -273,6 +273,8 @@ const schemaConfig = z.strictObject({
     minimum: duree,
     plancher_nuit: duree,
     lever_plancher: heure,
+    endormissement: duree.default(0),
+    ecart_lever_max: duree.default(120),
   }),
   reveil_libre: heure,
   engagements: z.record(z.string(), schemaEngagement).default({}),
@@ -351,6 +353,8 @@ function normaliser(b: ConfigBrute): Config {
       minimumMin: b.sommeil.minimum,
       plancherNuitMin: b.sommeil.plancher_nuit,
       leverPlancher: b.sommeil.lever_plancher,
+      endormissementMin: b.sommeil.endormissement,
+      ecartLeverMaxMin: b.sommeil.ecart_lever_max,
     },
     reveilLibre: b.reveil_libre,
     engagements: surTout(b.engagements, (e): Engagement =>
@@ -467,6 +471,7 @@ function verifierSommeil(c: Config, signaler: Signaler): void {
   if (s.cibleMin <= 0) signaler(['sommeil', 'cible'], 'la cible doit être positive');
   if (s.minimumMin > s.cibleMin) signaler(['sommeil', 'minimum'], 'le minimum dépasse la cible');
   if (s.plancherNuitMin > s.minimumMin) signaler(['sommeil', 'plancher_nuit'], 'le plancher de nuit dépasse le minimum');
+  if (s.ecartLeverMaxMin <= 0) signaler(['sommeil', 'ecart_lever_max'], "l'écart maximal entre deux levers doit être positif");
   const plancher = minutesDe(s.leverPlancher);
   if (plancher > minutesDe(c.reveilLibre)) {
     signaler(['sommeil', 'lever_plancher'], `après reveil_libre (${c.reveilLibre})`);
@@ -647,7 +652,8 @@ function verifierCalendrier(c: Config, signaler: Signaler): void {
 
 /** Clés connues du YAML, pour suggérer la bonne en cas de faute de frappe. */
 const CLES_CONNUES = [
-  'version', 'utilisateur', 'sommeil', 'cible', 'minimum', 'plancher_nuit', 'lever_plancher', 'reveil_libre',
+  'version', 'utilisateur', 'sommeil', 'cible', 'minimum', 'plancher_nuit', 'lever_plancher', 'endormissement',
+  'ecart_lever_max', 'reveil_libre',
   'engagements', 'heure', 'preparation', 'reveil', 'obligatoire', 'apps', 'nom', 'domaines', 'iphone',
   'groupes', 'appareils', 'type', 'comptes_de_travail', 'modes', 'quand', 'effets', 'bloque', 'sauf',
   'verrouiller_session', 'fermer_comptes_hors_travail', 'sessions', 'parametres', 'routines', 'fuseau', 'jours',

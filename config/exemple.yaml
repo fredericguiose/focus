@@ -9,8 +9,15 @@ sommeil:
   cible: "8h"
   minimum: "7h"
   plancher_nuit: "6h"
-  lever_plancher: "04:30"
+  lever_plancher: "04:30"     # jamais de lever plus tôt un jour sans engagement à heure
+  # Délai d'endormissement (défaut 0) : coucher = lever − cible − endormissement. Le minimum et
+  # le plancher de nuit restent des durées de sommeil, comptées depuis l'endormissement.
+  # endormissement: "30min"
+  # Régularité : deux levers d'une même fenêtre de 7 jours ont au plus cet écart (défaut 2h).
+  ecart_lever_max: "2h"
 
+# Plafond du lever : jamais plus tard, même sans engagement. Le lever d'un jour est le réveil
+# de son engagement le plus tôt, sinon ce plafond, puis abaissé par la règle de régularité.
 reveil_libre: "07:00"
 
 engagements:
@@ -78,6 +85,7 @@ routines:
       dim:
         parametres: { EVENING_FREE: { ouverture: "14:00" } }
         conditions_en_plus: { EVENING_FREE: [aucun_retard] }
+  # Congés : plafond 08:00 ; les jours à moins de 7 jours d'un lever de semaine restent à 2 h de lui.
   conges:
     fuseau: Europe/Paris
     reveil_libre: "08:00"

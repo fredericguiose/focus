@@ -158,6 +158,28 @@ export interface Sieste {
   minutes: number;
 }
 
+/** Lever d'un jour : prévu (plan de la veille au soir) et mesuré par la montre. */
+export interface LeverDuJour {
+  date: DateLocale;
+  prevu: Instant;
+  /** Vrai si le prévu a été figé la veille au soir ; faux s'il est recalculé. */
+  prevu_fige: boolean;
+  /** null sans mesure. */
+  mesure: Instant | null;
+  /** Mesuré − prévu en minutes (positif : levé plus tard que prévu) ; null sans mesure. */
+  ecart_min: number | null;
+}
+
+/** Régularité des levers : affichée, ne bloque rien. */
+export interface RegulariteLevers {
+  /** 7 derniers jours (le dernier = la journée en cours), du plus ancien au plus récent. */
+  jours: LeverDuJour[];
+  /** Lever mesuré le plus tôt et le plus tard (heures locales) ; null sous 2 mesures. */
+  amplitude: { plus_tot: Instant; plus_tard: Instant; ecart_min: number; mesures: number } | null;
+  /** Écart maximal voulu entre deux levers d'une même semaine (`sommeil.ecart_lever_max`). */
+  limite_min: number;
+}
+
 /** Moment de la journée, décidé par l'API. */
 export type Phase = 'journee' | 'soiree' | 'nuit';
 
@@ -216,6 +238,8 @@ export interface ReponseStatut {
   sommeil_mesure?: { derniere_synchro: Instant | null; erreur: string | null } | null;
   /** Objectif de sommeil de la config (`sommeil.cible`), en minutes. */
   objectif_sommeil_min?: number;
+  /** Levers prévus et mesurés des 7 derniers jours (absent d'une API plus ancienne). */
+  levers?: RegulariteLevers;
   /** Minutes de sieste sur la période (journées des 7 nuits et journée en cours). */
   siestes_total_min?: number;
   /** Siestes de la journée en cours (après la dernière nuit). */

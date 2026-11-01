@@ -19,6 +19,7 @@ import type {
   Journee,
   Phase,
   PrixException,
+  RegulariteLevers,
   ReponseStatut,
   ReponseTaches,
   SessionOuverte,
@@ -58,6 +59,9 @@ const SIESTE_FICTIVE = { indice: 3, debut: '15:00', minutes: 60 } as const;
 const SIESTE_DU_JOUR = { debut: '13:00', duree: 50, minutes: 45 } as const;
 /** Nuit fictive que la montre a marquée incomplète. */
 const INCOMPLETE_FICTIVE = 4;
+/** Levers mesurés fictifs des 7 derniers jours : écart au prévu en minutes (null : pas de mesure). */
+const ECARTS_LEVERS_FICTIFS: (number | null)[] = [null, 2, 25, -8, 40, 10, 6];
+const ECART_LEVER_MAX_MIN = 120;
 // La vraie API pose la question après 25 min (PC) ou 10 min (iPhone) ; 30 s suffisent pour essayer.
 const INTERVALLE_QUESTION_SIMULE_S = 30;
 
@@ -737,6 +741,27 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
     return { aujourdhui, engagements_verifies: liste, sautes_semaine: sautes };
   }
 
+  /** Journal des levers fictif : prévu = lever simulé, mesuré = prévu + écart fictif (aujourd'hui, une fois passé). */
+  function leversFictifs(t: number, aujourdhui: DateLocale): RegulariteLevers {
+    const jours = ECARTS_LEVERS_FICTIFS.map((ecart, i) => {
+      const date = ajouterJours(aujourdhui, i - ECARTS_LEVERS_FICTIFS.length + 1);
+      const prevu = lever(date, exceptions);
+      const mesure = ecart === null || prevu + ecart * MINUTE > t ? null : prevu + ecart * MINUTE;
+      return { date, prevu: versInstant(prevu), prevu_fige: true, mesure: mesure === null ? null : versInstant(mesure), ecart_min: mesure === null ? null : ecart };
+    });
+    const mesures = jours
+      .filter((j) => j.mesure !== null)
+      .map((j) => ({ instant: j.mesure!, minutes: (Date.parse(j.mesure!) - instantLocal(j.date, '00:00', fuseau)) / MINUTE }))
+      .sort((a, b) => a.minutes - b.minutes);
+    const tot = mesures[0];
+    const tard = mesures.at(-1);
+    return {
+      jours,
+      amplitude: tot && tard && mesures.length >= 2 ? { plus_tot: tot.instant, plus_tard: tard.instant, ecart_min: Math.round(tard.minutes - tot.minutes), mesures: mesures.length } : null,
+      limite_min: ECART_LEVER_MAX_MIN,
+    };
+  }
+
   async function servir<T>(calcul: () => T): Promise<T> {
     if (latenceMs > 0) await new Promise((r) => setTimeout(r, latenceMs));
     return copie(calcul());
@@ -797,6 +822,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
           sieste_tardive: tardive && t < coucherDuJour ? { fin: tardive.fin, coucher: j.coucherApplique } : null,
           sommeil_mesure: { derniere_synchro: versInstant(t - 20 * MINUTE), erreur: null },
           objectif_sommeil_min: CIBLE_MIN,
+          levers: leversFictifs(t, j.date),
           phase: phaseA(t),
           actions: actionsA(t),
           engagements_demain: engagementsDemain(t),

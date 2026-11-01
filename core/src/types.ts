@@ -18,7 +18,12 @@ export interface ConfigSommeil {
   cibleMin: number;
   minimumMin: number;
   plancherNuitMin: number;
+  /** Plancher du lever d'un jour sans engagement à heure. */
   leverPlancher: HeureLocale;
+  /** Délai d'endormissement : coucher = lever − cible − endormissement (défaut 0). */
+  endormissementMin: number;
+  /** Écart maximal entre les levers de deux jours d'une même fenêtre de 7 jours (défaut 2 h). */
+  ecartLeverMaxMin: number;
 }
 
 /** Types de mesure que les sources (adaptateurs de l'API) rangent dans `mesures`. */
@@ -232,6 +237,11 @@ export interface Contexte {
   maintenant: Instant;
   faits: FaitsTodoist;
   exceptions: Exception[];
+  /**
+   * Levers mesurés (fin de la nuit principale, montre), rangés par date du lever. Un jour mesuré
+   * a pour lever sa mesure ; elle borne aussi les levers prévus des jours suivants (§3.1).
+   */
+  leversMesures?: Record<DateLocale, Instant>;
 }
 
 export interface Journee {
@@ -341,6 +351,28 @@ export interface EngagementVerifie {
   statut: StatutEngagement;
 }
 
+// ─── Journal des levers ──────────────────────────────────────────────────────
+
+export interface LeverJournalise {
+  /** Date du lever. */
+  date: DateLocale;
+  /** Lever prévu : celui du plan de la veille au soir. */
+  prevu: Instant;
+  /** Vrai si le prévu a été figé la veille au soir ; faux s'il est recalculé. */
+  prevuFige: boolean;
+  mesure: Instant | null;
+  /** Mesuré − prévu, en minutes (positif : levé plus tard que prévu) ; null sans mesure. */
+  ecartMin: number | null;
+}
+
+export interface JournalDesLevers {
+  jours: LeverJournalise[];
+  /** Lever mesuré le plus tôt et le plus tard de la période (heures locales) ; null sous 2 mesures. */
+  amplitude: { plusTot: Instant; plusTard: Instant; ecartMin: number; mesures: number } | null;
+  /** sommeil.ecart_lever_max, en minutes. */
+  limiteMin: number;
+}
+
 // ─── Fonctions exposées par le moteur (core/src/index.ts) ─────────────────────
 
 export interface Moteur {
@@ -356,6 +388,8 @@ export interface Moteur {
   prixException(contexte: Contexte, demande: DemandeException, friction?: FrictionFournie): PrixException;
   /** Engagements vérifiables prévus de `du` à `au` (dates incluses) et leur statut (§3.8). */
   verifierEngagements(contexte: Contexte, mesures: Mesure[], du: DateLocale, au: DateLocale): EngagementVerifie[];
+  /** Levers prévus et mesurés des jours finissant à `jusqua`, et leur écart (§3.1). */
+  journalDesLevers(contexte: Contexte, jusqua: DateLocale, prevusFiges?: Record<DateLocale, Instant>, nbJours?: number): JournalDesLevers;
   /** Secondes d'attente exigées pour le n-ième « continue » (n commence à 0). */
   attenteContinue(config: Config, n: number): number;
 }

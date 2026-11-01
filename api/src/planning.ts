@@ -1,5 +1,6 @@
 // Planning d'un appareil (§4.3), statut pour l'interface, tâches du jour, raison d'un blocage.
-import type { ActionsIphone, ActionsPc, Config, Contexte, EngagementPrevu, Journee, Mesure, Moteur, Segment, SortieMode } from '../../core/src/types';
+import type { ActionsIphone, ActionsPc, Config, Contexte, EngagementPrevu, JournalDesLevers, Journee, Mesure, Moteur, Segment, SortieMode } from '../../core/src/types';
+import { JOURS_DU_JOURNAL_DES_LEVERS } from '../../core/src/levers';
 import { dateCourte, JOURS_SEMAINE, jourSemaine } from '../../core/src/temps';
 import { etatSynchroHevy, lireSeances } from './hevy';
 import { CLES_CACHE, chargerContexte, lireCache } from './contexte';
@@ -236,6 +237,29 @@ export function siesteTardive(j: Journee, siestes: Sieste[], maintenant: Date): 
   return derniere ? { fin: derniere.fin, coucher: j.coucherApplique } : null;
 }
 
+/**
+ * Lever prévu figé la veille au soir, par date du lever : la photo de la nuit (prise au coucher
+ * appliqué) garde le lever du lendemain que le plan donnait alors.
+ */
+export async function leversPrevusFiges(db: D1Database, utilisateur: string, depuisNuit: string): Promise<Record<string, string>> {
+  const { results } = await db
+    .prepare(`SELECT nuit, lever FROM nuits WHERE utilisateur = ? AND nuit >= ?`)
+    .bind(utilisateur, depuisNuit)
+    .all<{ nuit: string; lever: string }>();
+  return Object.fromEntries(results.map((l) => [ajouterJours(l.nuit, 1), l.lever]));
+}
+
+/** Journal des levers (§3.1) : par jour, prévu et mesuré ; amplitude des mesurés face à la limite. */
+export function vueLevers(j: JournalDesLevers) {
+  return {
+    jours: j.jours.map((x) => ({ date: x.date, prevu: x.prevu, prevu_fige: x.prevuFige, mesure: x.mesure, ecart_min: x.ecartMin })),
+    amplitude: j.amplitude
+      ? { plus_tot: j.amplitude.plusTot, plus_tard: j.amplitude.plusTard, ecart_min: j.amplitude.ecartMin, mesures: j.amplitude.mesures }
+      : null,
+    limite_min: j.limiteMin,
+  };
+}
+
 export const JOURS_VERIFIES = 7;
 
 /**
@@ -258,7 +282,7 @@ export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuth
   const { config } = contexte;
   const journee = deps.moteur.journeeCourante(contexte);
   const jourCivil = dateLocale(maintenant, journee.fuseau);
-  const [pings, etiquettes, sessions, cumulS, sommeil, synchro, seances, synchroSeances] = await Promise.all([
+  const [pings, etiquettes, sessions, cumulS, sommeil, synchro, seances, synchroSeances, prevusFiges] = await Promise.all([
     db
       .prepare(
         `SELECT nom, MAX(vu_le) AS vu_le FROM appareils
@@ -273,6 +297,7 @@ export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuth
     etatSynchro(db, jeton.utilisateur),
     lireSeances(db, jeton.utilisateur, versInstant(debutJourLocal(ajouterJours(jourCivil, -JOURS_VERIFIES - 1), journee.fuseau))),
     etatSynchroHevy(db, jeton.utilisateur),
+    leversPrevusFiges(db, jeton.utilisateur, ajouterJours(journee.date, -JOURS_DU_JOURNAL_DES_LEVERS - 1)),
   ]);
   const vuLe = new Map(pings.results.map((p) => [p.nom, p.vu_le]));
   const phase = phaseDe(journee, maintenant);
@@ -294,6 +319,7 @@ export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuth
     sieste_tardive: siesteTardive(journee, aujourdhui, maintenant),
     objectif_sommeil_min: config.sommeil.cibleMin,
     sommeil_mesure: synchro,
+    levers: vueLevers(deps.moteur.journalDesLevers(contexte, journee.date, prevusFiges)),
     ...engagementsVerifies(deps.moteur, contexte, seances, jourCivil),
     seances_mesurees: synchroSeances,
     appareils: Object.entries(config.appareils).map(([nom, def]) => {
