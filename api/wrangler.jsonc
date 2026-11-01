@@ -31,8 +31,8 @@
   "vars": {
     "HOTE_WEB": "focus.fredericguiose.com",
     "HOTE_API": "api-focus.fredericguiose.com",
-    "ACCES_EQUIPE": "A-REMPLIR",
-    "ACCES_AUD": "A-REMPLIR"
+    "ACCES_EQUIPE": "https://wispy-fog-4a3f.cloudflareaccess.com",
+    "ACCES_AUD": "44a9366532a40088976386a53a1fbe553760d9270b0d5ca8b4529758f2b7ab84"
   },
   "d1_databases": [
     {
