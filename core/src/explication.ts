@@ -106,10 +106,15 @@ function detailEcheance(taches: Tache[], attendue: DateLocale, quoi: 'planning' 
   return d === ajouterJours(attendue, -1) ? `pas de ${quoi} fait hier` : `pas de ${quoi} fait depuis le ${dateCourte(d)}`;
 }
 
-/** « 3 tâches restantes dont 2 en retard » (formulation choisie par Frédéric, 01/11). */
+/**
+ * « 3 tâches restantes dont 2 en retard » (formulation choisie par Frédéric, 01/11) ; quand
+ * toutes sont en retard : « 6 tâches en retard », « 1 tâche en retard » (« 6 dont 6 » sonnait faux).
+ */
 function detailPrioritaires(taches: Tache[], jour: DateLocale): string {
   const enRetard = taches.filter((t) => t.echeance !== null && t.echeance < jour).length;
-  const total = `${taches.length} tâche${taches.length > 1 ? 's' : ''} restante${taches.length > 1 ? 's' : ''}`;
+  const s = taches.length > 1 ? 's' : '';
+  if (enRetard > 0 && enRetard === taches.length) return `${taches.length} tâche${s} en retard`;
+  const total = `${taches.length} tâche${s} restante${s}`;
   return enRetard === 0 ? total : `${total} dont ${enRetard} en retard`;
 }
 

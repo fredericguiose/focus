@@ -122,7 +122,7 @@ describe('expliquer et sortie (§3.7)', () => {
     expect(soiree.conditions[1]).toMatchObject({ vraie: false, detail: '3 tâches restantes dont 2 en retard' });
     expect(mode(expliquer(ctx, 'pc_linux'), 'WORK').actif).toBe(true);
     const seule = contexte('2026-11-02T20:00:00Z', { faits: faits({ taches: [tache({ echeance: '2026-11-01' })] }) });
-    expect(mode(expliquer(seule, 'pc_linux'), 'EVENING_FREE').conditions[1]!.detail).toBe('1 tâche restante dont 1 en retard');
+    expect(mode(expliquer(seule, 'pc_linux'), 'EVENING_FREE').conditions[1]!.detail).toBe('1 tâche en retard');
   });
 
   it('planning et récap : la date de la plus ancienne échéance, jamais un compte', () => {
