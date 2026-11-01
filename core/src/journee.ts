@@ -344,19 +344,11 @@ function nuitPrevueMs(contexte: Contexte): number {
 }
 
 /**
- * Lever prévu de D : le lever calculé, ou, après « je vais dormir » la veille et sans
- * engagement à heure ce jour-là, coucher + cible + endormissement (entre le plancher et le
- * lever calculé).
+ * Lever prévu de D = le lever calculé. Se coucher plus tôt (« je vais dormir », coucher avancé)
+ * ne touche jamais au lever : l'avance rembourse la dette (CDC §4, 01/11 : lever fixe).
  */
 export function leverPrevu(contexte: Contexte, date: DateLocale): number {
-  const calcule = leverCalcule(contexte, date);
-  const veille = ajouterJours(date, -1);
-  const avance = exceptionsDeNuit(contexte, veille).some((e) => e.demande.type === 'avancer_coucher');
-  if (!avance || !engagementsDuJour(contexte, date).every((e) => e.reveilMin === undefined)) return calcule;
-  const { routine } = routineDuJour(contexte.config, date);
-  const plancher = instantLocal(date, minutesDe(contexte.config.sommeil.leverPlancher), routine.fuseau);
-  const voulu = coucherApplique(contexte, veille) + nuitPrevueMs(contexte);
-  return Math.min(Math.max(voulu, plancher), calcule);
+  return leverCalcule(contexte, date);
 }
 
 /** Lever de D : mesuré s'il l'est, sinon prévu. */

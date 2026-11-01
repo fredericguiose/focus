@@ -209,7 +209,7 @@ describe('exceptions — avancer le coucher', () => {
   const VENDREDI = '2026-11-06';
   const avancer = (a: string, nuit = VENDREDI) => ({ type: 'avancer_coucher' as const, nuit, a });
 
-  it('sans engagement le lendemain : lever = coucher + 8 h', () => {
+  it('sans engagement le lendemain : le lever ne bouge pas, la nuit s\'allonge (lever fixe, 01/11)', () => {
     const p = prixException(contexte('2026-11-06T20:00:00Z'), avancer('2026-11-06T20:00:00Z'));
     expect(p).toEqual({
       admissible: true,
@@ -218,16 +218,16 @@ describe('exceptions — avancer le coucher', () => {
       coucherAvant: '2026-11-06T22:00:00Z',
       coucherApres: '2026-11-06T20:00:00Z',
       leverAvant: '2026-11-07T06:00:00Z',
-      leverApres: '2026-11-07T04:00:00Z', // 05:00
+      leverApres: '2026-11-07T06:00:00Z', // 07:00, inchangé
       detteAvantMin: 0,
-      detteApresMin: 0,
+      detteApresMin: -120,
     });
   });
 
-  it('borné par lever_plancher', () => {
+  it('très tôt : le lever reste le lever calculé', () => {
     const p = prixException(contexte('2026-11-06T18:30:00Z'), avancer('2026-11-06T18:30:00Z'));
-    expect(p.leverApres).toBe('2026-11-07T03:30:00Z'); // 04:30, pas 03:30
-    expect(p.detteApresMin).toBe(-60);
+    expect(p.leverApres).toBe('2026-11-07T06:00:00Z');
+    expect(p.detteApresMin).toBe(-210);
   });
 
   it('borné par reveil_libre', () => {
@@ -244,9 +244,9 @@ describe('exceptions — avancer le coucher', () => {
     expect(p.detteApresMin).toBe(-90);
   });
 
-  it('une fois enregistrée, la journée du lendemain commence plus tôt', () => {
+  it('une fois enregistrée, la journée du lendemain commence toujours au lever calculé', () => {
     const faite = exception(avancer('2026-11-06T20:00:00Z'), '2026-11-06T20:00:00Z');
-    expect(journeeCourante(contexte('2026-11-07T04:00:00Z', { exceptions: [faite] })).date).toBe('2026-11-07');
+    expect(journeeCourante(contexte('2026-11-07T04:00:00Z', { exceptions: [faite] })).date).toBe('2026-11-06');
     expect(journeeCourante(contexte('2026-11-07T04:00:00Z')).date).toBe('2026-11-06');
   });
 });

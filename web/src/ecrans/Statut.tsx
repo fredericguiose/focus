@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CarteActions } from '@/composants/actions/CarteActions';
+import { RattraperSommeil } from '@/composants/actions/RattraperSommeil';
 import { CarteEngagements } from '@/composants/statut/CarteEngagements';
 import { CarteRegularite } from '@/composants/statut/CarteRegularite';
 import { CarteSommeil } from '@/composants/statut/CarteSommeil';
@@ -87,6 +88,7 @@ export function EcranStatut() {
           <CarteRegularite statut={statut} />
         </div>
       </div>
+      <RattraperSommeil />
     </div>
   );
 }

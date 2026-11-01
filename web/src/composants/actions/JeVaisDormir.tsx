@@ -9,8 +9,11 @@ import { FenetreAdaptative } from '@/composants/FenetreAdaptative';
 import { useFocus, useHeureServeur, useStatut } from '@/hooks/useFocus';
 import { versInstant } from '@/lib/temps';
 
-/** Confirmation de « Je vais dormir » : exception `avancer_coucher`, la nuit commence maintenant. */
-export function JeVaisDormir({ ouverte, surChangement }: { ouverte: boolean; surChangement: (ouverte: boolean) => void }) {
+/**
+ * L'appel de « Je vais dormir » : exception `avancer_coucher`, la nuit commence maintenant.
+ * Partagé avec la proposition de rattraper le sommeil (« Me coucher maintenant »).
+ */
+export function useJeVaisDormir(surSucces: () => void) {
   const { api, rafraichir } = useFocus();
   const { journee } = useStatut();
   const maintenant = useHeureServeur();
@@ -24,13 +27,20 @@ export function JeVaisDormir({ ouverte, surChangement }: { ouverte: boolean; sur
       await api.enregistrerException({ demande: { type: 'avancer_coucher', nuit: journee.date, a: versInstant(maintenant) } });
       toast.success('Bonne nuit', { description: 'La nuit a commencé.' });
       await rafraichir();
-      surChangement(false);
+      surSucces();
     } catch (e) {
       setErreur(versErreurFocus(e));
     } finally {
       setEnvoi(false);
     }
   }
+
+  return { envoi, erreur, setErreur, confirmer };
+}
+
+/** Confirmation de « Je vais dormir ». */
+export function JeVaisDormir({ ouverte, surChangement }: { ouverte: boolean; surChangement: (ouverte: boolean) => void }) {
+  const { envoi, erreur, setErreur, confirmer } = useJeVaisDormir(() => surChangement(false));
 
   return (
     <FenetreAdaptative

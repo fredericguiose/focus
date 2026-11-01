@@ -264,6 +264,9 @@ engagement sans heure, `preparation` facultative, défaut celle de la config, si
   `a` < coucher appliqué de la nuit ; sinon refus « la nuit a déjà commencé à HH:MM » (heure
   locale du coucher appliqué), sans friction demandée. Elle ne peut jamais repousser le coucher :
   pour coucher plus tard, c'est une exception `coucher` (desserrage, règles ci-dessus).
+  Se coucher plus tôt ne déplace jamais le lever (lever fixe, 01/11) : la nuit s'allonge et
+  rembourse la dette. La popup « rattraper le sommeil » envoie une exception `coucher` plus tôt
+  (resserrement, sans friction), car `avancer_coucher` prend toujours l'heure du serveur.
 - `prixException(contexte, demande, friction?)` renvoie : admissible ou non (et pourquoi),
   friction exigée (`aucune` | `raison` | `raison_phrase`), `frictionManquante` si seule la
   friction manque (tout le reste est admissible), coucher avant/après, lever avant/après, dette

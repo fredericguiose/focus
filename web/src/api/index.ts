@@ -12,6 +12,11 @@ function phaseDemandee(): Phase | undefined {
   return PHASES.find((p) => p === valeur);
 }
 
+/** Mode simulé seulement : `?scenario=dette` ouvre la soirée avec la proposition de rattraper le sommeil. */
+function scenarioDemande(): 'dette' | undefined {
+  return new URLSearchParams(window.location.search).get('scenario') === 'dette' ? 'dette' : undefined;
+}
+
 export function creerApi(jeton: string): ApiFocus {
-  return API_SIMULEE ? creerApiSimulee({ phase: phaseDemandee() }) : creerApiHttp(jeton);
+  return API_SIMULEE ? creerApiSimulee({ phase: phaseDemandee(), scenario: scenarioDemande() }) : creerApiHttp(jeton);
 }

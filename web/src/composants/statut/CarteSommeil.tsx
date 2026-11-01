@@ -209,8 +209,14 @@ export function CarteSommeil({ statut }: { statut: ReponseStatut }) {
   const total = ecartEnMots(ecartTotal, ' au total');
   const rattrape = siestesTotal > 0 ? `, dont ${formaterDuree(siestesTotal)} ${rattrapee(siestesTotal)} en sieste${nbSiestes > 1 ? 's' : ''}` : '';
   const IconeTotal = Math.abs(ecartTotal) <= TOLERANCE_MIN ? CircleCheck : ecartTotal < 0 ? TrendingDown : TrendingUp;
+  // Manque des nuits seules ; le total, lui, compte les siestes.
+  const ecartNuits = ecartTotal - siestesTotal;
   const libelleTotal =
-    Math.abs(ecartTotal) <= TOLERANCE_MIN ? 'objectif atteint' : `${formaterDuree(ecartTotal)} ${ecartTotal < 0 ? 'manquantes' : 'en plus'}`;
+    Math.abs(ecartTotal) <= TOLERANCE_MIN
+      ? siestesTotal > 0 ? 'tout rattrapé' : 'objectif atteint'
+      : ecartTotal < 0
+        ? siestesTotal > 0 ? `${formaterDuree(ecartTotal)} à rattraper` : `${formaterDuree(ecartTotal)} manquées`
+        : `${formaterDuree(ecartTotal)} en plus`;
   const tardive = statut.sieste_tardive ?? null;
 
   return (
@@ -259,16 +265,24 @@ export function CarteSommeil({ statut }: { statut: ReponseStatut }) {
               {total.texte}
               {rattrape}
             </p>
-            <div className="flex flex-wrap items-center gap-2 text-sm" aria-hidden>
-              <span className={cn('bg-muted/60 flex items-center gap-1.5 rounded-md px-2 py-1 font-medium tabular-nums', total.classe)} title="Écart à l'objectif sur les nuits mesurées, siestes comprises">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm" aria-hidden>
+              {siestesTotal > 0 && ecartNuits < -TOLERANCE_MIN ? (
+                <>
+                  <span className="bg-muted/60 flex items-center gap-1.5 rounded-md px-2 py-1 tabular-nums" title="Manque des nuits seules, sans les siestes">
+                    <Moon className="text-muted-foreground size-4 shrink-0" /> {formaterDuree(ecartNuits)}
+                    <span className="text-muted-foreground">manquées la nuit</span>
+                  </span>
+                  <span className="text-muted-foreground">moins</span>
+                  <span className="bg-muted/60 flex items-center gap-1.5 rounded-md px-2 py-1 tabular-nums" title="Siestes de la période">
+                    <Sun className="size-4 shrink-0" style={{ color: 'var(--sommeil-sieste)' }} /> {formaterDuree(siestesTotal)}
+                    <span className="text-muted-foreground">de sieste</span>
+                  </span>
+                  <span className="text-muted-foreground">=</span>
+                </>
+              ) : null}
+              <span className={cn('bg-muted/60 flex items-center gap-1.5 rounded-md px-2 py-1 font-semibold tabular-nums', total.classe)}>
                 <IconeTotal className="size-4 shrink-0" /> {libelleTotal}
               </span>
-              {siestesTotal > 0 ? (
-                <span className="bg-muted/60 flex items-center gap-1.5 rounded-md px-2 py-1 font-medium tabular-nums" title="Siestes comptées dans le total">
-                  <Sun className="size-4 shrink-0" style={{ color: 'var(--sommeil-sieste)' }} /> {formaterDuree(siestesTotal)}
-                  <span className="text-muted-foreground font-normal">de sieste</span>
-                </span>
-              ) : null}
             </div>
             <GraphiqueNuits nuits={nuits} objectif={objectif} aujourdhui={statut.journee.date} siestesDuJour={statut.siestes_du_jour_min ?? 0} />
           </section>

@@ -150,6 +150,11 @@ export interface OptionsSimulation {
    * vient avec ses faits (voir FAITS_PAR_PHASE), sauf si `faits` les précise.
    */
   phase?: Phase;
+  /**
+   * `dette` (`?scenario=dette`) : soirée tout juste ouverte, dette mesurée : la proposition de
+   * rattraper le sommeil s'affiche, avec toute la soirée à choisir sur le curseur.
+   */
+  scenario?: 'dette';
   faits?: Partial<FaitsSimules>;
 }
 
@@ -210,11 +215,13 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
   const horloge = options.maintenant ?? (() => Date.now());
   const fuseau = options.fuseau ?? fuseauDuNavigateur();
   const latenceMs = options.latenceMs ?? 0;
-  const faits: FaitsSimules = { ...(options.phase ? FAITS_PAR_PHASE[options.phase] : FAITS_PAR_DEFAUT), ...options.faits };
+  const phaseVoulue = options.scenario === 'dette' ? 'soiree' : options.phase;
+  const faits: FaitsSimules = { ...(phaseVoulue ? FAITS_PAR_PHASE[phaseVoulue] : FAITS_PAR_DEFAUT), ...options.faits };
   const exceptions: Exception[] = [];
   let decalage = 0;
   const maintenant = () => horloge() + decalage;
-  if (options.phase) decalage = instantDansPhase(options.phase, horloge()) - horloge();
+  if (options.scenario === 'dette') decalage = ouverture(dateCourante(horloge()), exceptions) + 10 * MINUTE - horloge();
+  else if (options.phase) decalage = instantDansPhase(options.phase, horloge()) - horloge();
   const debut = maintenant();
 
   const taches: TacheSimulee[] = [
