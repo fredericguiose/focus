@@ -3,7 +3,7 @@
 //	focusd [options]                 exécuter (au premier plan, ou lancé par systemd / le SCM)
 //	focusd [options] install         installer le service (démarrage automatique)
 //	focusd uninstall|start|stop|restart|status
-//	focusd [options] lever           retirer ce que Focus a posé (hosts, comptes désactivés)
+//	focusd [options] lever           retirer ce que Focus a posé (bloc hosts)
 package main
 
 import (

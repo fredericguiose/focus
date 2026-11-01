@@ -11,7 +11,7 @@ import (
 
 type Gestionnaire interface {
 	// Appliquer est appelé à chaque tour. actif=true ferme l'accès des comptes libres ;
-	// actif=false rend ce que Focus a retiré (Windows : réactive les comptes qu'il a désactivés).
+	// actif=false : rien à rendre (on agit sur les sessions, jamais sur les comptes).
 	Appliquer(actif bool, travail []string) error
 	Fermer() error
 }

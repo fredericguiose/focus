@@ -83,8 +83,9 @@ New-ItemProperty -Force -Path HKLM:\Software\Microsoft\Windows\CurrentVersion\Ru
 
 Le service redémarre en cas d'échec. Journal : `%ProgramData%\Focus\etat\focusd.log`.
 Sous Windows, les dialogues sont natifs (pas de `zenity` à installer). Le verrouillage
-déconnecte les sessions (retour à l'écran de connexion, programmes gardés) ; les comptes libres
-sont désactivés, puis réactivés à la fin du segment.
+déconnecte les sessions (retour à l'écran de connexion, programmes gardés) ; les sessions des
+comptes libres sont déconnectées. Aucun compte n'est jamais désactivé (01/11) : si le service
+s'arrête, Windows reste accessible.
 
 ## Mode essai
 
@@ -128,7 +129,7 @@ Remove-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Run -Name Fo
 Remove-Item -Recurse "$env:ProgramFiles\Focus", "$env:ProgramData\Focus"
 ```
 
-`focusd lever` retire le bloc hosts et réactive les comptes que Focus a désactivés. Il ne
+`focusd lever` retire le bloc hosts. Il ne
 déverrouille aucune session. Arrêter le service ne lève rien : le bloc reste jusqu'à `lever`.
 
 ## Bibliothèques
