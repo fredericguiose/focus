@@ -1,4 +1,4 @@
-import { BedDouble, CircleCheck, Moon, TrendingDown, Undo2, Watch } from 'lucide-react';
+import { ArrowDown, ArrowUp, BedDouble, CircleCheck, Equal, Moon, TrendingDown, Undo2, Watch } from 'lucide-react';
 import { Bar, BarChart, Cell, ReferenceLine, XAxis, YAxis } from 'recharts';
 
 import { Badge } from '@/components/ui/badge';
@@ -253,59 +253,34 @@ function SemaineEnCours({ semaine }: { semaine: DetteSemaine }) {
   );
 }
 
-/** « 26 oct. » : jour et mois d'un lundi. */
-const jourMois = (date: string) => formaterDateCourte(date).split(' ').slice(1).join(' ');
+/** Manque net moyen par nuit mesurée (négatif : plus que l'objectif). */
+const parNuit = (dette: number, rattrape: number, nuits: number) => (dette - rattrape) / nuits;
 
-/** Bilans des semaines closes, en tableau : semaine, dette, non rattrapé (« tout rattrapé » en vert). */
-function SemainesPassees({ bilans }: { bilans: BilanSemaine[] }) {
-  const incomplet = bilans.some((b) => b.nuits_mesurees < b.nuits_total);
+/**
+ * Tendance face à la semaine dernière (Frédéric, 01/11 : pas de tableau des semaines passées, juste
+ * « plus ou moins » que la dernière). Comparaison par nuit mesurée, pour qu'une semaine en cours
+ * incomplète ne paraisse pas meilleure qu'elle ne l'est.
+ */
+export function tendanceEnMots(semaine: DetteSemaine, precedente: BilanSemaine): { texte: string; classe: string; sens: -1 | 0 | 1 } | null {
+  if (semaine.nuits_mesurees === 0 || precedente.nuits_mesurees === 0) return null;
+  const diff = Math.round(
+    parNuit(semaine.dette_min, semaine.rattrape_min, semaine.nuits_mesurees) -
+      parNuit(precedente.dette_min, precedente.rattrape_min, precedente.nuits_mesurees),
+  );
+  if (Math.abs(diff) <= TOLERANCE_MIN) return { texte: 'comme la semaine dernière', classe: 'text-muted-foreground', sens: 0 };
+  return diff > 0
+    ? { texte: `${formaterDuree(diff)} de manque en plus par nuit que la semaine dernière`, classe: 'text-avertissement', sens: 1 }
+    : { texte: `${formaterDuree(diff)} de manque en moins par nuit que la semaine dernière`, classe: 'text-succes', sens: -1 };
+}
+
+function Tendance({ semaine, precedente }: { semaine: DetteSemaine; precedente: BilanSemaine }) {
+  const t = tendanceEnMots(semaine, precedente);
+  if (!t) return null;
+  const Icone = t.sens > 0 ? ArrowUp : t.sens < 0 ? ArrowDown : Equal;
   return (
-    <section className="grid gap-1.5" aria-label="Semaines passées">
-      <span className="text-muted-foreground text-sm">Semaines passées</span>
-      <ul className="grid w-fit grid-cols-[auto_auto_auto_auto] items-center gap-x-4 gap-y-1 text-xs tabular-nums">
-        <li className="text-muted-foreground col-span-4 grid grid-cols-subgrid" aria-hidden>
-          <span />
-          <span>dette</span>
-          <span>non rattrapé</span>
-          <span />
-        </li>
-        {bilans.map((b) => {
-          const avecDette = b.dette_min > TOLERANCE_MIN;
-          const toutRattrape = b.non_rattrape_min <= TOLERANCE_MIN;
-          const nonRattrape = `${formaterDuree(b.non_rattrape_min)} non ${accorde(b.non_rattrape_min, 'rattrapée')}`;
-          const resume = `Semaine du ${jourMois(b.debut)} : ${avecDette ? `${formaterDuree(b.dette_min)} de dette, ` : ''}${toutRattrape ? (avecDette ? 'tout rattrapé' : 'objectif atteint') : nonRattrape}${b.nuits_mesurees < b.nuits_total ? ` (${b.nuits_mesurees}/${b.nuits_total} nuits mesurées)` : ''}.`;
-          return (
-            <li key={b.debut} className="relative col-span-4 grid grid-cols-subgrid items-center">
-              <span className="sr-only">{resume}</span>
-              <span className="text-muted-foreground" aria-hidden>
-                Sem. du {jourMois(b.debut)}
-              </span>
-              <span aria-hidden>{avecDette ? formaterDuree(b.dette_min) : '—'}</span>
-              {toutRattrape ? (
-                <span className="text-succes flex items-center gap-1" aria-hidden>
-                  <CircleCheck className="size-3.5 shrink-0" /> {avecDette ? 'tout rattrapé' : 'objectif atteint'}
-                </span>
-              ) : (
-                <span className="text-avertissement" aria-hidden>
-                  {formaterDuree(b.non_rattrape_min)}
-                </span>
-              )}
-              {incomplet ? (
-                <span className="text-muted-foreground flex items-center justify-end gap-1" title="Nuits mesurées" aria-hidden>
-                  {b.nuits_mesurees < b.nuits_total ? (
-                    <>
-                      <Watch className="size-3.5 shrink-0" /> {b.nuits_mesurees}/{b.nuits_total}
-                    </>
-                  ) : null}
-                </span>
-              ) : (
-                <span />
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </section>
+    <p className={cn('flex items-center gap-1.5 text-xs', t.classe)}>
+      <Icone className="size-3.5 shrink-0" /> {t.texte}
+    </p>
   );
 }
 
@@ -325,7 +300,8 @@ export function CarteSommeil({ statut }: { statut: ReponseStatut }) {
   const siesteApres = derniere ? siesteApresNuit(derniere.nuit, nuits, statut.journee.date, statut.siestes_du_jour_min ?? 0) : 0;
   const ecart = derniere ? ecartNuitEnMots(dormi(derniere)! - objectif, siesteApres) : null;
   const semaine = statut.dette_semaine;
-  const bilans = (statut.bilans_semaines ?? []).filter((b) => b.nuits_mesurees > 0);
+  // La semaine juste avant (la plus récente des closes) ; sans mesure, pas de comparaison.
+  const precedente = statut.bilans_semaines?.[0];
   const tardive = statut.sieste_tardive ?? null;
 
   return (
@@ -359,7 +335,12 @@ export function CarteSommeil({ statut }: { statut: ReponseStatut }) {
             <Watch className="size-4 shrink-0" /> Pas encore de nuit mesurée par la montre.
           </p>
         )}
-        {semaine && semaine.nuits_mesurees > 0 ? <SemaineEnCours semaine={semaine} /> : null}
+        {semaine && semaine.nuits_mesurees > 0 ? (
+          <div className="grid gap-1.5">
+            <SemaineEnCours semaine={semaine} />
+            {precedente ? <Tendance semaine={semaine} precedente={precedente} /> : null}
+          </div>
+        ) : null}
         {mesurees.length > 0 ? (
           <section className="grid gap-2" aria-label={`${nuits.length} dernières nuits`}>
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-sm">
@@ -373,7 +354,6 @@ export function CarteSommeil({ statut }: { statut: ReponseStatut }) {
             <GraphiqueNuits nuits={nuits} objectif={objectif} aujourdhui={statut.journee.date} siestesDuJour={statut.siestes_du_jour_min ?? 0} />
           </section>
         ) : null}
-        {bilans.length > 0 ? <SemainesPassees bilans={bilans} /> : null}
         {tardive ? (
           <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
             <Moon className="size-3.5 shrink-0" /> Sieste tardive : vous endormir à {formaterHeure(tardive.coucher, statut.journee.fuseau)} pourrait être plus difficile.

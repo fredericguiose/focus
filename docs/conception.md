@@ -651,11 +651,13 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   et éveil à part ; puis « Cette semaine » (`dette_semaine`, si une nuit de la semaine est
   mesurée) en pastilles : « 3 h 10 manquées » moins « 1 h 05 rattrapées » (infobulle « Nuits
   plus longues et siestes ») = « 2 h 05 à rattraper », ou « tout rattrapé » / « objectif atteint »
-  en vert (à 5 min près), « n/total mesurées » si une nuit finie n'est pas mesurée ; puis « 7
-  dernières nuits » en barres (heures dormies, trait de l'objectif, pas de barre sans mesure,
-  barre pâle si incomplète) ; puis « Semaines passées » (bilans avec au moins une nuit mesurée),
-  une ligne chacun : « Sem. du 26 oct. · 5 h 13 de dette · 3 h 13 non rattrapées », « … · tout
-  rattrapé » en vert, montre + « 6/7 » si incomplet. Participes accordés à la durée, jamais de
+  en vert (à 5 min près), « n/total mesurées » si une nuit finie n'est pas mesurée ; dessous, une
+  ligne de tendance face à la semaine close la plus récente (`bilans_semaines[0]`), comparée par
+  nuit mesurée (manque net moyen) : flèche + « 10 min de manque en plus/en moins par nuit que la
+  semaine dernière » ou « comme la semaine dernière » (à 5 min près) ; puis « 7 dernières nuits »
+  en barres (heures dormies, trait de l'objectif, pas de barre sans mesure, barre pâle si
+  incomplète). Pas de tableau des semaines passées (01/11 : « pas besoin de les afficher », juste
+  plus ou moins que la dernière) ; `bilans_semaines` reste dans l'API. Participes accordés à la durée, jamais de
   signe collé aux chiffres. Elle ne montre plus la dette prévue (`dette_min`, toujours renvoyée) ; le coucher prévu est dans « Ce soir ».
   Siestes : le chiffre de la dernière nuit reste la nuit seule ; dessous, si la nuit manque
   l'objectif et que la journée qui la suit a une sieste (`siestes_du_jour` pour « Cette nuit »,

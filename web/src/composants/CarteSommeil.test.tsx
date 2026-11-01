@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { creerApiSimulee } from '@/api/simule';
 import type { ReponseStatut } from '@/api/contrat';
-import { CarteSommeil, detailNuit, ecartEnMots, ecartNuitEnMots, rattrapee } from '@/composants/statut/CarteSommeil';
+import { tendanceEnMots, CarteSommeil, detailNuit, ecartEnMots, ecartNuitEnMots, rattrapee } from '@/composants/statut/CarteSommeil';
 
 const MARDI_15H = Date.parse('2026-11-03T14:00:00Z');
 const statut = () => creerApiSimulee({ maintenant: () => MARDI_15H, fuseau: 'Europe/Paris', phase: 'journee' }).statut();
@@ -35,24 +35,9 @@ describe('carte « Sommeil »', () => {
     expect(screen.getByText('6/7 mesurées')).toBeTruthy();
     expect(screen.queryByText(/incompl/)).toBeNull();
     expect(screen.getByText(/pas de mesure$/, { selector: 'li' })).toBeTruthy();
-    // Semaines closes, la plus récente d'abord.
-    const passees = screen.getByLabelText('Semaines passées');
-    // Pour les lecteurs d'écran, une phrase par semaine ; à l'écran, un petit tableau.
-    const phrases = [...passees.querySelectorAll('li > .sr-only')].map((l) => l.textContent);
-    expect(phrases).toEqual([
-      'Semaine du 26 oct. : 5 h 15 de dette, 4 h 15 non rattrapées (6/7 nuits mesurées).',
-      'Semaine du 19 oct. : 3 h 40 de dette, 2 h 15 non rattrapées (6/7 nuits mesurées).',
-      'Semaine du 12 oct. : 3 h 40 de dette, 2 h 10 non rattrapées.',
-      'Semaine du 5 oct. : 1 h 10 de dette, tout rattrapé.',
-    ]);
-    const cases = [...passees.querySelectorAll('li:not(:first-child)')].map((l) => [...l.children].slice(1).map((c) => c.textContent?.trim()));
-    expect(cases).toEqual([
-      ['Sem. du 26 oct.', '5 h 15', '4 h 15', '6/7'],
-      ['Sem. du 19 oct.', '3 h 40', '2 h 15', '6/7'],
-      ['Sem. du 12 oct.', '3 h 40', '2 h 10', ''],
-      ['Sem. du 5 oct.', '1 h 10', 'tout rattrapé', ''],
-    ]);
-    expect(passees.textContent).toContain('non rattrapé');
+    // Plus de tableau des semaines passées : une ligne de tendance face à la semaine dernière.
+    expect(screen.queryByLabelText('Semaines passées')).toBeNull();
+    expect(screen.getByText(/de manque en (plus|moins) par nuit que la semaine dernière|comme la semaine dernière/)).toBeTruthy();
     const texte = container.textContent ?? '';
     expect(texte).not.toMatch(/prévu|rembours|[+−]\d/i);
   });
@@ -198,5 +183,19 @@ describe('carte « Sommeil »', () => {
     const nuit = nuits.find((n) => Math.abs(n.x - siestes[0]!.x) < 0.5)!;
     expect(nuit).toBeTruthy();
     expect(siestes[0]!.y + siestes[0]!.h).toBeCloseTo(nuit.y, 0);
+  });
+});
+
+describe('tendance face à la semaine dernière', () => {
+  const sem = (dette: number, rattrape: number, nuits: number) => ({ debut: '2026-11-02', fin: '2026-11-08', dette_min: dette, rattrape_min: rattrape, reste_min: Math.max(0, dette - rattrape), nuits_restantes: 3, nuits_mesurees: nuits, nuits_total: nuits });
+  const bilan = (dette: number, rattrape: number, nuits: number) => ({ debut: '2026-10-26', fin: '2026-11-01', dette_min: dette, rattrape_min: rattrape, non_rattrape_min: Math.max(0, dette - rattrape), nuits_mesurees: nuits, nuits_total: 7 });
+  it('compare par nuit mesurée, pas en total (une semaine incomplète ne paraît pas meilleure)', () => {
+    // Cette semaine : 2 nuits, 60 min de manque net → 30/nuit ; la dernière : 7 nuits, 140 min → 20/nuit.
+    expect(tendanceEnMots(sem(80, 20, 2), bilan(160, 20, 7))).toMatchObject({ texte: '10 min de manque en plus par nuit que la semaine dernière', sens: 1 });
+    expect(tendanceEnMots(sem(20, 0, 2), bilan(210, 0, 7))).toMatchObject({ texte: '20 min de manque en moins par nuit que la semaine dernière', sens: -1 });
+    expect(tendanceEnMots(sem(42, 0, 2), bilan(140, 0, 7))).toMatchObject({ texte: 'comme la semaine dernière', sens: 0 });
+  });
+  it('sans nuit mesurée d’un côté : pas de comparaison', () => {
+    expect(tendanceEnMots(sem(80, 0, 2), bilan(0, 0, 0))).toBeNull();
   });
 });
