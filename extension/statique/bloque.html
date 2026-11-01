@@ -4,29 +4,46 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Bloqué — Focus</title>
+    <link rel="icon" href="icones/icone-32.png" />
     <link rel="stylesheet" href="style.css" />
     <script type="module" src="bloque.js"></script>
   </head>
   <body>
-    <main>
-      <h1 id="titre">Vérification…</h1>
-      <p class="erreur" id="erreur" role="alert" hidden></p>
+    <main class="page">
+      <div class="marque"><img src="icones/icone-32.png" alt="" />Focus</div>
 
-      <section id="detail" hidden>
-        <dl>
-          <dt>Domaine</dt><dd id="domaine"></dd>
-          <dt>App</dt><dd id="app"></dd>
-          <dt>Mode</dt><dd id="mode"></dd>
-          <dt>Raison</dt><dd id="raison"></dd>
-        </dl>
-        <div class="actions">
-          <button type="button" id="reessayer">Réessayer la page</button>
+      <section class="carte">
+        <div class="entete">
+          <div class="logo" aria-hidden="true">
+            <img id="logo" alt="" hidden />
+            <span class="lettre" id="lettre"></span>
+            <span class="cadenas">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
+            </span>
+          </div>
+          <h1 id="titre">Vérification…</h1>
+          <p class="sous-titre" id="sous-titre"></p>
+          <span class="pastille" id="mode" hidden></span>
+        </div>
+
+        <div class="pourquoi" id="pourquoi" hidden>
+          <span class="etiquette" id="pourquoi-titre">Pourquoi</span>
+          <ul class="manques" id="manques"></ul>
+        </div>
+
+        <div class="message erreur" id="erreur" role="alert" hidden></div>
+        <div class="message info" id="info" role="status" hidden></div>
+
+        <div class="actions pleine">
+          <button type="button" id="reessayer">Réessayer</button>
         </div>
       </section>
 
-      <section id="session" hidden>
-        <h2>Ouvrir une session</h2>
-        <p class="discret" id="session-aide"></p>
+      <section class="carte" id="session" hidden>
+        <div>
+          <h2 class="titre-carte">Ouvrir une session</h2>
+          <p class="discret" id="session-aide"></p>
+        </div>
         <div class="taches" id="taches" role="radiogroup" aria-label="Tâche du jour"></div>
         <div class="actions">
           <button type="button" class="primaire" id="ouvrir" disabled>Ouvrir la session</button>
@@ -34,11 +51,13 @@
           <span id="compte" role="status"></span>
         </div>
         <div class="actions" id="ajout" hidden>
-          <button type="button" class="primaire" id="ajouter">Ajouter l'app à la session ouverte</button>
+          <button type="button" class="primaire" id="ajouter">Ajouter à la session ouverte</button>
         </div>
-        <p class="succes" id="succes" role="status" hidden></p>
-        <p class="discret">L'envoi part 10 s après le clic : le temps de se demander si c'est nécessaire.</p>
+        <div class="message succes" id="succes" role="status" hidden></div>
+        <p class="discret petit">L'envoi part 10 s après le clic : le temps de se demander si c'est nécessaire.</p>
       </section>
+
+      <p class="discret petit" id="sessions-interdites" hidden>Pas de session possible dans ce mode.</p>
     </main>
   </body>
 </html>

@@ -51,7 +51,15 @@ export async function ecrireReglages(r: Reglages): Promise<void> {
   await chrome.storage.local.set({ ...r });
 }
 
-/** Normalise l'adresse saisie en origine ; refuse le HTTP en clair hors de la machine locale. */
+/** Hôte de production, autorisé d'office par le manifest (`host_permissions`). */
+export const HOTE_PROD = 'api-focus.fredericguiose.com';
+
+export const estLocal = (hote: string) => hote === 'localhost' || hote === '127.0.0.1';
+
+/**
+ * Normalise l'adresse saisie en origine. Seuls l'hôte de production (HTTPS) et la machine locale
+ * (HTTP ou HTTPS) sont acceptés : ce sont les seuls hôtes que le manifest permet d'autoriser.
+ */
 export function origineApi(saisie: string): string {
   let url: URL;
   try {
@@ -59,9 +67,11 @@ export function origineApi(saisie: string): string {
   } catch {
     throw new ErreurApi('url_invalide', "Adresse de l'API invalide.");
   }
-  const locale = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
-  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && locale)) {
-    throw new ErreurApi('url_invalide', 'HTTPS obligatoire (HTTP accepté seulement pour localhost).');
+  const ok = estLocal(url.hostname)
+    ? url.protocol === 'http:' || url.protocol === 'https:'
+    : url.protocol === 'https:' && url.hostname === HOTE_PROD;
+  if (!ok) {
+    throw new ErreurApi('url_invalide', `Adresse refusée : https://${HOTE_PROD}, ou localhost / 127.0.0.1 en local.`);
   }
   return url.origin;
 }
@@ -105,4 +115,41 @@ export function demanderBlocage(r: Reglages, domaine: string): Promise<ReponseBl
 export function versErreurApi(e: unknown): ErreurApi {
   if (e instanceof ErreurApi) return e;
   return new ErreurApi('inattendue', e instanceof Error ? e.message : String(e));
+}
+
+// Messages entre les pages de l'extension et le service worker (chrome.runtime.sendMessage).
+
+/** Relire le planning tout de suite ; avec `domaine`, dire aussi s'il est bloqué d'après ce planning. */
+export interface MessageRafraichir {
+  type: 'rafraichir';
+  domaine?: string;
+}
+
+export type ReponseRafraichir =
+  | {
+      ok: true;
+      appareil: string;
+      /** Code du mode en vigueur (ex. « WORK »), null hors segment. */
+      mode: string | null;
+      /** Nombre de domaines bloqués maintenant. */
+      domaines: number;
+      /** Pour le domaine demandé : bloqué d'après le planning (null : planning inutilisable ou pas de domaine). */
+      bloque: boolean | null;
+      /** Fin du blocage du domaine demandé (instant ISO, horloge locale), null si inconnue. */
+      jusqua: string | null;
+      /** Fin du mode en vigueur (instant ISO, horloge locale), null hors segment. */
+      modeJusqua: string | null;
+      sessions: 'autorisees' | 'interdites' | null;
+      raison: string;
+    }
+  | { ok: false; erreur: string; message: string };
+
+export async function rafraichirPlanning(domaine?: string): Promise<ReponseRafraichir> {
+  const message: MessageRafraichir = domaine ? { type: 'rafraichir', domaine } : { type: 'rafraichir' };
+  try {
+    const r = (await chrome.runtime.sendMessage(message)) as ReponseRafraichir | undefined;
+    return r ?? { ok: false, erreur: 'service_worker', message: 'Le service worker n’a pas répondu.' };
+  } catch (e) {
+    return { ok: false, erreur: 'service_worker', message: e instanceof Error ? e.message : String(e) };
+  }
 }

@@ -4,33 +4,51 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Options — Focus</title>
+    <link rel="icon" href="icones/icone-32.png" />
     <link rel="stylesheet" href="style.css" />
     <script type="module" src="options.js"></script>
   </head>
   <body>
-    <main>
-      <h1>Focus — options</h1>
-      <p class="discret">
-        L'extension ne bloque rien : elle explique les sites bloqués par le client PC et permet d'ouvrir une session.
-      </p>
-      <form id="formulaire">
-        <section>
-          <label class="champ">Adresse de l'API
-            <input type="url" id="api" required placeholder="https://api-focus.fredericguiose.com" autocomplete="off" />
-          </label>
-          <label class="champ">Jeton appareil (celui du PC)
-            <input type="password" id="jeton" required autocomplete="off" />
-          </label>
-          <label class="champ">Nom de l'appareil (dans la config)
-            <input type="text" id="appareil" required placeholder="pc_linux" autocomplete="off" />
-          </label>
-          <div class="actions">
-            <button type="submit" class="primaire" id="enregistrer">Enregistrer et vérifier</button>
-          </div>
-          <p class="erreur" id="erreur" role="alert" hidden></p>
-          <p class="succes" id="succes" role="status" hidden></p>
-        </section>
+    <main class="page">
+      <div class="marque"><img src="icones/icone-32.png" alt="" />Focus</div>
+
+      <section class="carte">
+        <div class="etat" id="etat" data-etat="inconnu" role="status">
+          <span class="point" aria-hidden="true"></span>
+          <span class="texte"><strong id="etat-titre">Vérification…</strong><span class="discret" id="etat-detail"></span></span>
+        </div>
+      </section>
+
+      <form class="carte" id="formulaire">
+        <div>
+          <h1 class="titre-carte">Connexion à Focus</h1>
+          <p class="discret">Le PC bloque les sites ; l'extension affiche pourquoi et permet d'ouvrir une session.</p>
+        </div>
+        <label class="champ"><span>Adresse de l'API</span>
+          <input type="url" id="api" required placeholder="https://api-focus.fredericguiose.com" autocomplete="off" spellcheck="false" />
+        </label>
+        <label class="champ"><span>Jeton de l'appareil</span>
+          <input type="password" id="jeton" required autocomplete="off" spellcheck="false" />
+          <span class="aide">Un jeton « appareil » propre à l'extension, au nom de ce PC.</span>
+        </label>
+        <label class="champ"><span>Nom de l'appareil</span>
+          <input type="text" id="appareil" required placeholder="pc_linux" autocomplete="off" spellcheck="false" />
+          <span class="aide">Tel qu'écrit dans la configuration Focus.</span>
+        </label>
+        <div class="actions">
+          <button type="submit" class="primaire" id="enregistrer">Enregistrer et vérifier</button>
+        </div>
+        <div class="message erreur" id="erreur" role="alert" hidden></div>
+        <div class="message succes" id="succes" role="status" hidden></div>
       </form>
+
+      <section class="carte">
+        <h2 class="titre-carte">Vie privée</h2>
+        <ul class="notes discret">
+          <li>L'extension lit le planning du PC chaque minute et décide sur place : les sites visités ne sont pas envoyés.</li>
+          <li>Seul le nom d'un site déjà bloqué part vers l'API, pour afficher ses détails ; et, sans planning récent, celui d'un site qui refuse la connexion.</li>
+        </ul>
+      </section>
     </main>
   </body>
 </html>

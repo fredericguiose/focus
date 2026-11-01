@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Focus",
-  "version": "2.0.0",
-  "description": "Explique un site bloqué par Focus et permet d'ouvrir une session. Ne bloque rien.",
+  "version": "2.1.0",
+  "description": "Affiche pourquoi un site est bloqué par Focus et permet d'ouvrir une session. Le blocage réseau reste celui du PC.",
   "minimum_chrome_version": "116",
-  "permissions": ["webNavigation", "storage"],
-  "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+  "permissions": ["webNavigation", "storage", "alarms", "favicon"],
+  "host_permissions": ["https://api-focus.fredericguiose.com/*"],
+  "optional_host_permissions": ["http://localhost/*", "http://127.0.0.1/*", "https://localhost/*", "https://127.0.0.1/*"],
   "background": { "service_worker": "fond.js", "type": "module" },
   "options_ui": { "page": "options.html", "open_in_tab": true },
   "icons": { "16": "icones/icone-16.png", "32": "icones/icone-32.png", "48": "icones/icone-48.png", "128": "icones/icone-128.png" }
