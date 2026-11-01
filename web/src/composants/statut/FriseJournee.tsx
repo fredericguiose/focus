@@ -1,88 +1,95 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Journee } from '@/api/contrat';
-import { positionSurFrise, reperes } from '@/lib/journee';
-import { formaterEcart, formaterHeure, heureLocale } from '@/lib/temps';
+import { construireFrise, type ClePeriode } from '@/lib/frise';
+import { heureLocale } from '@/lib/temps';
 import { cn } from '@/lib/utils';
 
-const COULEUR_REPERE = {
-  lever: 'bg-mode-matin',
-  ouverture: 'bg-mode-soiree',
-  coucher: 'bg-mode-nuit',
-  leverSuivant: 'bg-mode-matin',
-} as const;
+// Classes écrites en entier pour Tailwind : mêmes couleurs que les modes.
+const FOND: Record<ClePeriode, string> = {
+  matin: 'bg-mode-matin',
+  travail: 'bg-mode-travail',
+  soiree: 'bg-mode-soiree',
+  nuit: 'bg-mode-nuit',
+};
 
-/** Frise lever → ouverture de la soirée → coucher → lever suivant, avec un repère « maintenant ». */
-export function FriseJournee({ journee: j, maintenant }: { journee: Journee; maintenant: number }) {
-  const liste = reperes(j);
-  const pos = (ms: number) => positionSurFrise(j, ms) * 100;
-  const [lever, ouverture, coucher] = liste;
-  const segments = [
-    { debut: lever?.ms ?? 0, fin: ouverture?.ms ?? 0, classe: 'bg-mode-travail/70', nom: 'Journée' },
-    { debut: ouverture?.ms ?? 0, fin: coucher?.ms ?? 0, classe: 'bg-mode-soiree/70', nom: 'Soirée' },
-    { debut: coucher?.ms ?? 0, fin: Date.parse(j.leverSuivant), classe: 'bg-mode-nuit/70', nom: 'Nuit' },
-  ];
-  const maintenantPos = pos(maintenant);
+const pct = (x: number) => `${x * 100}%`;
+
+/** Frise lever → lever suivant : périodes nommées, repères avec l'heure dessous, « maintenant ». */
+export function FriseJournee({
+  journee: j,
+  maintenant,
+  modePrincipal,
+  jusqua,
+}: {
+  journee: Journee;
+  maintenant: number;
+  modePrincipal?: string;
+  jusqua?: string | null;
+}) {
+  const frise = construireFrise(j, maintenant, modePrincipal, jusqua);
+  const heure = (ms: number) => heureLocale(ms, j.fuseau);
+  const dernier = frise.reperes.length - 1;
 
   return (
-    <Card className="gap-5">
+    <Card className="gap-4">
       <CardHeader>
-        <CardTitle>Frise de la journée</CardTitle>
+        <CardTitle>Journée</CardTitle>
         <CardDescription>Du lever au lever suivant</CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-6">
-        <div className="relative pt-7">
-          <div
-            className="bg-foreground text-background absolute top-0 -translate-x-1/2 rounded-md px-1.5 py-0.5 text-[11px] font-semibold whitespace-nowrap tabular-nums shadow-sm"
-            style={{ left: `clamp(1.5rem, ${maintenantPos}%, calc(100% - 1.5rem))` }}
-          >
-            {heureLocale(maintenant, j.fuseau)}
-          </div>
-          <div className="bg-muted relative flex h-3 overflow-hidden rounded-full" role="img" aria-label="Frise de la journée">
-            {segments.map((s) => (
+      <CardContent>
+        <figure aria-label="Frise de la journée" className="relative pt-8 pb-1">
+          {frise.maintenant !== null ? (
+            <>
               <div
-                key={s.nom}
-                className={cn('h-full', s.classe)}
-                style={{ width: `${Math.max(0, pos(s.fin) - pos(s.debut))}%` }}
-                title={s.nom}
+                className="bg-foreground text-background absolute top-0 -translate-x-1/2 rounded-md px-1.5 py-0.5 text-[11px] font-semibold whitespace-nowrap tabular-nums shadow-sm"
+                style={{ left: `clamp(2.75rem, ${pct(frise.maintenant)}, calc(100% - 2.75rem))` }}
+              >
+                Maintenant · {heure(maintenant)}
+              </div>
+              <div
+                className="bg-foreground absolute top-6 z-10 h-12 w-0.5 -translate-x-1/2 rounded-full"
+                style={{ left: pct(frise.maintenant) }}
+                aria-hidden
               />
-            ))}
-            <div className="bg-background/55 absolute inset-y-0 right-0" style={{ left: `${maintenantPos}%` }} />
-          </div>
-          <div className="bg-foreground absolute top-5 bottom-[-6px] w-0.5 -translate-x-1/2 rounded-full" style={{ left: `${maintenantPos}%` }} aria-hidden />
-          {liste.slice(1, 3).map((r) => (
-            <Tooltip key={r.cle}>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={`${r.libelle} : ${formaterHeure(new Date(r.ms).toISOString(), j.fuseau)}`}
-                  className={cn('ring-background absolute top-[1.625rem] size-4 -translate-x-1/2 rounded-full ring-3', COULEUR_REPERE[r.cle])}
-                  style={{ left: `${pos(r.ms)}%` }}
-                />
-              </TooltipTrigger>
-              <TooltipContent>
-                {r.libelle} · {formaterHeure(new Date(r.ms).toISOString(), j.fuseau)}
-              </TooltipContent>
-            </Tooltip>
-          ))}
-        </div>
-        <ol className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {liste.map((r) => {
-            const passe = r.ms <= maintenant;
-            return (
-              <li key={r.cle} className={cn('grid gap-0.5 rounded-lg border px-3 py-2.5', passe && 'bg-muted/40')}>
-                <span className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium">
-                  <span className={cn('size-2 rounded-full', COULEUR_REPERE[r.cle])} />
-                  {r.libelle}
+            </>
+          ) : null}
+
+          <div className="relative overflow-hidden rounded-lg">
+          <ol className="flex h-9">
+            {frise.periodes.map((p) => (
+              <li
+                key={p.cle}
+                className={cn('flex min-w-0 items-center justify-center border-r-2 border-card px-1 last:border-r-0', FOND[p.cle])}
+                style={{ width: pct(p.droite - p.gauche) }}
+                title={`${p.nom} : ${heure(p.debut)} – ${heure(p.fin)}`}
+              >
+                <span className="truncate text-[11px] font-semibold text-white sm:text-xs">{p.nom}</span>
+                <span className="sr-only">
+                  {' '}
+                  de {heure(p.debut)} à {heure(p.fin)}
                 </span>
-                <span className={cn('text-lg font-semibold tabular-nums', passe && 'text-muted-foreground')}>
-                  {formaterHeure(new Date(r.ms).toISOString(), j.fuseau)}
-                </span>
-                <span className="text-muted-foreground text-xs">{passe ? 'passé' : formaterEcart(r.ms - maintenant)}</span>
               </li>
-            );
-          })}
-        </ol>
+            ))}
+          </ol>
+          </div>
+
+          <ol className="relative mt-1 h-11" aria-label="Repères">
+            {frise.reperes.map((r, i) => (
+              <li
+                key={r.cle}
+                className={cn(
+                  'absolute top-0 grid justify-items-center leading-tight',
+                  i === 0 ? 'justify-items-start' : i === dernier ? '-translate-x-full justify-items-end' : '-translate-x-1/2',
+                )}
+                style={{ left: pct(r.position) }}
+              >
+                <span className="bg-foreground/60 h-2 w-px" aria-hidden />
+                <span className="text-sm font-semibold tabular-nums">{heure(r.ms)}</span>
+                <span className="text-muted-foreground text-[11px]">{r.libelle}</span>
+              </li>
+            ))}
+          </ol>
+        </figure>
       </CardContent>
     </Card>
   );

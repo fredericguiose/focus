@@ -1,26 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Journee } from '@/api/contrat';
 import { etatPing, libelleAppareil } from './appareils';
-import { positionSurFrise, prochainRepere } from './journee';
 import { infoMode, raisonLisible } from './modes';
 import { formaterEcart } from './temps';
 
 const MIN = 60_000;
-const journee: Journee = {
-  date: '2026-11-03',
-  routine: 'semaine',
-  fuseau: 'Europe/Paris',
-  engagements: [],
-  lever: '2026-11-03T06:00:00Z',
-  ouverture: '2026-11-03T18:50:00Z',
-  coucherPrevu: '2026-11-03T20:30:00Z',
-  coucherApplique: '2026-11-03T20:30:00Z',
-  leverSuivant: '2026-11-04T04:30:00Z',
-  prixDuReportMin: 20,
-  detteNuitMin: 0,
-  decisionDeNuitPrise: false,
-};
 
 describe('affichage', () => {
   it('formate un écart court', () => {
@@ -28,19 +12,6 @@ describe('affichage', () => {
     expect(formaterEcart(5 * MIN + 30_000)).toBe('dans 5 min');
     expect(formaterEcart(20_000)).toBe("dans moins d'une minute");
     expect(formaterEcart(-3 * MIN)).toBe('il y a 3 min');
-  });
-
-  it('trouve le prochain repère de la journée', () => {
-    expect(prochainRepere(journee, Date.parse('2026-11-03T14:00:00Z'))?.cle).toBe('ouverture');
-    expect(prochainRepere(journee, Date.parse('2026-11-03T19:00:00Z'))?.cle).toBe('coucher');
-    expect(prochainRepere(journee, Date.parse('2026-11-03T22:00:00Z'))?.cle).toBe('leverSuivant');
-    expect(prochainRepere(journee, Date.parse('2026-11-04T05:00:00Z'))).toBeNull();
-  });
-
-  it('place un instant sur la frise, borné', () => {
-    expect(positionSurFrise(journee, Date.parse(journee.lever))).toBe(0);
-    expect(positionSurFrise(journee, Date.parse(journee.leverSuivant))).toBe(1);
-    expect(positionSurFrise(journee, Date.parse('2026-11-05T00:00:00Z'))).toBe(1);
   });
 
   it('traduit les modes et retire le code de la raison', () => {

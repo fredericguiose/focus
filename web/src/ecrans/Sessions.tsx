@@ -1,6 +1,7 @@
-import { Hourglass, Layers, Plus, Timer } from 'lucide-react';
+import { Hourglass, Layers, Lock, Plus, Timer } from 'lucide-react';
 import { useState } from 'react';
 
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -9,13 +10,30 @@ import { EnTeteEcran } from '@/composants/EnTeteEcran';
 import { FenetreAdaptative } from '@/composants/FenetreAdaptative';
 import { Indicateur } from '@/composants/statut/Indicateur';
 import { OuvrirSession } from '@/composants/OuvrirSession';
-import { useStatut } from '@/hooks/useFocus';
-import { formaterDuree } from '@/lib/temps';
+import type { ReponseStatut } from '@/api/contrat';
+import { useHeureServeur, useStatut } from '@/hooks/useFocus';
+import { infoMode, raisonLisible } from '@/lib/modes';
+import { formaterDuree, formaterHeureRelative } from '@/lib/temps';
+
+/** Pourquoi aucune session ne peut s'ouvrir, d'après le mode en vigueur (null si une le peut). */
+export function motifSessionsInterdites(statut: ReponseStatut, maintenant: number): { titre: string; detail: string | null } | null {
+  if (statut.appareils.some((a) => a.sessions === 'autorisees')) return null;
+  const principal = statut.appareils[0];
+  const jusqua = principal?.jusqua ? ` — jusqu'à ${formaterHeureRelative(principal.jusqua, statut.journee.fuseau, maintenant)}` : '';
+  if (statut.phase === 'nuit' || principal?.mode === 'NIGHT_LOCK') {
+    return { titre: `Sessions interdites pendant la nuit${jusqua}`, detail: 'Aucune app ne peut être débloquée avant le lever.' };
+  }
+  const mode = principal ? infoMode(principal.mode).libelle : 'mode en cours';
+  return { titre: `Sessions interdites : ${mode}${jusqua}`, detail: principal ? raisonLisible(principal.raison) : null };
+}
 
 export function EcranSessions() {
-  const { sessions, sessions_du_jour: cumul, appareils } = useStatut();
+  const statut = useStatut();
+  const maintenant = useHeureServeur();
+  const { sessions, sessions_du_jour: cumul } = statut;
   const [ouverture, setOuverture] = useState(false);
-  const autorisees = appareils.some((a) => a.sessions === 'autorisees');
+  const interdites = motifSessionsInterdites(statut, maintenant);
+  const autorisees = interdites === null;
   const restantMin = cumul ? Math.max(0, cumul.plafond_min - cumul.cumul_min) : null;
 
   return (
@@ -29,6 +47,14 @@ export function EcranSessions() {
           </Button>
         }
       />
+
+      {interdites ? (
+        <Alert className="border-mode-nuit/40">
+          <Lock />
+          <AlertTitle className="line-clamp-none">{interdites.titre}</AlertTitle>
+          {interdites.detail ? <AlertDescription>{interdites.detail}</AlertDescription> : null}
+        </Alert>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
         <div className="col-span-2 lg:col-span-1">
@@ -60,9 +86,11 @@ export function EcranSessions() {
               <p className="font-medium">Aucune session ouverte.</p>
               <p className="text-muted-foreground text-sm">Les apps bloquées le restent jusqu'à la prochaine session.</p>
             </div>
-            <Button variant="outline" onClick={() => setOuverture(true)} disabled={!autorisees}>
-              <Plus /> Ouvrir une session
-            </Button>
+            {autorisees ? (
+              <Button variant="outline" onClick={() => setOuverture(true)}>
+                <Plus /> Ouvrir une session
+              </Button>
+            ) : null}
           </CardContent>
         </Card>
       ) : (

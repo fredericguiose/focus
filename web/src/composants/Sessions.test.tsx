@@ -118,3 +118,13 @@ describe('ouverture de session', () => {
     expect(bouton('Ouvrir la session').disabled).toBe(false);
   });
 });
+
+describe('sessions la nuit', () => {
+  it('explique pourquoi et jusqu’à quand, au lieu d’un bouton grisé muet', async () => {
+    vi.setSystemTime(new Date('2026-11-03T21:00:00Z'));
+    await rendreAvecFocus(<EcranSessions />, creerApiSimulee({ fuseau: 'Europe/Paris' }));
+    // Lever du mercredi 05:30 à Paris : fin du mode NIGHT_LOCK donnée par l'API (`jusqua`).
+    expect(screen.getByText("Sessions interdites pendant la nuit — jusqu'à mer. 05:30")).toBeTruthy();
+    expect(screen.getAllByRole<HTMLButtonElement>('button', { name: /Ouvrir une session/ }).every((b) => b.disabled)).toBe(true);
+  });
+});

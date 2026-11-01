@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
+import { CarteActions } from '@/composants/actions/CarteActions';
 import { CarteDette } from '@/composants/statut/CarteDette';
 import { CarteMode } from '@/composants/statut/CarteMode';
 import { FriseJournee } from '@/composants/statut/FriseJournee';
@@ -18,14 +19,15 @@ export function EcranStatut() {
   const j = statut.journee;
   const coucherMs = Date.parse(j.coucherApplique);
   const cumul = statut.sessions_du_jour;
+  const principal = statut.appareils[0];
 
   return (
     <div className="grid gap-4 md:gap-6">
-      <div className="grid gap-4 md:gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2 [&>*]:h-full">
+      <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-3">
+        <div className="min-w-0 lg:col-span-2 [&>*]:h-full">
           <CarteMode statut={statut} maintenant={maintenant} />
         </div>
-        <CarteDette statut={statut} />
+        <CarteActions statut={statut} />
       </div>
 
       <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
@@ -73,14 +75,14 @@ export function EcranStatut() {
         />
       </div>
 
-      <FriseJournee journee={j} maintenant={maintenant} />
+      <FriseJournee journee={j} maintenant={maintenant} modePrincipal={principal?.mode} jusqua={principal?.jusqua} />
 
-      <TableauAppareils appareils={statut.appareils} maintenant={maintenant} />
-
-      <p className="text-muted-foreground text-center text-xs">
-        Décision de nuit {j.decisionDeNuitPrise ? 'déjà prise ce soir' : 'disponible'}
-        {j.engagements.length > 0 ? ` · engagements : ${j.engagements.join(', ')}` : ''}
-      </p>
+      <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-3">
+        <CarteDette statut={statut} />
+        <div className="min-w-0 lg:col-span-2">
+          <TableauAppareils appareils={statut.appareils} maintenant={maintenant} />
+        </div>
+      </div>
     </div>
   );
 }
@@ -88,7 +90,7 @@ export function EcranStatut() {
 export function SqueletteStatut() {
   return (
     <div className="grid gap-4 md:gap-6" aria-label="Chargement du statut">
-      <div className="grid gap-4 md:gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-3">
         <Skeleton className="h-52 rounded-xl lg:col-span-2" />
         <Skeleton className="h-52 rounded-xl" />
       </div>

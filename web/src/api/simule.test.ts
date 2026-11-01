@@ -65,6 +65,60 @@ describe('API simulée : statut', () => {
   });
 });
 
+describe('API simulée : phase et actions', () => {
+  it('journée : les deux actions sont libres ; engagements de demain avec leurs droits', async () => {
+    const statut = await simulation().api.statut();
+    expect(statut.phase).toBe('journee');
+    expect(statut.actions).toEqual({
+      je_vais_dormir: { disponible: true, motif: null },
+      decaler_coucher: { mode: 'libre', motif: null },
+    });
+    expect(statut.engagements_demain).toEqual([
+      { id: 'sport', nom: 'Sport', reveil: '2026-11-04T04:30:00Z', heure: '2026-11-04T05:00:00Z', annulable: true, decalable: true, origine: 'routine' },
+      { id: 'travail', nom: 'Travail', reveil: '2026-11-04T05:30:00Z', heure: '2026-11-04T05:30:00Z', annulable: false, decalable: false, origine: 'routine' },
+    ]);
+    expect(statut.appareils[0]).toMatchObject({ mode: 'WORK', jusqua: '2026-11-03T18:50:00Z' });
+  });
+
+  it('soirée : décision de nuit ; une fois prise, indisponible', async () => {
+    const sim = simulation();
+    sim.regler('2026-11-03T19:00:00Z');
+    const avant = await sim.api.statut();
+    expect(avant.phase).toBe('soiree');
+    expect(avant.appareils[0]).toMatchObject({ mode: 'EVENING_FREE', jusqua: '2026-11-03T20:30:00Z' });
+    expect(avant.actions?.decaler_coucher.mode).toBe('decision_de_nuit');
+    await sim.api.enregistrerException({
+      demande: { type: 'coucher', nuit: '2026-11-03', heure: '22:00' },
+      friction: { raison: 'r'.repeat(50), phrase: PHRASE_NUIT },
+    });
+    const apres = await sim.api.statut();
+    expect(apres.actions?.decaler_coucher).toMatchObject({ mode: 'indisponible' });
+    expect(apres.actions?.decaler_coucher.motif).toContain('une seule par nuit');
+  });
+
+  it('nuit : « Je vais dormir » n’est plus disponible', async () => {
+    const sim = simulation();
+    sim.regler('2026-11-03T21:00:00Z');
+    const statut = await sim.api.statut();
+    expect(statut.phase).toBe('nuit');
+    expect(statut.actions?.je_vais_dormir.disponible).toBe(false);
+    expect(statut.actions?.decaler_coucher.mode).toBe('decision_de_nuit');
+  });
+
+  it('l’option `phase` place l’horloge simulée dans la phase demandée', async () => {
+    for (const phase of ['journee', 'soiree', 'nuit'] as const) {
+      const api = creerApiSimulee({ maintenant: () => MARDI_15H, fuseau: 'Europe/Paris', phase });
+      expect((await api.statut()).phase).toBe(phase);
+    }
+  });
+
+  it('refuse de retirer un engagement non annulable', async () => {
+    const prix = await simulation().api.prixException({ demande: { type: 'retire', date: '2026-11-04', engagement: 'travail' } });
+    expect(prix.admissible).toBe(false);
+    expect(prix.motifRefus).toContain('annulable');
+  });
+});
+
 describe('API simulée : sessions', () => {
   it('refuse une tâche créée il y a moins de 15 min', async () => {
     const { api } = simulation();

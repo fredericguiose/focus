@@ -2,9 +2,12 @@
 // conversion vers le contrat de l'interface (contrat.ts). Tout écart avec l'API se corrige ici.
 import type { ActionsIphone, ActionsPc } from '../../../core/src/types';
 import type {
+  ActionsStatut,
   AppBloquee,
   CorpsException,
+  EngagementDemain,
   Journee,
+  Phase,
   PrixException,
   Priorite,
   Question,
@@ -58,11 +61,15 @@ export interface StatutFil {
     actions?: ActionsPc | ActionsIphone;
     apps_bloquees?: AppBloquee[];
     dernier_ping: string | null;
+    jusqua?: string | null;
   }[];
   sessions: SessionFil[];
   sessions_du_jour?: { cumul_min: number; plafond_min: number };
   nuits?: { nuit: string; dette_min: number }[];
   dette_cumulee_min?: number;
+  phase?: Phase;
+  actions?: ActionsStatut;
+  engagements_demain?: EngagementDemain[];
 }
 
 export interface TachesFil {
@@ -126,6 +133,7 @@ export function statutDepuisFil(s: StatutFil): ReponseStatut {
         raison: a.raison,
         sessions: a.sessions,
         vu_le: a.dernier_ping,
+        ...(a.jusqua !== undefined ? { jusqua: a.jusqua } : {}),
         ...(a.actions ? { actions: a.actions } : {}),
         ...(a.apps_bloquees ? { apps_bloquees: a.apps_bloquees } : {}),
       }),
@@ -134,6 +142,9 @@ export function statutDepuisFil(s: StatutFil): ReponseStatut {
     ...(s.sessions_du_jour ? { sessions_du_jour: s.sessions_du_jour } : {}),
     ...(s.nuits ? { nuits: s.nuits } : {}),
     ...(s.dette_cumulee_min !== undefined ? { dette_cumulee_min: s.dette_cumulee_min } : {}),
+    ...(s.phase ? { phase: s.phase } : {}),
+    ...(s.actions ? { actions: s.actions } : {}),
+    ...(s.engagements_demain ? { engagements_demain: s.engagements_demain } : {}),
   };
 }
 

@@ -1,10 +1,8 @@
-import { CalendarCog, Gauge, Layers, MoonStar, type LucideIcon } from 'lucide-react';
+import { Gauge, Layers, type LucideIcon } from 'lucide-react';
 
 export const ECRANS = {
-  statut: { libelle: 'Statut', icone: Gauge },
+  statut: { libelle: 'Tableau de bord', icone: Gauge },
   sessions: { libelle: 'Sessions', icone: Layers },
-  exceptions: { libelle: 'Exceptions', icone: CalendarCog },
-  nuit: { libelle: 'Nuit', icone: MoonStar },
 } as const satisfies Record<string, { libelle: string; icone: LucideIcon }>;
 
 export type Ecran = keyof typeof ECRANS;

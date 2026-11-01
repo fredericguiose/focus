@@ -39,7 +39,7 @@ export interface StatutAppareil {
   /** Phrase lisible : pourquoi ce mode. */
   raison: string;
   sessions: 'autorisees' | 'interdites';
-  /** Fin du segment en vigueur, si l'API la donne. */
+  /** Fin du mode en cours, donnée par l'API : sert au compte à rebours (jamais déduite). */
   jusqua?: Instant | null;
   /** Dernier appel authentifié de l'appareil (`dernier_ping`, précision 5 min), null s'il n'a jamais appelé. */
   vu_le: Instant | null;
@@ -76,6 +76,27 @@ export interface NuitPassee {
   dette_min: number;
 }
 
+/** Moment de la journée, décidé par l'API. */
+export type Phase = 'journee' | 'soiree' | 'nuit';
+
+/** Ce que l'interface peut proposer maintenant : l'API décide, l'interface suit. */
+export interface ActionsStatut {
+  je_vais_dormir: { disponible: boolean; motif: string | null };
+  decaler_coucher: { mode: 'libre' | 'decision_de_nuit' | 'indisponible'; motif: string | null };
+}
+
+/** Engagement du lendemain (jour du prochain lever), tel que la config et les exceptions le donnent. */
+export interface EngagementDemain {
+  /** Clé de l'engagement : c'est elle qu'on envoie dans `retire` et `decale`. */
+  id: string;
+  nom: string;
+  reveil: Instant | null;
+  heure: Instant | null;
+  annulable: boolean;
+  decalable: boolean;
+  origine: 'routine' | 'exception';
+}
+
 /** GET /v1/statut */
 export interface ReponseStatut {
   heure_serveur: Instant;
@@ -89,6 +110,10 @@ export interface ReponseStatut {
   nuits?: NuitPassee[];
   /** Dette de sommeil cumulée sur ces nuits (optionnel, idem). */
   dette_cumulee_min?: number;
+  /** Absents d'une API plus ancienne : l'interface n'invente alors rien (actions désactivées). */
+  phase?: Phase;
+  actions?: ActionsStatut;
+  engagements_demain?: EngagementDemain[];
 }
 
 export interface TacheSession {

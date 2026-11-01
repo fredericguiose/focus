@@ -6,12 +6,15 @@ import type { DateLocale, HeureLocale } from '../../../core/src/types';
 import { PHRASE_NUIT, RAISON_MIN, longueurRaison } from '@/lib/decisionNuit';
 import { ajouterJours, dateLocale, formaterDuree, heureLocale, instantLocal, jourDeSemaine, versInstant } from '@/lib/temps';
 import type {
+  ActionsStatut,
   ApiFocus,
   AppBloquee,
   CorpsException,
   DemandeException,
+  EngagementDemain,
   Exception,
   Journee,
+  Phase,
   PrixException,
   ReponseStatut,
   ReponseTaches,
@@ -49,15 +52,18 @@ const CATALOGUE: Record<string, { nom: string; domaines: string[]; iphone?: stri
 const BLOQUEES_WORK = ['chatgpt', 'gemini', 'claude_ai', 'youtube', 'x', 'safari'];
 
 interface EngagementSimule {
+  nom: string;
   heure: HeureLocale;
   preparationMin: number;
+  annulable: boolean;
+  decalable: boolean;
 }
 const ENGAGEMENTS: Record<string, EngagementSimule> = {
-  sport: { heure: '06:00', preparationMin: 30 },
-  travail: { heure: '06:30', preparationMin: 0 },
+  sport: { nom: 'Sport', heure: '06:00', preparationMin: 30, annulable: true, decalable: true },
+  travail: { nom: 'Travail', heure: '06:30', preparationMin: 0, annulable: false, decalable: false },
 };
 /** Index = jour de semaine (0 = dimanche). */
-const ENGAGEMENTS_PAR_JOUR: string[][] = [[], ['sport', 'travail'], ['travail'], ['sport', 'travail'], ['travail'], ['sport', 'travail'], []];
+const ENGAGEMENTS_PAR_JOUR: string[][] = [['sport'], ['sport', 'travail'], ['travail'], ['sport', 'travail'], ['travail'], ['sport', 'travail'], []];
 /** null = « $coucher - 2h ». */
 const OUVERTURE_PAR_JOUR: (HeureLocale | null)[] = ['14:00', null, null, null, null, '18:00', '14:00'];
 
@@ -84,6 +90,11 @@ export interface OptionsSimulation {
   fuseau?: string;
   /** Délai artificiel de chaque réponse, pour voir les états de chargement. */
   latenceMs?: number;
+  /**
+   * Place l'horloge simulée dans cette phase de la journée en cours (`?phase=nuit` dans l'URL en
+   * mode simulé) : utile pour les captures. L'horloge avance ensuite normalement.
+   */
+  phase?: Phase;
 }
 
 const enMinutes = (h: HeureLocale) => {
@@ -112,9 +123,13 @@ function nuitDe(demande: DemandeException): DateLocale {
 }
 
 export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
-  const maintenant = options.maintenant ?? (() => Date.now());
+  const horloge = options.maintenant ?? (() => Date.now());
   const fuseau = options.fuseau ?? fuseauDuNavigateur();
   const latenceMs = options.latenceMs ?? 0;
+  const exceptions: Exception[] = [];
+  let decalage = 0;
+  const maintenant = () => horloge() + decalage;
+  if (options.phase) decalage = instantDansPhase(options.phase, horloge()) - horloge();
   const debut = maintenant();
 
   const taches: TacheSimulee[] = [
@@ -123,35 +138,50 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
     { id: 't3', nom: 'Relire le chapitre 4', priorite: 'p3', creeeLe: debut - 5 * MINUTE },
     { id: 't4', nom: "Préparer l'exposé d'histoire", priorite: 'p4', creeeLe: debut - 24 * 60 * MINUTE },
   ];
-  const exceptions: Exception[] = [];
   let sessions: SessionInterne[] = [];
   const continues = new Map<string, number>();
   let compteur = 0;
 
   // ─── Journée ────────────────────────────────────────────────────────────────
 
-  /** Engagement → réveil en minutes depuis minuit (null = sans heure). */
-  function engagementsDuJour(date: DateLocale, liste: Exception[]): Map<string, number | null> {
-    const resultat = new Map<string, number | null>();
-    for (const nom of ENGAGEMENTS_PAR_JOUR[jourDeSemaine(date)] ?? []) {
-      const e = ENGAGEMENTS[nom];
-      if (e) resultat.set(nom, enMinutes(e.heure) - e.preparationMin);
+  interface EngagementDuJour {
+    nom: string;
+    /** Minutes depuis minuit (null = sans heure). */
+    heure: number | null;
+    reveil: number | null;
+    annulable: boolean;
+    decalable: boolean;
+    origine: 'routine' | 'exception';
+  }
+
+  function engagementsDuJour(date: DateLocale, liste: Exception[]): Map<string, EngagementDuJour> {
+    const resultat = new Map<string, EngagementDuJour>();
+    for (const id of ENGAGEMENTS_PAR_JOUR[jourDeSemaine(date)] ?? []) {
+      const e = ENGAGEMENTS[id];
+      if (!e) continue;
+      const heure = enMinutes(e.heure);
+      resultat.set(id, { nom: e.nom, heure, reveil: heure - e.preparationMin, annulable: e.annulable, decalable: e.decalable, origine: 'routine' });
     }
     for (const { demande: d } of liste) {
       if (d.type === 'ajoute' && d.date === date) {
-        const reveil = d.reveil ?? (d.heure ? versHeure(enMinutes(d.heure) - (d.preparationMin ?? 0)) : null);
-        resultat.set(d.libelle, reveil ? enMinutes(reveil) : null);
+        const heure = d.heure ? enMinutes(d.heure) : null;
+        const reveil = d.reveil ? enMinutes(d.reveil) : heure === null ? null : heure - (d.preparationMin ?? 0);
+        resultat.set(d.libelle, { nom: d.libelle, heure, reveil, annulable: true, decalable: false, origine: 'exception' });
       } else if (d.type === 'retire' && d.date === date) {
         resultat.delete(d.engagement);
-      } else if (d.type === 'decale' && d.date === date && resultat.has(d.engagement)) {
-        resultat.set(d.engagement, enMinutes(d.heure) - (ENGAGEMENTS[d.engagement]?.preparationMin ?? 0));
+      } else if (d.type === 'decale' && d.date === date) {
+        const e = resultat.get(d.engagement);
+        if (e) {
+          const heure = enMinutes(d.heure);
+          resultat.set(d.engagement, { ...e, heure, reveil: heure - (ENGAGEMENTS[d.engagement]?.preparationMin ?? 0) });
+        }
       }
     }
     return resultat;
   }
 
   function lever(date: DateLocale, liste: Exception[]): number {
-    const reveils = [...engagementsDuJour(date, liste).values()].filter((r): r is number => r !== null);
+    const reveils = [...engagementsDuJour(date, liste).values()].map((e) => e.reveil).filter((r): r is number => r !== null);
     return instantLocal(date, versHeure(Math.min(enMinutes(REVEIL_LIBRE), ...reveils)), fuseau);
   }
 
@@ -181,6 +211,65 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
   function dateCourante(t: number): DateLocale {
     const jour = dateLocale(t, fuseau);
     return t < lever(jour, exceptions) ? ajouterJours(jour, -1) : jour;
+  }
+
+  /** Un instant de la journée en cours qui tombe dans la phase demandée. */
+  function instantDansPhase(phase: Phase, t: number): number {
+    const date = dateCourante(t);
+    const debutJour = lever(date, exceptions);
+    const soiree = ouverture(date, exceptions);
+    const coucher = coucherApplique(date, exceptions);
+    if (phase === 'journee') return Math.max(debutJour + 60 * MINUTE, soiree - 150 * MINUTE);
+    if (phase === 'soiree') return soiree + Math.floor((coucher - soiree) / 2 / MINUTE) * MINUTE;
+    return coucher + 80 * MINUTE;
+  }
+
+  function phaseA(t: number): Phase {
+    const date = dateCourante(t);
+    if (t < ouverture(date, exceptions)) return 'journee';
+    return t < coucherApplique(date, exceptions) ? 'soiree' : 'nuit';
+  }
+
+  function actionsA(t: number): ActionsStatut {
+    const date = dateCourante(t);
+    const phase = phaseA(t);
+    const coucher = coucherApplique(date, exceptions);
+    const jeVaisDormir =
+      phase === 'nuit'
+        ? { disponible: false, motif: `La nuit a commencé à ${heureLocale(coucher, fuseau)}.` }
+        : { disponible: true, motif: null };
+    // Une décision de nuit prise ferme la nuit, même si l'ouverture a reculé avec le coucher.
+    if (decisionPrise(date)) {
+      return {
+        je_vais_dormir: jeVaisDormir,
+        decaler_coucher: { mode: 'indisponible', motif: 'Décision de nuit déjà prise cette nuit : une seule par nuit.' },
+      };
+    }
+    if (phase === 'journee') return { je_vais_dormir: jeVaisDormir, decaler_coucher: { mode: 'libre', motif: null } };
+    return {
+      je_vais_dormir: jeVaisDormir,
+      decaler_coucher: {
+        mode: 'decision_de_nuit',
+        motif:
+          phase === 'nuit'
+            ? `La nuit a commencé à ${heureLocale(coucher, fuseau)}.`
+            : `Soirée ouverte depuis ${heureLocale(ouverture(date, exceptions), fuseau)}.`,
+      },
+    };
+  }
+
+  function engagementsDemain(t: number): EngagementDemain[] {
+    const demain = ajouterJours(dateCourante(t), 1);
+    const instant = (minutes: number | null) => (minutes === null ? null : versInstant(instantLocal(demain, versHeure(minutes), fuseau)));
+    return [...engagementsDuJour(demain, exceptions)].map(([id, e]) => ({
+      id,
+      nom: e.nom,
+      reveil: instant(e.reveil),
+      heure: instant(e.heure),
+      annulable: e.annulable,
+      decalable: e.decalable,
+      origine: e.origine,
+    }));
   }
 
   function journee(t: number): Journee {
@@ -237,6 +326,19 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
         apps_bloquees: appsPour(type, Object.keys(CATALOGUE)),
       };
     }
+    const soiree = ouverture(date, exceptions);
+    if (t >= soiree) {
+      return {
+        appareil,
+        type,
+        mode: 'EVENING_FREE',
+        raison: `EVENING_FREE — soirée libre jusqu'au coucher de ${heureLocale(coucher, fuseau)}`,
+        sessions: 'autorisees',
+        jusqua: versInstant(coucher),
+        vu_le: vuLe(appareil, t),
+        apps_bloquees: [],
+      };
+    }
     const prioritaires = taches.filter((x) => x.priorite === 'p1' || x.priorite === 'p2').length;
     return {
       appareil,
@@ -244,7 +346,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
       mode: 'WORK',
       raison: `WORK — tâches prioritaires restantes : ${prioritaires}`,
       sessions: 'autorisees',
-      jusqua: versInstant(coucher),
+      jusqua: versInstant(soiree),
       vu_le: vuLe(appareil, t),
       apps_bloquees: appsPour(type, BLOQUEES_WORK),
     };
@@ -349,15 +451,19 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
       detteApresMin: dette(coucherApres, leverApres),
     };
 
-    if ((demande.type === 'retire' || demande.type === 'decale') && !engagementsDuJour(demande.date, exceptions).has(demande.engagement)) {
-      return { ...base, admissible: false, motifRefus: `Aucun engagement « ${demande.engagement} » le ${demande.date}.`, friction: 'aucune', resserre: false };
+    if (demande.type === 'retire' || demande.type === 'decale') {
+      const e = engagementsDuJour(demande.date, exceptions).get(demande.engagement);
+      const refus = (motifRefus: string): PrixException => ({ ...base, admissible: false, motifRefus, friction: 'aucune', resserre: false });
+      if (!e) return refus(`Aucun engagement « ${demande.engagement} » le ${demande.date}.`);
+      if (demande.type === 'retire' && !e.annulable) return refus(`« ${e.nom} » n'est pas annulable.`);
+      if (demande.type === 'decale' && !e.decalable) return refus(`« ${e.nom} » n'est pas décalable.`);
     }
     if (coucherApres <= coucherAvant && leverApres <= leverAvant) {
       return { ...base, admissible: true, friction: 'aucune', resserre: true };
     }
 
     const sommeil = (leverApres - coucherApres) / MINUTE;
-    if (t < ouverture(nuit, exceptions)) {
+    if (t < ouverture(nuit, exceptions) && !decisionPrise(nuit)) {
       const admissible = sommeil >= MINIMUM_MIN;
       return {
         ...base,
@@ -405,6 +511,9 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
           sessions_du_jour: { cumul_min: Math.min(cumulMin + 35, PLAFOND_SESSIONS_MIN), plafond_min: PLAFOND_SESSIONS_MIN },
           nuits,
           dette_cumulee_min: nuits.reduce((total, n) => total + n.dette_min, 0),
+          phase: phaseA(t),
+          actions: actionsA(t),
+          engagements_demain: engagementsDemain(t),
         };
       }),
 

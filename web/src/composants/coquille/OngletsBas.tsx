@@ -8,7 +8,7 @@ export function OngletsBas({ ecran, allerA, indicateurs }: { ecran: Ecran; aller
       aria-label="Écrans"
       className="bg-background/90 fixed inset-x-0 bottom-0 z-20 border-t pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
     >
-      <ul className="mx-auto grid max-w-md grid-cols-4">
+      <ul className="mx-auto grid max-w-md grid-cols-2">
         {LISTE_ECRANS.map((e) => {
           const { libelle, icone: Icone } = ECRANS[e];
           const actif = ecran === e;

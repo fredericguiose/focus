@@ -13,11 +13,9 @@ import { EnTete } from '@/composants/coquille/EnTete';
 import { type Ecran, estEcran } from '@/composants/coquille/navigation';
 import { OngletsBas } from '@/composants/coquille/OngletsBas';
 import { Accueil } from '@/ecrans/Accueil';
-import { EcranDecisionNuit } from '@/ecrans/DecisionNuit';
-import { EcranExceptions } from '@/ecrans/Exceptions';
 import { EcranSessions } from '@/ecrans/Sessions';
 import { EcranStatut, SqueletteStatut } from '@/ecrans/Statut';
-import { FournisseurFocus, useFocus, useHeureServeur } from '@/hooks/useFocus';
+import { FournisseurFocus, useFocus } from '@/hooks/useFocus';
 import { ecrireJeton, effacerJeton, lireJeton } from '@/lib/stockage';
 
 /** L'écran vit dans l'ancre de l'URL : un rechargement de la PWA garde l'onglet. */
@@ -43,12 +41,10 @@ function useEcran(): [Ecran, (ecran: Ecran) => void] {
 
 function Coquille() {
   const { statut, erreur, changerJeton } = useFocus();
-  const maintenant = useHeureServeur();
   const [ecran, allerA] = useEcran();
 
   const indicateurs: Partial<Record<Ecran, string>> = {};
   if (statut?.sessions.some((s) => s.question !== null)) indicateurs.sessions = 'question en attente';
-  if (statut && maintenant >= Date.parse(statut.journee.ouverture) && !statut.journee.decisionDeNuitPrise) indicateurs.nuit = 'soirée ouverte';
 
   return (
     <SidebarProvider>
@@ -76,10 +72,6 @@ function Coquille() {
             )
           ) : ecran === 'statut' ? (
             <EcranStatut />
-          ) : ecran === 'exceptions' ? (
-            <EcranExceptions />
-          ) : ecran === 'nuit' ? (
-            <EcranDecisionNuit />
           ) : (
             <EcranSessions />
           )}

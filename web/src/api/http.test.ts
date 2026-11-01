@@ -83,6 +83,34 @@ describe('format réel de l’API', () => {
     expect(statut.sessions_du_jour).toEqual({ cumul_min: 30, plafond_min: 180 });
   });
 
+  it('lit phase, actions, engagements_demain et jusqua quand l’API les donne', async () => {
+    const corps = {
+      heure_serveur: '2026-11-03T21:00:00Z',
+      config_version: 'abc1234',
+      journee: {
+        date: '2026-11-03', routine: 'cours', fuseau: 'America/Cayenne', engagements: [],
+        lever: '2026-11-03T09:00:00Z', lever_suivant: '2026-11-04T09:00:00Z', coucher_prevu: '2026-11-04T01:00:00Z',
+        coucher_applique: '2026-11-04T01:00:00Z', ouverture: '2026-11-03T23:20:00Z', prix_du_report_min: 0,
+        dette_nuit_min: 0, decision_de_nuit_prise: false,
+      },
+      appareils: [{ nom: 'pc_linux', type: 'pc_linux', mode: 'WORK', sessions: 'autorisees', raison: 'WORK', dernier_ping: null, jusqua: '2026-11-03T23:20:00Z' }],
+      sessions: [],
+      phase: 'journee',
+      actions: { je_vais_dormir: { disponible: true, motif: null }, decaler_coucher: { mode: 'libre', motif: null } },
+      engagements_demain: [
+        { id: 'salle', nom: 'Salle', reveil: '2026-11-04T08:30:00Z', heure: '2026-11-04T09:00:00Z', annulable: true, decalable: false, origine: 'routine' },
+      ],
+      nuits: [{ nuit: '2026-11-02', dette_min: 30 }],
+      dette_cumulee_min: 30,
+    };
+    const statut = await creerApiHttp('j', '', vi.fn<typeof fetch>(async () => reponse(200, JSON.stringify(corps)))).statut();
+    expect(statut.phase).toBe('journee');
+    expect(statut.actions?.decaler_coucher.mode).toBe('libre');
+    expect(statut.engagements_demain?.[0]).toMatchObject({ id: 'salle', annulable: true, decalable: false });
+    expect(statut.appareils[0]?.jusqua).toBe('2026-11-03T23:20:00Z');
+    expect(statut.dette_cumulee_min).toBe(30);
+  });
+
   it('reprend apps_bloquees de /v1/statut sans interroger /v1/blocage', async () => {
     const corps = {
       heure_serveur: '2026-11-03T21:00:00Z',

@@ -2,10 +2,8 @@ import { Briefcase, CircleHelp, Moon, Sunrise, Sunset, type LucideIcon } from 'l
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
 import type { ReponseStatut } from '@/api/contrat';
 import { libelleAppareil } from '@/lib/appareils';
-import { prochainRepere, reperes } from '@/lib/journee';
 import { type FamilleMode, infoMode, raisonLisible, STYLES_FAMILLE } from '@/lib/modes';
 import { formaterDuree, formaterHeureRelative } from '@/lib/temps';
 import { cn } from '@/lib/utils';
@@ -25,13 +23,9 @@ export function CarteMode({ statut, maintenant }: { statut: ReponseStatut; maint
   const mode = infoMode(principal?.mode ?? '');
   const styles = STYLES_FAMILLE[mode.famille];
   const Icone = ICONES_FAMILLE[mode.famille];
-  const repere = prochainRepere(j, maintenant);
-  const echeanceMs = principal?.jusqua ? Date.parse(principal.jusqua) : (repere?.ms ?? null);
+  // Fin du mode : donnée par l'API (`jusqua`), jamais déduite de la journée.
+  const echeanceMs = principal?.jusqua ? Date.parse(principal.jusqua) : null;
   const restantMin = echeanceMs === null ? null : Math.max(0, (echeanceMs - maintenant) / 60_000);
-  // Début du segment en cours : le dernier repère passé de la journée.
-  const debutMs = [...reperes(j)].reverse().find((r) => r.ms <= maintenant)?.ms ?? null;
-  const progression =
-    debutMs !== null && echeanceMs !== null && echeanceMs > debutMs ? Math.min(100, ((maintenant - debutMs) / (echeanceMs - debutMs)) * 100) : null;
   const autres = statut.appareils.slice(1).filter((a) => a.mode !== principal?.mode);
 
   return (
@@ -63,22 +57,13 @@ export function CarteMode({ statut, maintenant }: { statut: ReponseStatut; maint
         {restantMin !== null && echeanceMs !== null ? (
           <div className="grid gap-0.5 md:text-right">
             <span className="text-muted-foreground text-xs font-medium">
-              {repere && !principal?.jusqua ? repere.libelle : 'Prochain changement'} à {formaterHeureRelative(new Date(echeanceMs).toISOString(), j.fuseau, maintenant)}
+              Jusqu'à {formaterHeureRelative(new Date(echeanceMs).toISOString(), j.fuseau, maintenant)}
             </span>
             <span className="text-4xl font-semibold tracking-tight tabular-nums sm:text-5xl">{formaterDuree(restantMin)}</span>
             <span className="text-muted-foreground text-xs">restant</span>
           </div>
         ) : null}
         </div>
-        {progression !== null && debutMs !== null ? (
-          <div className="grid gap-2">
-            <Progress value={progression} aria-label="Avancement du mode en cours" className={cn('h-2 bg-background/70', styles.indicateur)} />
-            <div className="text-muted-foreground flex justify-between text-xs tabular-nums">
-              <span>depuis {formaterHeureRelative(new Date(debutMs).toISOString(), j.fuseau, maintenant)}</span>
-              <span>{Math.round(progression)} %</span>
-            </div>
-          </div>
-        ) : null}
       </CardContent>
     </Card>
   );
