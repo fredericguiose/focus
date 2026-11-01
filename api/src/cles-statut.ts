@@ -31,6 +31,7 @@ export const CLES_STATUT = [
   'sessions',
   'sessions_du_jour',
   'todoist',
+  'taches_bloquantes',
 ] as const;
 
 export const CLES_JOURNEE = [

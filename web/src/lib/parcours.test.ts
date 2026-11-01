@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { creerApiSimulee } from '@/api/simule';
 import type { ConditionParcours, EtapeParcours, StatutAppareil } from '@/api/contrat';
-import { appareilPrincipal, ceQuiManque, etapesDuJour, phraseManque } from './parcours';
+import { appareilPrincipal, ceQuiManque, etapesDuJour, phraseManque, precisionTache, urlTacheTodoist } from './parcours';
 
 // Mardi 3 novembre 2026, 15:00 à Paris (journée), ouverture 19:50, coucher 21:30.
 const MARDI_15H = Date.parse('2026-11-03T14:00:00Z');
@@ -54,6 +54,24 @@ describe('parcours de la journée', () => {
     expect(ceQuiManque(appareilPrincipal(soiree), soiree.journee)).toEqual([
       { texte: 'Tâches P1/P2 à faire', detail: '2 tâches restantes dont 1 en retard', etat: 'a_faire' },
     ]);
+  });
+
+  it('condition de tâches : porte les tâches qui la retiennent ; les autres faits, non', async () => {
+    const soiree = await creerApiSimulee({ maintenant: () => MARDI_15H, fuseau: 'Europe/Paris', phase: 'soiree', faits: { prioritairesRestantes: 5, recapFait: false } }).statut();
+    const manque = ceQuiManque(appareilPrincipal(soiree), soiree.journee, soiree.taches_bloquantes);
+    expect(manque.map((m) => [m.texte, m.taches?.total ?? null, m.taches?.taches.length ?? null])).toEqual([
+      ['Tâches P1/P2 à faire', 5, 3],
+      ['Récap à faire', null, null],
+    ]);
+    // Rien à montrer (API plus ancienne, ou liste vide) : la ligne courte d'avant.
+    expect(ceQuiManque(appareilPrincipal(soiree), soiree.journee, { prioritaires: { total: 0, taches: [] } })[0]?.taches).toBeUndefined();
+  });
+
+  it('précision et lien Todoist d’une tâche', () => {
+    const t = { id: '6XR4GqQQCW6Gv9h4', titre: 'x', priorite: 'p1' as const, echeance: '2026-11-01', en_retard: true };
+    expect(precisionTache(t, '2026-11-03')).toBe('P1 · en retard');
+    expect(precisionTache({ ...t, priorite: 'p2', echeance: '2026-11-03', en_retard: false }, '2026-11-03')).toBe("P2 · aujourd'hui");
+    expect(urlTacheTodoist(t.id)).toBe('https://app.todoist.com/app/task/6XR4GqQQCW6Gv9h4');
   });
 
   it('phrases de ce qui manque : date du retard pour planning et récap, heure sans doublon', () => {

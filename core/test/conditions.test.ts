@@ -7,6 +7,7 @@ import {
   recapRestant,
   retardsRestants,
   tachesFiltrees,
+  tachesQuiRetiennent,
 } from '../src/conditions';
 import { journee } from '../src/journee';
 import type { Condition } from '../src/types';
@@ -87,6 +88,33 @@ describe('aucun_retard (photo des retards)', () => {
     // Une tâche en retard apparue après la photo ne compte pas ; pas de photo = rien à solder.
     expect(retardsRestants(faits({ taches: [b], photosRetards: { [D]: [a.id] } }), D)).toEqual([]);
     expect(retardsRestants(faits({ taches: [b] }), D)).toEqual([]);
+  });
+});
+
+describe('tâches qui retiennent une condition', () => {
+  it('prioritaires : le même ensemble que la condition, P1 avant P2 puis échéance la plus ancienne', () => {
+    const p2Vieille = tache({ priorite: 'p2', echeance: '2026-10-01', contenu: 'b' });
+    const p1Jour = tache({ priorite: 'p1', echeance: D, contenu: 'c' });
+    const p1Retard = tache({ priorite: 'p1', echeance: '2026-10-30', contenu: 'd' });
+    const p2Jour = tache({ priorite: 'p2', echeance: D, contenu: 'a' });
+    const horsCondition = [
+      tache({ priorite: 'p3', echeance: '2026-10-01' }),
+      tache({ priorite: 'p1', echeance: D, etiquettes: ['planning'] }),
+      tache({ priorite: 'p1', echeance: '2026-11-03' }),
+      tache({ priorite: 'p1', echeance: D, terminee: true }),
+    ];
+    const lesFaits = faits({ taches: [p2Vieille, p1Jour, ...horsCondition, p1Retard, p2Jour] });
+    const triees = tachesQuiRetiennent(config, lesFaits, D, 'prioritaires_faites');
+    expect(ids(triees)).toEqual([p1Retard.id, p1Jour.id, p2Vieille.id, p2Jour.id]);
+    expect(triees).toHaveLength(prioritairesRestantes(config, lesFaits, D).length);
+  });
+
+  it('retards : les tâches encore ouvertes de la photo, triées de même', () => {
+    const p3 = tache({ priorite: 'p3', echeance: '2026-10-20' });
+    const p1 = tache({ priorite: 'p1', echeance: '2026-10-31' });
+    const faite = tache({ priorite: 'p1', echeance: '2026-10-01', terminee: true });
+    const lesFaits = faits({ taches: [p3, p1, faite], photosRetards: { [D]: [p3.id, faite.id, p1.id, 'disparue'] } });
+    expect(ids(tachesQuiRetiennent(config, lesFaits, D, 'aucun_retard'))).toEqual([p1.id, p3.id]);
   });
 });
 

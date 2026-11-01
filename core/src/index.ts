@@ -48,6 +48,7 @@ export {
   prioritairesRestantes,
   retardsRestants,
   tachesFiltrees,
+  tachesQuiRetiennent,
 } from './conditions';
 export { verifierEngagements } from './verification';
 export { TYPES_DE_MESURE } from './types';

@@ -1,5 +1,6 @@
 // Planning d'un appareil (§4.3), statut pour l'interface, tâches du jour, raison d'un blocage.
-import type { ActionsIphone, ActionsPc, Config, Contexte, EngagementPrevu, JournalDesCouchers, JournalDesLevers, Journee, Mesure, Moteur, Segment, SortieMode } from '../../core/src/types';
+import type { ActionsIphone, ActionsPc, Config, Contexte, DateLocale, FaitsTodoist, EngagementPrevu, JournalDesCouchers, JournalDesLevers, Journee, Mesure, Moteur, Segment, SortieMode } from '../../core/src/types';
+import { tachesQuiRetiennent } from '../../core/src/conditions';
 import { dettesHebdomadaires, lundiDe, SEMAINES_DE_BILAN } from '../../core/src/dette';
 import { JOURS_DU_JOURNAL_DES_LEVERS } from '../../core/src/levers';
 import { dateCourte, JOURS_SEMAINE, jourSemaine } from '../../core/src/temps';
@@ -434,7 +435,33 @@ async function calculerStatut(deps: Dependances, db: D1Database, jeton: JetonAut
     sessions,
     sessions_du_jour: { cumul_min: Math.floor(cumulS / 60), plafond_min: config.sessions.plafondQuotidienMin },
     todoist: vueTodoist(config, contexte.faits.recupereLe, etiquettes?.valeur ?? null),
+    taches_bloquantes: vueTachesBloquantes(config, contexte.faits, journee.date),
   };
+}
+
+/** Tâches montrées par condition de tâches ; `total` dit combien la retiennent en tout. */
+export const TACHES_BLOQUANTES_MONTREES = 3;
+
+/**
+ * Tâches qui retiennent les conditions de tâches (§4.6), par type de condition du parcours :
+ * `prioritaires` (prioritaires_faites) et `retard` (aucun_retard). Les 3 plus importantes (priorité,
+ * puis échéance la plus ancienne) et le total, calculés sur les mêmes faits que la condition.
+ */
+export function vueTachesBloquantes(config: Config, faits: FaitsTodoist, jour: DateLocale) {
+  const vue = (condition: 'prioritaires_faites' | 'aucun_retard') => {
+    const taches = tachesQuiRetiennent(config, faits, jour, condition);
+    return {
+      total: taches.length,
+      taches: taches.slice(0, TACHES_BLOQUANTES_MONTREES).map((t) => ({
+        id: t.id,
+        titre: t.contenu,
+        priorite: t.priorite,
+        echeance: t.echeance,
+        en_retard: t.echeance !== null && t.echeance < jour,
+      })),
+    };
+  };
+  return { prioritaires: vue('prioritaires_faites'), retard: vue('aucun_retard') };
 }
 
 /**

@@ -95,6 +95,7 @@ export interface StatutFil {
   sautes_semaine?: number;
   seances_mesurees?: ReponseStatut['seances_mesurees'];
   todoist?: ReponseStatut['todoist'];
+  taches_bloquantes?: ReponseStatut['taches_bloquantes'];
 }
 
 export interface TachesFil {
@@ -192,6 +193,7 @@ export function statutDepuisFil(s: StatutFil): ReponseStatut {
     ...(s.sautes_semaine !== undefined ? { sautes_semaine: s.sautes_semaine } : {}),
     ...(s.seances_mesurees !== undefined ? { seances_mesurees: s.seances_mesurees } : {}),
     ...(s.todoist ? { todoist: s.todoist } : {}),
+    ...(s.taches_bloquantes ? { taches_bloquantes: s.taches_bloquantes } : {}),
   };
 }
 

@@ -1,12 +1,12 @@
-import { Briefcase, CircleHelp, Moon, Sunrise, Sunset, type LucideIcon } from 'lucide-react';
+import { Briefcase, Circle, CircleHelp, Moon, Sunrise, Sunset, type LucideIcon } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import type { ReponseStatut } from '@/api/contrat';
+import type { ListeTachesBloquantes, ReponseStatut } from '@/api/contrat';
 import { libelleAppareil } from '@/lib/appareils';
 import { type FamilleMode, infoMode, raisonLisible, STYLES_FAMILLE } from '@/lib/modes';
 import { STYLES_ETAT } from '@/lib/etats';
-import { appareilPrincipal, ceQuiManque } from '@/lib/parcours';
+import { appareilPrincipal, ceQuiManque, type Manque, precisionTache, urlTacheTodoist } from '@/lib/parcours';
 import { formaterDuree, formaterHeureRelative } from '@/lib/temps';
 import { cn } from '@/lib/utils';
 
@@ -31,7 +31,8 @@ export function CarteMode({ statut, maintenant }: { statut: ReponseStatut; maint
   const sortie = principal?.sortie;
   const finMs = sortie ? Date.parse(sortie.au_plus_tard) : null;
   const restantMin = finMs === null ? null : Math.max(0, (finMs - maintenant) / 60_000);
-  const manque = sortie && !sortie.certaine ? ceQuiManque(principal, j) : [];
+  const manque = sortie && !sortie.certaine ? ceQuiManque(principal, j, statut.taches_bloquantes) : [];
+  const avecTaches = manque.some((m) => m.taches);
   const heureFin = sortie ? formaterHeureRelative(sortie.au_plus_tard, j.fuseau, maintenant) : null;
 
   return (
@@ -70,25 +71,20 @@ export function CarteMode({ statut, maintenant }: { statut: ReponseStatut; maint
               <span className="text-muted-foreground text-xs">restant</span>
             </div>
           ) : sortie ? (
-            <div className="grid gap-1 md:max-w-64 md:text-right" data-testid="sortie-incertaine">
+            <div
+              className={cn('grid min-w-0 gap-1 md:text-right', avecTaches ? 'md:w-80' : 'md:max-w-64')}
+              data-testid="sortie-incertaine"
+            >
               <span className="text-muted-foreground text-xs font-medium">Pour en sortir</span>
               {manque.length > 0 ? (
-                <ul className="grid gap-1">
-                  {manque.map((m) => {
-                    const { Icone, couleur, texte } = STYLES_ETAT[m.etat];
-                    return (
-                      <li key={m.texte} className="flex items-start gap-2 text-xl font-semibold tracking-tight text-pretty sm:text-2xl md:flex-row-reverse md:text-right">
-                        <Icone className={cn('mt-1 size-5 shrink-0 sm:size-6', couleur)} aria-hidden />
-                        <span className="grid gap-0.5">
-                          <span>
-                            {m.texte}
-                            <span className="sr-only"> ({texte})</span>
-                          </span>
-                          {m.detail ? <span className="text-avertissement text-sm font-medium tracking-normal">{m.detail}</span> : null}
-                        </span>
-                      </li>
-                    );
-                  })}
+                <ul className="grid min-w-0 gap-1">
+                  {manque.map((m) => (m.taches ? (
+                    <li key={m.texte} className="min-w-0">
+                      <TachesQuiRetiennent manque={m} taches={m.taches} aujourdhui={j.date} />
+                    </li>
+                  ) : (
+                    <LigneManque key={m.texte} manque={m} />
+                  )))}
                 </ul>
               ) : (
                 <span className="text-xl font-semibold tracking-tight text-pretty">{sortie.texte}</span>
@@ -99,5 +95,69 @@ export function CarteMode({ statut, maintenant }: { statut: ReponseStatut; maint
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/** Un fait qui manque (planning, récap…) : une seule action, en gros. */
+function LigneManque({ manque: m }: { manque: Manque }) {
+  const { Icone, couleur, texte } = STYLES_ETAT[m.etat];
+  return (
+    <li className="flex items-start gap-2 text-xl font-semibold tracking-tight text-pretty sm:text-2xl md:flex-row-reverse md:text-right">
+      <Icone className={cn('mt-1 size-5 shrink-0 sm:size-6', couleur)} aria-hidden />
+      <span className="grid gap-0.5">
+        <span>
+          {m.texte}
+          <span className="sr-only"> ({texte})</span>
+        </span>
+        {m.detail ? <span className="text-avertissement text-sm font-medium tracking-normal">{m.detail}</span> : null}
+      </span>
+    </li>
+  );
+}
+
+/**
+ * Condition de tâches (P1/P2, retards) : les tâches elles-mêmes plutôt que leur compte, déjà dans
+ * le parcours. Les plus importantes d'abord (l'API trie), chacune ouvre la tâche dans Todoist.
+ */
+function TachesQuiRetiennent({ manque: m, taches, aujourdhui }: { manque: Manque; taches: ListeTachesBloquantes; aujourdhui: string }) {
+  const reste = taches.total - taches.taches.length;
+  return (
+    <div className="grid min-w-0 gap-0.5" data-testid="taches-bloquantes">
+      <ul className="grid min-w-0" aria-label={`${m.texte} (${STYLES_ETAT[m.etat].texte})`}>
+        {taches.taches.map((t) => {
+          const precision = precisionTache(t, aujourdhui);
+          return (
+            <li key={t.id} className="min-w-0">
+              <a
+                href={urlTacheTodoist(t.id)}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={t.titre}
+                className="group hover:bg-background/60 focus-visible:ring-ring/50 -mx-2 flex min-w-0 items-center gap-2.5 rounded-md px-2 py-1.5 text-left outline-none transition-colors focus-visible:ring-[3px]"
+              >
+                <Circle className="text-avertissement size-4 shrink-0" strokeWidth={2.5} aria-hidden />
+                <span className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight underline-offset-4 group-hover:underline">
+                  {t.titre}
+                </span>
+                <span
+                  className={cn(
+                    'shrink-0 text-xs font-medium whitespace-nowrap',
+                    t.en_retard ? 'text-avertissement' : 'text-muted-foreground',
+                  )}
+                >
+                  {precision}
+                </span>
+                <span className="sr-only"> (ouvre la tâche dans Todoist, nouvel onglet)</span>
+              </a>
+            </li>
+          );
+        })}
+      </ul>
+      {reste > 0 ? (
+        <span className="text-muted-foreground pl-[1.625rem] text-left text-sm">
+          + {reste} {reste > 1 ? 'autres' : 'autre'}
+        </span>
+      ) : null}
+    </div>
   );
 }

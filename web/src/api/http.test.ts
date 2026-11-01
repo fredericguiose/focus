@@ -150,6 +150,10 @@ describe('format réel de l’API', () => {
         etiquettes_manquantes: ['planning'],
         etiquettes_manquantes_detail: [{ etiquette: 'planning', usages: ['planning', 'exclusion'], modes: [] }],
       },
+      taches_bloquantes: {
+        prioritaires: { total: 4, taches: [{ id: '6XR4GqQQCW6Gv9h4', titre: 'Envoyer le devis', priorite: 'p1', echeance: '2026-11-01', en_retard: true }] },
+        retard: { total: 0, taches: [] },
+      },
     };
     const statut = await creerApiHttp('j', '', vi.fn<typeof fetch>(async () => reponse(200, JSON.stringify(corps)))).statut();
     expect(statut.phase).toBe('journee');
@@ -173,6 +177,7 @@ describe('format réel de l’API', () => {
     expect(statut.levers?.jours[0]?.fuseau).toBe('Europe/Paris');
     expect(statut.couchers?.nuits[0]?.fuseau).toBe('Europe/Paris');
     expect(statut.todoist).toEqual(corps.todoist);
+    expect(statut.taches_bloquantes).toEqual(corps.taches_bloquantes);
   });
 
   it('reprend apps_bloquees de /v1/statut sans interroger /v1/blocage', async () => {
@@ -335,6 +340,7 @@ describe('conversion du statut : aucun champ de l’API perdu', () => {
     sautes_semaine: 0,
     seances_mesurees: null,
     todoist: { dernier_changement: null, etiquettes_verifiees_le: null, etiquettes_manquantes: [] },
+    taches_bloquantes: { prioritaires: { total: 0, taches: [] }, retard: { total: 0, taches: [] } },
   };
   /** Champs renommés par la conversion (nom de l'API → nom de l'interface). */
   const RENOMMES_APPAREIL: Record<string, string> = { nom: 'appareil', dernier_ping: 'vu_le' };

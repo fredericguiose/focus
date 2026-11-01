@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { CLES_APPAREIL, CLES_JOURNEE, CLES_STATUT } from '../src/cles-statut';
-import { appareilPrincipal } from '../src/planning';
+import { appareilPrincipal, vueTachesBloquantes } from '../src/planning';
 import { Horloge, MARDI, client, configExemple, creerJeton, installerConfig, poserTaches, tache } from './aides';
 
 const RAISON = 'Une raison suffisamment longue pour dépasser les cinquante caractères.';
@@ -162,6 +162,53 @@ describe('GET /v1/statut : phase, actions, engagements de demain, nuits', () => 
     expect(iphone.mode).toBe('WORK');
     expect(iphone.parcours[1]).toMatchObject({ mode: 'MORNING_LOCK', applicable: false, actif: false });
     expect(iphone.sortie).toEqual({ texte: 'à 19:30', certaine: true, au_plus_tard: MARDI.ouverture });
+  });
+
+  it('taches_bloquantes : les 3 prioritaires les plus importantes (P1 puis échéance), et le total', async () => {
+    await poserTaches([
+      tache({ id: 'p2-vieille', priorite: 'p2', echeance: '2026-10-20' }),
+      tache({ id: 'p1-jour', priorite: 'p1', echeance: '2026-11-03', contenu: 'Envoyer le devis' }),
+      tache({ id: 'p1-retard', priorite: 'p1', echeance: '2026-10-28' }),
+      tache({ id: 'p2-jour', priorite: 'p2', echeance: '2026-11-03' }),
+      tache({ id: 'p3', priorite: 'p3', echeance: '2026-10-01' }),
+      tache({ id: 'demain', priorite: 'p1', echeance: '2026-11-04' }),
+    ]);
+    const r = await api.get('/v1/statut', web);
+    expect(r.corps.taches_bloquantes).toEqual({
+      prioritaires: {
+        total: 4,
+        taches: [
+          { id: 'p1-retard', titre: 'Tâche p1-retard', priorite: 'p1', echeance: '2026-10-28', en_retard: true },
+          { id: 'p1-jour', titre: 'Envoyer le devis', priorite: 'p1', echeance: '2026-11-03', en_retard: false },
+          { id: 'p2-vieille', titre: 'Tâche p2-vieille', priorite: 'p2', echeance: '2026-10-20', en_retard: true },
+        ],
+      },
+      retard: { total: 0, taches: [] },
+    });
+    // Le même compte que la condition : « 4 tâches restantes dont 2 en retard ».
+    const pc = r.corps.appareils.find((a: { nom: string }) => a.nom === 'pc_linux');
+    const soiree = pc.parcours.find((m: { mode: string }) => m.mode === 'EVENING_FREE');
+    expect(soiree.conditions.find((c: { type: string }) => c.type === 'prioritaires').detail).toBe('4 tâches restantes dont 2 en retard');
+  });
+
+  it('taches_bloquantes : les retards de la photo encore ouverts', () => {
+    const faits = {
+      recupereLe: '2026-11-08T00:00:00Z',
+      reports: [],
+      taches: [
+        tache({ id: 'a', priorite: 'p4', echeance: '2026-11-01' }),
+        tache({ id: 'b', priorite: 'p2', echeance: '2026-11-08' }),
+        tache({ id: 'c', priorite: 'p1', echeance: '2026-11-02', terminee: true }),
+      ],
+      photosRetards: { '2026-11-08': ['a', 'b', 'c'] },
+    };
+    expect(vueTachesBloquantes(configExemple(), faits, '2026-11-08').retard).toEqual({
+      total: 2,
+      taches: [
+        { id: 'b', titre: 'Tâche b', priorite: 'p2', echeance: '2026-11-08', en_retard: false },
+        { id: 'a', titre: 'Tâche a', priorite: 'p4', echeance: '2026-11-01', en_retard: true },
+      ],
+    });
   });
 
   it('sortie : nuit, certaine au lever', async () => {

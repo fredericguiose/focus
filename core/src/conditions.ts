@@ -51,6 +51,35 @@ export function retardsRestants(faits: FaitsTodoist, jour: DateLocale): string[]
   return photo.filter((id) => ouvertes.has(id));
 }
 
+const RANG_PRIORITE: Record<Tache['priorite'], number> = { p1: 1, p2: 2, p3: 3, p4: 4 };
+
+/**
+ * Tâches qui retiennent une condition de tâches, les plus importantes d'abord : priorité (P1 avant
+ * P2), puis échéance la plus ancienne (sans échéance en dernier), puis titre. Même ensemble que
+ * celui que compte la condition : `prioritairesRestantes` ou `retardsRestants`.
+ */
+export function tachesQuiRetiennent(
+  config: Config,
+  faits: FaitsTodoist,
+  jour: DateLocale,
+  condition: 'prioritaires_faites' | 'aucun_retard',
+): Tache[] {
+  let taches: Tache[];
+  if (condition === 'prioritaires_faites') {
+    taches = prioritairesRestantes(config, faits, jour);
+  } else {
+    const parId = new Map(faits.taches.map((t) => [t.id, t]));
+    taches = retardsRestants(faits, jour).flatMap((id) => parId.get(id) ?? []);
+  }
+  return [...taches].sort(
+    (a, b) =>
+      RANG_PRIORITE[a.priorite] - RANG_PRIORITE[b.priorite] ||
+      (a.echeance ?? '9999-99-99').localeCompare(b.echeance ?? '9999-99-99') ||
+      a.contenu.localeCompare(b.contenu, 'fr') ||
+      a.id.localeCompare(b.id),
+  );
+}
+
 /** Tâches ouvertes et assignées à l'utilisateur qui passent le filtre. */
 export function tachesFiltrees(faits: FaitsTodoist, jour: DateLocale, filtre: FiltreTaches): Tache[] {
   return faits.taches.filter((t) => {

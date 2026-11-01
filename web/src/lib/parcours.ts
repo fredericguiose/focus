@@ -1,7 +1,17 @@
 // Parcours de la journée (conception §2.5-2.7) : les modes de l'appareil principal remis dans
 // l'ordre où la journée les traverse. L'API les donne dans l'ordre de priorité, avec leurs
 // conditions évaluées maintenant ; seules les heures fixes (lever, coucher) sont des heures.
-import type { ConditionParcours, EtapeParcours, Instant, Journee, ReponseStatut, StatutAppareil } from '@/api/contrat';
+import type {
+  ConditionParcours,
+  EtapeParcours,
+  Instant,
+  Journee,
+  ListeTachesBloquantes,
+  ReponseStatut,
+  StatutAppareil,
+  TacheBloquante,
+  TachesBloquantes,
+} from '@/api/contrat';
 import { etatCondition, type EtatFait } from './etats';
 
 /** Ordre du jour des modes connus ; un mode inconnu vient après, dans l'ordre de l'API. */
@@ -59,6 +69,20 @@ export interface Manque {
   texte: string;
   detail: string | null;
   etat: EtatFait;
+  /** Condition de tâches (P1/P2, retards) : les tâches elles-mêmes, à montrer au lieu du compte. */
+  taches?: ListeTachesBloquantes;
+}
+
+/** URL web d'une tâche Todoist (API v1, rubrique « Task URLs » : https://app.todoist.com/app/task/<id>). */
+export function urlTacheTodoist(id: string): string {
+  return `https://app.todoist.com/app/task/${encodeURIComponent(id)}`;
+}
+
+/** « P1 · en retard », « P2 · aujourd'hui » (échéance future ou absente : la priorité seule). */
+export function precisionTache(t: TacheBloquante, aujourdhui: string): string {
+  const p = t.priorite.toUpperCase();
+  if (t.en_retard) return `${p} · en retard`;
+  return t.echeance === aujourdhui ? `${p} · aujourd'hui` : p;
 }
 
 const A_FAIRE: Partial<Record<ConditionParcours['type'], string>> = {
@@ -78,8 +102,9 @@ export function phraseManque(c: ConditionParcours): Omit<Manque, 'etat'> | null 
 /**
  * Ce qui manque pour sortir du mode actif : le fait attendu par un mode `pas` qui le retient, sinon
  * les faits pas encore vrais de l'étape suivante du jour (l'heure seulement s'il ne manque rien d'autre).
+ * Les conditions de tâches portent les tâches qui les retiennent (`bloquantes`, donné par l'API).
  */
-export function ceQuiManque(appareil: StatutAppareil | undefined, j: Journee): Manque[] {
+export function ceQuiManque(appareil: StatutAppareil | undefined, j: Journee, bloquantes?: TachesBloquantes): Manque[] {
   const etapes = etapesDuJour(appareil, j);
   if (!etapes) return [];
   const modes = etapes.flatMap((e) => (e.genre === 'mode' ? [e.etape] : []));
@@ -89,7 +114,9 @@ export function ceQuiManque(appareil: StatutAppareil | undefined, j: Journee): M
   const manques = (conditions: ConditionParcours[]) =>
     conditions.flatMap((c) => {
       const m = phraseManque(c);
-      return m === null ? [] : [{ ...m, etat: etatCondition(c) }];
+      if (m === null) return [];
+      const taches = c.type === 'prioritaires' || c.type === 'retard' ? bloquantes?.[c.type] : undefined;
+      return [{ ...m, etat: etatCondition(c), ...(taches && taches.total > 0 ? { taches } : {}) }];
     });
   if (active.logique === 'pas') return manques(active.conditions.filter((c) => !c.vraie));
   const suivante = modes[i + 1];

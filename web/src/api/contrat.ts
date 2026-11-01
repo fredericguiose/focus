@@ -293,6 +293,26 @@ export interface EngagementVerifie {
   statut: StatutEngagement;
 }
 
+/** Une tâche qui retient une condition de tâches (titre, priorité, échéance : de quoi l'ouvrir dans Todoist). */
+export interface TacheBloquante {
+  /** Identifiant Todoist (API v1) : l'URL web de la tâche s'en déduit. */
+  id: string;
+  titre: string;
+  priorite: Priorite;
+  echeance: DateLocale | null;
+  /** Échéance avant le jour courant. */
+  en_retard: boolean;
+}
+
+/** Les plus importantes (3 au plus, priorité puis échéance la plus ancienne) et combien en tout. */
+export interface ListeTachesBloquantes {
+  total: number;
+  taches: TacheBloquante[];
+}
+
+/** Par type de condition du parcours : `prioritaires` (prioritaires_faites), `retard` (aucun_retard). */
+export type TachesBloquantes = Partial<Record<'prioritaires' | 'retard', ListeTachesBloquantes>>;
+
 /** GET /v1/statut */
 export interface ReponseStatut {
   heure_serveur: Instant;
@@ -341,6 +361,8 @@ export interface ReponseStatut {
   seances_mesurees?: { derniere_synchro: Instant | null; erreur: string | null } | null;
   /** Étiquettes Todoist manquantes (absent d'une API plus ancienne). */
   todoist?: EtatTodoist;
+  /** Tâches qui retiennent les conditions de tâches (absent d'une API plus ancienne). */
+  taches_bloquantes?: TachesBloquantes;
 }
 
 export interface TacheSession {

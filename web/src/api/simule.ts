@@ -19,6 +19,7 @@ import type {
   EtatTodoist,
   Exception,
   Journee,
+  ListeTachesBloquantes,
   Phase,
   PrixException,
   RegulariteCouchers,
@@ -29,6 +30,7 @@ import type {
   SortieMode,
   StatutAppareil,
   StatutEngagement,
+  TacheBloquante,
   TacheSession,
   TypeAppareil,
   UsageEtiquette,
@@ -216,6 +218,33 @@ const majuscule = (texte: string) => texte.charAt(0).toUpperCase() + texte.slice
 function detailPrioritaires(n: number, _date: DateLocale): string {
   const total = `${n} tâche${n > 1 ? 's' : ''} restante${n > 1 ? 's' : ''}`;
   return n < 2 ? total : `${total} dont ${Math.floor(n / 2)} en retard`;
+}
+// Tâches fictives qui retiennent la soirée (P1/P2), dont une au titre long pour l'ellipse.
+const TITRES_PRIORITAIRES = [
+  'Exercices de probabilités',
+  'Fiche de révision : suites numériques et limites, avec les exercices corrigés du manuel',
+  'Envoyer le devis signé',
+  'Réviser le chapitre sur les graphes',
+  'Rendre le DM de physique',
+];
+
+const PRIORITES_SIMULEES = ['p1', 'p2', 'p2', 'p1', 'p2'] as const;
+
+/** Comme l'API : les n tâches de `detailPrioritaires` (la moitié en retard), P1 puis échéance, 3 montrées. */
+function tachesBloquantesSimulees(n: number, date: DateLocale): ListeTachesBloquantes {
+  const enRetard = n < 2 ? 0 : Math.floor(n / 2);
+  const taches: TacheBloquante[] = Array.from({ length: n }, (_, i) => {
+    const echeance = i < enRetard ? ajouterJours(date, -(i + 1)) : date;
+    return {
+      id: `p${i + 1}`,
+      titre: TITRES_PRIORITAIRES[i % TITRES_PRIORITAIRES.length]!,
+      priorite: PRIORITES_SIMULEES[i % PRIORITES_SIMULEES.length]!,
+      echeance,
+      en_retard: echeance < date,
+    };
+  });
+  taches.sort((a, b) => a.priorite.localeCompare(b.priorite) || (a.echeance ?? '').localeCompare(b.echeance ?? ''));
+  return { total: n, taches: taches.slice(0, 3) };
 }
 const HEURE_VALIDE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DATE_VALIDE = /^\d{4}-\d{2}-\d{2}$/;
@@ -904,6 +933,10 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
           ...engagementsVerifies(t),
           seances_mesurees: { derniere_synchro: versInstant(t - 35 * MINUTE), erreur: null },
           todoist: etatTodoist(t),
+          taches_bloquantes: {
+            prioritaires: tachesBloquantesSimulees(faits.prioritairesRestantes, j.date),
+            retard: { total: 0, taches: [] },
+          },
         };
       }),
 
