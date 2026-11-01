@@ -47,3 +47,8 @@ Cloudflare Access) : [docs/mise-en-ligne.md](docs/mise-en-ligne.md).
 ## Licence
 
 [MIT](LICENSE)
+
+### Identifiant iPhone d'une app
+
+`node scripts/app-store.mjs "Nom de l'app"` cherche dans l'App Store (identifiant + éditeur) ;
+`node scripts/app-store.mjs --verifier <config.yaml>` vérifie chaque `iphone:` d'une config.
