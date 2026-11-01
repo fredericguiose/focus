@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "appareil": "pc_linux",
+  "heure_serveur": "2026-11-03T21:00:00Z",
+  "config_version": "3f2a9c1",
+  "valable_jusqua": "2026-11-05T09:00:00Z",
+  "comptes_de_travail": ["alice"],
+  "segments": [
+    { "debut": "2026-11-03T21:00:00Z", "fin": "2026-11-03T23:30:00Z", "mode": "WORK",
+      "sessions": "autorisees",
+      "actions": { "bloquer_domaines": ["chatgpt.com", "chat.openai.com", "youtube.com", "www.youtube.com"],
+                   "verrouiller_session": false, "fermer_comptes_hors_travail": true } },
+    { "debut": "2026-11-03T23:30:00Z", "fin": "2026-11-04T05:30:00Z", "mode": "NIGHT_LOCK",
+      "sessions": "interdites",
+      "actions": { "bloquer_domaines": ["chatgpt.com", "chat.openai.com", "youtube.com", "www.youtube.com"],
+                   "verrouiller_session": true, "fermer_comptes_hors_travail": false } },
+    { "debut": "2026-11-04T05:30:00Z", "fin": "2026-11-04T07:00:00Z", "mode": "MORNING_LOCK",
+      "sessions": "interdites",
+      "actions": { "bloquer_domaines": ["chatgpt.com", "chat.openai.com", "youtube.com", "www.youtube.com"],
+                   "verrouiller_session": false, "fermer_comptes_hors_travail": true } }
+  ],
+  "sessions": [
+    { "id": "s_01", "tache": { "id": "123", "nom": "DM de maths" }, "apps": ["chatgpt"],
+      "domaines": ["chatgpt.com", "chat.openai.com"], "ouverte_le": "2026-11-03T21:00:00Z",
+      "question": { "id": "q_07", "posee_a": "2026-11-03T21:25:00Z", "attente_s": 3,
+                    "expire_a": "2026-11-03T21:26:03Z" } }
+  ],
+  "raison": "WORK — tâches prioritaires restantes : 2"
+}
