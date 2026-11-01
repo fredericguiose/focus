@@ -3,6 +3,7 @@ import { AlarmClock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { ChoixDate } from '@/composants/ChoixDate';
 import { Champ } from '@/composants/formulaire';
@@ -11,7 +12,8 @@ import { formaterDateCourte } from '@/lib/temps';
 
 /**
  * « Ajouter un engagement » : libellé, heure de l'engagement, préparation en boutons ; le réveil
- * qui en découle est affiché. Le jour est demain, sauf si l'on choisit « autre jour ».
+ * qui en découle est affiché. Le jour est demain, sauf si l'on choisit « autre jour ». Obligatoire
+ * par défaut ; « Facultatif » permet d'y renoncer ensuite sans raison.
  */
 export function ChampsAjout({
   champs,
@@ -75,6 +77,21 @@ export function ChampsAjout({
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
+      </div>
+
+      <div className="flex items-start justify-between gap-4">
+        <div className="grid gap-1">
+          <Label htmlFor="ajout-facultatif">Facultatif</Label>
+          <p id="ajout-facultatif-aide" className="text-muted-foreground text-xs">
+            Facultatif : y renoncer ne demandera pas de raison.
+          </p>
+        </div>
+        <Switch
+          id="ajout-facultatif"
+          aria-describedby="ajout-facultatif-aide"
+          checked={champs.facultatif}
+          onCheckedChange={(facultatif) => modifier({ facultatif })}
+        />
       </div>
 
       <div className="bg-muted/50 flex items-center gap-3 rounded-lg border px-3 py-2.5" aria-live="polite">

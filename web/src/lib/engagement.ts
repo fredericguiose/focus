@@ -26,10 +26,12 @@ export interface ChampsAjout {
   libelle: string;
   heure: string;
   preparationMin: number;
+  /** Facultatif : y renoncer ensuite ne demandera pas de raison. */
+  facultatif: boolean;
 }
 
 export function demandeAjout(c: ChampsAjout): DemandeException | null {
   const libelle = c.libelle.trim();
   if (!c.date || !libelle || !HEURE.test(c.heure)) return null;
-  return { type: 'ajoute', date: c.date, libelle, heure: c.heure, preparationMin: c.preparationMin };
+  return { type: 'ajoute', date: c.date, libelle, heure: c.heure, preparationMin: c.preparationMin, ...(c.facultatif ? { obligatoire: false } : {}) };
 }

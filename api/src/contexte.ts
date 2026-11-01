@@ -95,7 +95,7 @@ export async function chargerContexte(db: D1Database, utilisateur: string, maint
     db
       .prepare(
         `SELECT id, details, cree_le, raison, pendant_nuit FROM exceptions
-         WHERE utilisateur = ? AND annulee_le IS NULL AND jour >= ? ORDER BY cree_le, id`,
+         WHERE utilisateur = ? AND annulee_le IS NULL AND jour >= ? ORDER BY cree_le, rowid`,
       )
       .bind(utilisateur, ajouterJours(aujourdhuiUtc, -JOURS_EXCEPTIONS)),
   ]);

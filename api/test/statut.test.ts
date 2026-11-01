@@ -83,14 +83,14 @@ describe('GET /v1/statut : phase, actions, engagements de demain, nuits', () => 
 
   it('engagements de demain : routine et exceptions appliquées', async () => {
     expect((await api.get('/v1/statut', web)).corps.engagements_demain).toEqual([
-      { id: 'sport', nom: 'Sport', reveil: '2026-11-04T04:30:00Z', heure: '2026-11-04T05:00:00Z', annulable: true, decalable: true, origine: 'routine' },
-      { id: 'travail', nom: 'Travail', reveil: '2026-11-04T05:30:00Z', heure: null, annulable: true, decalable: true, origine: 'routine' },
+      { id: 'sport', nom: 'Sport', reveil: '2026-11-04T04:30:00Z', heure: '2026-11-04T05:00:00Z', obligatoire: true, sans_heure: false, origine: 'routine' },
+      { id: 'travail', nom: 'Travail', reveil: '2026-11-04T05:30:00Z', heure: null, obligatoire: true, sans_heure: false, origine: 'routine' },
     ]);
     await api.post('/v1/exceptions', web, { type: 'retire', date: '2026-11-04', engagement: 'travail', raison: RAISON });
-    await api.post('/v1/exceptions', web, { type: 'ajoute', date: '2026-11-04', libelle: 'Dentiste', heure: '08:00', preparation_min: 45 });
+    await api.post('/v1/exceptions', web, { type: 'ajoute', date: '2026-11-04', libelle: 'Dentiste', heure: '08:00', preparation_min: 45, obligatoire: false });
     expect((await api.get('/v1/statut', web)).corps.engagements_demain).toEqual([
-      { id: 'sport', nom: 'Sport', reveil: '2026-11-04T04:30:00Z', heure: '2026-11-04T05:00:00Z', annulable: true, decalable: true, origine: 'routine' },
-      { id: 'Dentiste', nom: 'Dentiste', reveil: '2026-11-04T06:15:00Z', heure: '2026-11-04T07:00:00Z', annulable: true, decalable: true, origine: 'exception' },
+      { id: 'sport', nom: 'Sport', reveil: '2026-11-04T04:30:00Z', heure: '2026-11-04T05:00:00Z', obligatoire: true, sans_heure: false, origine: 'routine' },
+      { id: 'Dentiste', nom: 'Dentiste', reveil: '2026-11-04T06:15:00Z', heure: '2026-11-04T07:00:00Z', obligatoire: false, sans_heure: false, origine: 'exception' },
     ]);
   });
 

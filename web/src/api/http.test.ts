@@ -127,7 +127,7 @@ describe('format réel de l’API', () => {
       phase: 'journee',
       actions: { je_vais_dormir: { disponible: true, motif: null }, decaler_coucher: { mode: 'raison', motif: null } },
       engagements_demain: [
-        { id: 'salle', nom: 'Salle', reveil: '2026-11-04T08:30:00Z', heure: '2026-11-04T09:00:00Z', annulable: true, decalable: false, origine: 'routine' },
+        { id: 'salle', nom: 'Salle', reveil: '2026-11-04T08:30:00Z', heure: '2026-11-04T09:00:00Z', obligatoire: false, sans_heure: false, origine: 'routine' },
       ],
       nuits: [{ nuit: '2026-11-02', dette_min: 30, dette_reelle_min: 45, endormi_min: 435, phases: { legere: 250, profonde: 90, rem: 95, eveil: 20 }, incomplete: true }],
       dette_cumulee_min: 30,
@@ -142,7 +142,7 @@ describe('format réel de l’API', () => {
     const statut = await creerApiHttp('j', '', vi.fn<typeof fetch>(async () => reponse(200, JSON.stringify(corps)))).statut();
     expect(statut.phase).toBe('journee');
     expect(statut.actions?.decaler_coucher.mode).toBe('raison');
-    expect(statut.engagements_demain?.[0]).toMatchObject({ id: 'salle', annulable: true, decalable: false });
+    expect(statut.engagements_demain?.[0]).toMatchObject({ id: 'salle', obligatoire: false, sans_heure: false });
     expect(statut.appareils[0]?.jusqua).toBe('2026-11-03T23:20:00Z');
     // API sans session_possible : repli sur `sessions`.
     expect(statut.appareils[0]).toMatchObject({ session_possible: true, session_motif: null });
@@ -220,6 +220,14 @@ describe('format réel de l’API', () => {
     expect(await api.prixException({ demande: { type: 'coucher', nuit: '2026-11-03', heure: '22:00' } })).toMatchObject({
       friction: 'raison',
       frictionManquante: true,
+    });
+    await api.prixException({ demande: { type: 'decale', date: '2026-11-04', engagement: 'salle', heure: '07:00', preparationMin: 15 } });
+    expect(JSON.parse(String(recuperer.mock.calls[2]?.[1]?.body))).toEqual({
+      type: 'decale',
+      date: '2026-11-04',
+      engagement: 'salle',
+      heure: '07:00',
+      preparation_min: 15,
     });
   });
 

@@ -122,8 +122,8 @@ describe('calendrier', () => {
 describe('engagementsPrevus', () => {
   it('routine du lundi : instants UTC, nom avec majuscule', () => {
     expect(engagementsPrevus(ctx, '2026-11-02')).toEqual([
-      { id: 'sport', nom: 'Sport', reveil: '2026-11-02T04:30:00Z', heure: '2026-11-02T05:00:00Z', annulable: true, decalable: true, origine: 'routine' },
-      { id: 'travail', nom: 'Travail', reveil: '2026-11-02T05:30:00Z', heure: null, annulable: true, decalable: true, origine: 'routine' },
+      { id: 'sport', nom: 'Sport', reveil: '2026-11-02T04:30:00Z', heure: '2026-11-02T05:00:00Z', obligatoire: true, origine: 'routine' },
+      { id: 'travail', nom: 'Travail', reveil: '2026-11-02T05:30:00Z', heure: null, obligatoire: true, origine: 'routine' },
     ]);
   });
 
@@ -134,9 +134,21 @@ describe('engagementsPrevus', () => {
       exception({ type: 'ajoute', date: '2026-11-02', libelle: 'Dentiste', heure: '08:00', preparationMin: 45 }, '2026-11-01T10:02:00Z'),
     ];
     expect(engagementsPrevus({ ...ctx, exceptions }, '2026-11-02')).toEqual([
-      { id: 'sport', nom: 'Sport', reveil: '2026-11-02T05:00:00Z', heure: '2026-11-02T05:30:00Z', annulable: true, decalable: true, origine: 'routine' },
-      { id: 'Dentiste', nom: 'Dentiste', reveil: '2026-11-02T06:15:00Z', heure: '2026-11-02T07:00:00Z', annulable: true, decalable: true, origine: 'exception' },
+      { id: 'sport', nom: 'Sport', reveil: '2026-11-02T05:00:00Z', heure: '2026-11-02T05:30:00Z', obligatoire: true, origine: 'routine' },
+      { id: 'Dentiste', nom: 'Dentiste', reveil: '2026-11-02T06:15:00Z', heure: '2026-11-02T07:00:00Z', obligatoire: true, origine: 'exception' },
     ]);
+  });
+
+  it('un engagement sans heure qui reçoit une heure fixe le réveil ; ajout facultatif', () => {
+    const exceptions = [
+      exception({ type: 'decale', date: '2026-12-21', engagement: 'sport', heure: '07:00' }, '2026-12-20T10:00:00Z'),
+      exception({ type: 'ajoute', date: '2026-12-21', libelle: 'Conférence', heure: '09:00', obligatoire: false }, '2026-12-20T10:01:00Z'),
+    ];
+    expect(engagementsPrevus({ ...ctx, exceptions }, '2026-12-21')).toEqual([
+      { id: 'sport', nom: 'Sport', reveil: '2026-12-21T05:30:00Z', heure: '2026-12-21T06:00:00Z', obligatoire: false, origine: 'routine' },
+      { id: 'Conférence', nom: 'Conférence', reveil: '2026-12-21T08:00:00Z', heure: '2026-12-21T08:00:00Z', obligatoire: false, origine: 'exception' },
+    ]);
+    expect(journee({ ...ctx, exceptions }, '2026-12-21').lever).toBe('2026-12-21T05:30:00Z');
   });
 
   it('jour sans engagement : liste vide', () => {

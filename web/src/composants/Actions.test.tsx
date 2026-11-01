@@ -9,7 +9,7 @@ import { PHRASE_NUIT } from '@/lib/decisionNuit';
 import { avancer, rendreAvecFocus, vider } from '@/test/rendu';
 
 // Mardi 3 novembre à Paris : ouverture 19:50 (18:50Z), coucher 21:30 (20:30Z).
-// Demain : sport (annulable, décalable) et travail (ni l'un ni l'autre).
+// Demain : sport et travail (obligatoires), révisions (sans heure, facultatives).
 const JOURNEE = '2026-11-03T14:00:00Z';
 const SOIREE = '2026-11-03T19:00:00Z';
 const NUIT = '2026-11-03T21:00:00Z';
@@ -97,20 +97,52 @@ describe('actions selon la phase donnée par l’API', () => {
 });
 
 describe('« Décaler le coucher » avant l’ouverture : raison seule', () => {
-  it('retirer : ne propose que les engagements annulables, avec le prix en direct, et demande une raison', async () => {
+  it('retirer : tous les engagements de demain, prix en direct ; obligatoire, une raison ; facultatif, libre', async () => {
     const { prix } = await rendre(JOURNEE);
     const fenetre = await ouvrirDecaler();
     fireEvent.click(within(fenetre).getByRole('button', { name: /Retirer un engagement de demain/ }));
     await vider();
-    expect(within(fenetre).getByLabelText(/Sport/)).toBeTruthy();
-    expect(within(fenetre).queryByLabelText(/Travail/)).toBeNull();
-    // Un seul engagement possible : il est déjà choisi, le prix part tout seul.
+    expect(within(fenetre).getByLabelText(/Travail/)).toBeTruthy();
+    expect(within(fenetre).getByLabelText(/Révisions/).closest('label')?.textContent).toContain('facultatif');
+    fireEvent.click(within(fenetre).getByLabelText(/Sport/));
     await avancer(DELAI_APERCU_MS);
     expect(prix).toHaveBeenCalledWith({ demande: { type: 'retire', date: '2026-11-04', engagement: 'sport' } });
     const apercu = within(fenetre).getByRole('region', { name: 'Prix du changement' });
     expect(within(apercu).getByText('Lever')).toBeTruthy();
     expect(within(fenetre).getByLabelText(/^Raison/)).toBeTruthy();
     expect(within(fenetre).queryByLabelText(/^Recopiez/)).toBeNull();
+
+    fireEvent.click(within(fenetre).getByLabelText(/Révisions/));
+    await avancer(DELAI_APERCU_MS);
+    expect(within(fenetre).getByText('Sans justification')).toBeTruthy();
+    expect(within(fenetre).queryByLabelText(/^Raison/)).toBeNull();
+    expect(within(fenetre).getByRole<HTMLButtonElement>('button', { name: 'Valider' }).disabled).toBe(false);
+  });
+
+  it('soirée : retirer un engagement facultatif reste libre, sans décision de nuit', async () => {
+    const { enregistrer } = await rendre(SOIREE);
+    const fenetre = await ouvrirDecaler();
+    fireEvent.click(within(fenetre).getByRole('button', { name: /Retirer un engagement de demain/ }));
+    await vider();
+    fireEvent.click(within(fenetre).getByLabelText(/Révisions/));
+    await avancer(DELAI_APERCU_MS);
+    expect(within(fenetre).queryByLabelText(/^Recopiez/)).toBeNull();
+    fireEvent.click(within(fenetre).getByRole('button', { name: 'Valider' }));
+    await avancer(100);
+    expect(enregistrer).toHaveBeenCalledWith({ demande: { type: 'retire', date: '2026-11-04', engagement: 'revisions' }, friction: undefined });
+  });
+
+  it('décaler un engagement sans heure : « Donner une heure », libre', async () => {
+    const { prix } = await rendre(JOURNEE);
+    const fenetre = await ouvrirDecaler();
+    fireEvent.click(within(fenetre).getByRole('button', { name: /Décaler un engagement de demain/ }));
+    await vider();
+    expect(within(fenetre).getByLabelText(/Révisions/).closest('label')?.textContent).toContain('sans heure');
+    fireEvent.click(within(fenetre).getByLabelText(/Révisions/));
+    saisir('Donner une heure', '05:00');
+    await avancer(DELAI_APERCU_MS);
+    expect(prix).toHaveBeenLastCalledWith({ demande: { type: 'decale', date: '2026-11-04', engagement: 'revisions', heure: '05:00' } });
+    expect(within(fenetre).getByText('Sans justification')).toBeTruthy();
   });
 
   it('choisir l’heure de coucher : champ raison sans phrase, « À justifier » en neutre puis enregistrement avec la raison', async () => {
@@ -153,6 +185,7 @@ describe('« Décaler le coucher » avant l’ouverture : raison seule', () => {
     const fenetre = await ouvrirDecaler();
     fireEvent.click(within(fenetre).getByRole('button', { name: /Décaler un engagement de demain/ }));
     await vider();
+    fireEvent.click(within(fenetre).getByLabelText(/Sport/));
     saisir("Nouvelle heure de l'engagement", '06:30');
     await avancer(DELAI_APERCU_MS);
     expect(within(fenetre).getByText('Raison exigée')).toBeTruthy();
@@ -193,6 +226,12 @@ describe('« Décaler le coucher » avant l’ouverture : raison seule', () => {
     await avancer(DELAI_APERCU_MS);
     expect(prix).toHaveBeenLastCalledWith({
       demande: { type: 'ajoute', date: '2026-11-04', libelle: 'Dentiste', heure: '05:00', preparationMin: 45 },
+    });
+    expect(within(fenetre).getByText('Facultatif : y renoncer ne demandera pas de raison.')).toBeTruthy();
+    fireEvent.click(within(fenetre).getByRole('switch', { name: 'Facultatif' }));
+    await avancer(DELAI_APERCU_MS);
+    expect(prix).toHaveBeenLastCalledWith({
+      demande: { type: 'ajoute', date: '2026-11-04', libelle: 'Dentiste', heure: '05:00', preparationMin: 45, obligatoire: false },
     });
     fireEvent.click(within(fenetre).getByRole('button', { name: 'Valider' }));
     await avancer(100);

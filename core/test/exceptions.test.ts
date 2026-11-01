@@ -125,13 +125,6 @@ describe('exceptions — décision de nuit (après l\'ouverture)', () => {
 });
 
 describe('exceptions — engagements', () => {
-  it('retire refusé si non annulable', () => {
-    const config = lireConfig(remplacer(EXEMPLE, 'travail: { reveil: "06:30", annulable: true', 'travail: { reveil: "06:30", annulable: false'));
-    const p = prixException({ ...contexte(AVANT_OUVERTURE), config }, { type: 'retire', date: '2026-11-03', engagement: 'travail' });
-    expect(p.admissible).toBe(false);
-    expect(p.motifRefus).toBe("l'engagement « Travail » ne peut pas être annulé");
-  });
-
   it('retirer le sport du mercredi : desserrer, lever et coucher reculent ensemble', () => {
     const retire = { type: 'retire' as const, date: '2026-11-04', engagement: 'sport' };
     expect(prixException(contexte('2026-11-03T14:00:00Z'), retire)).toMatchObject({ admissible: false, friction: 'raison' });
@@ -156,15 +149,47 @@ describe('exceptions — engagements', () => {
     expect(tard.motifRefus).toBe('la nuit du 3 nov. est passée');
   });
 
-  it('decale refusé si non décalable, ou si l\'engagement est sans heure', () => {
-    const config = lireConfig(remplacer(EXEMPLE, 'preparation: 30, annulable: true, decalable: true', 'preparation: 30, annulable: true, decalable: false'));
-    const p = prixException({ ...contexte(AVANT_OUVERTURE), config }, { type: 'decale', date: '2026-11-04', engagement: 'sport', heure: '06:30' });
-    expect(p.admissible).toBe(false);
-    expect(p.motifRefus).toBe("l'engagement « Sport » ne peut pas être décalé");
-    expect(p.coucherApres).toBe(p.coucherAvant);
-    // Congés : sport « heure: libre » le lundi 21/12.
-    const libre = prixException(contexte('2026-12-20T10:00:00Z'), { type: 'decale', date: '2026-12-21', engagement: 'sport', heure: '09:00' });
-    expect(libre.motifRefus).toBe("l'engagement « Sport » n'a pas d'heure : rien à décaler");
+  it('donner une heure à un engagement sans heure : resserrer, libre, réveil fixé', () => {
+    // Congés : sport « heure: libre » le lundi 21/12 (Paris, UTC+1), réveil libre 08:00.
+    const ctx = contexte('2026-12-20T10:00:00Z');
+    const p = prixException(ctx, { type: 'decale', date: '2026-12-21', engagement: 'sport', heure: '07:00' });
+    // Préparation de la config (30 min) : réveil 06:30.
+    expect(p).toMatchObject({ admissible: true, friction: 'aucune', resserre: true, leverAvant: '2026-12-21T07:00:00Z', leverApres: '2026-12-21T05:30:00Z' });
+    const prep = prixException(ctx, { type: 'decale', date: '2026-12-21', engagement: 'sport', heure: '07:00', preparationMin: 10 });
+    expect(prep.leverApres).toBe('2026-12-21T05:50:00Z');
+    // Plus tard que le réveil libre : le lever ne bouge pas, toujours libre.
+    expect(prixException(ctx, { type: 'decale', date: '2026-12-21', engagement: 'sport', heure: '09:00' })).toMatchObject({
+      admissible: true, friction: 'aucune', leverApres: '2026-12-21T07:00:00Z',
+    });
+    expect(prixException(ctx, { type: 'decale', date: '2026-12-21', engagement: 'sport', heure: '07:00', preparationMin: -5 }).motifRefus).toBe(
+      'préparation invalide : attendu un nombre entier de minutes',
+    );
+  });
+
+  it('engagement facultatif : le retirer ou le repousser est libre, avant comme après l\'ouverture', () => {
+    const config = lireConfig(remplacer(EXEMPLE, 'preparation: 30, verification', 'preparation: 30, obligatoire: false, verification'));
+    const retire = { type: 'retire' as const, date: '2026-11-04', engagement: 'sport' };
+    expect(prixException({ ...contexte('2026-11-03T14:00:00Z'), config }, retire)).toMatchObject({
+      admissible: true, friction: 'aucune', resserre: false, leverApres: '2026-11-04T05:30:00Z',
+    });
+    const nuit = { ...contexte('2026-11-03T20:00:00Z'), config };
+    expect(prixException(nuit, retire)).toMatchObject({ admissible: true, friction: 'aucune' });
+    expect(prixException(nuit, { type: 'decale', date: '2026-11-04', engagement: 'sport', heure: '06:40' })).toMatchObject({ admissible: true, friction: 'aucune' });
+    // Une décision de nuit déjà prise ne bloque pas un facultatif.
+    const prise = exception(coucher('23:00', '2026-11-03'), '2026-11-03T19:00:00Z', true);
+    expect(prixException({ ...nuit, exceptions: [prise] }, retire)).toMatchObject({ admissible: true, friction: 'aucune' });
+    // Une routine peut le rendre facultatif, et une exception ajoute aussi.
+    const routine = lireConfig(remplacer(EXEMPLE, 'engagements: { sport: { heure: libre, obligatoire: false } }', 'engagements: { sport: { obligatoire: true } }'));
+    expect(prixException({ ...contexte('2026-12-20T10:00:00Z'), config: routine }, { type: 'retire', date: '2026-12-21', engagement: 'sport' }).friction).toBe('raison');
+    expect(prixException(contexte('2026-12-20T10:00:00Z'), { type: 'retire', date: '2026-12-21', engagement: 'sport' }).friction).toBe('aucune');
+    const conf = exception({ type: 'ajoute', date: '2026-11-03', libelle: 'Conférence', heure: '05:30', obligatoire: false }, '2026-11-02T10:00:00Z');
+    const ctx = { ...contexte(AVANT_OUVERTURE), exceptions: [conf] };
+    expect(prixException(ctx, { type: 'retire', date: '2026-11-03', engagement: 'Conférence' })).toMatchObject({ admissible: true, friction: 'aucune' });
+  });
+
+  it('engagement obligatoire : le retirer demande une raison', () => {
+    const p = prixException(contexte(AVANT_OUVERTURE), { type: 'retire', date: '2026-11-03', engagement: 'travail' });
+    expect(p).toMatchObject({ admissible: false, friction: 'raison', frictionManquante: true });
   });
 
   it('décaler : plus tard = desserrer, plus tôt = resserrer', () => {

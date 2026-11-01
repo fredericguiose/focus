@@ -170,8 +170,7 @@ const schemaEngagement = z
     heure: heure.optional(),
     preparation: dureeOuMinutes.optional(),
     reveil: heure.optional(),
-    annulable: z.boolean().default(false),
-    decalable: z.boolean().default(false),
+    obligatoire: z.boolean().default(true),
     verification: z.strictObject({ mesure: texte }).optional(),
   })
   .superRefine((e, ctx) => {
@@ -196,12 +195,11 @@ const schemaSurcharge = z
     heure: z.union([z.literal('libre'), heure], { error: 'heure invalide : attendu "HH:MM" ou libre' }).optional(),
     preparation: dureeOuMinutes.optional(),
     reveil: heure.optional(),
-    annulable: z.boolean().optional(),
-    decalable: z.boolean().optional(),
+    obligatoire: z.boolean().optional(),
   })
   .superRefine((e, ctx) => {
     if (e.heure === 'libre') {
-      const autres = Object.keys(e).filter((k) => k !== 'heure' && e[k as keyof typeof e] !== undefined);
+      const autres = Object.keys(e).filter((k) => k !== 'heure' && k !== 'obligatoire' && e[k as keyof typeof e] !== undefined);
       if (autres.length > 0) {
         ctx.addIssue({ code: 'custom', path: ['heure'], message: `heure: libre s'écrit seule (reçu aussi : ${autres.join(', ')})` });
       }
@@ -321,14 +319,13 @@ function sansIndefinis<T extends object>(objet: T): T {
   return Object.fromEntries(Object.entries(objet).filter(([, v]) => v !== undefined)) as T;
 }
 
-function normaliserSurcharge(s: SurchargeBrute): Partial<Engagement> | { sansHeure: true } {
-  if (s.heure === 'libre') return { sansHeure: true };
+function normaliserSurcharge(s: SurchargeBrute): Partial<Engagement> | { sansHeure: true; obligatoire?: boolean } {
+  if (s.heure === 'libre') return sansIndefinis({ sansHeure: true as const, obligatoire: s.obligatoire });
   return sansIndefinis({
     heure: s.heure,
     preparationMin: s.preparation,
     reveil: s.reveil,
-    annulable: s.annulable,
-    decalable: s.decalable,
+    obligatoire: s.obligatoire,
   });
 }
 
@@ -361,8 +358,7 @@ function normaliser(b: ConfigBrute): Config {
         heure: e.heure,
         preparationMin: e.preparation,
         reveil: e.reveil,
-        annulable: e.annulable,
-        decalable: e.decalable,
+        obligatoire: e.obligatoire,
         verification: e.verification && { mesure: e.verification.mesure as TypeMesure },
       }),
     ),
@@ -652,7 +648,7 @@ function verifierCalendrier(c: Config, signaler: Signaler): void {
 /** Clés connues du YAML, pour suggérer la bonne en cas de faute de frappe. */
 const CLES_CONNUES = [
   'version', 'utilisateur', 'sommeil', 'cible', 'minimum', 'plancher_nuit', 'lever_plancher', 'reveil_libre',
-  'engagements', 'heure', 'preparation', 'reveil', 'annulable', 'decalable', 'apps', 'nom', 'domaines', 'iphone',
+  'engagements', 'heure', 'preparation', 'reveil', 'obligatoire', 'apps', 'nom', 'domaines', 'iphone',
   'groupes', 'appareils', 'type', 'comptes_de_travail', 'modes', 'quand', 'effets', 'bloque', 'sauf',
   'verrouiller_session', 'fermer_comptes_hors_travail', 'sessions', 'parametres', 'routines', 'fuseau', 'jours',
   'lun', 'mar', 'mer', 'jeu', 'ven', 'sam', 'dim', 'conditions_en_plus', 'retirer', 'routine_par_defaut',
@@ -662,6 +658,12 @@ const CLES_CONNUES = [
   'expiration_question_s', 'intervalle_question', 'pc', 'apres', 'avant', 'decale_par', 'filtre', 'au_plus',
   'priorites', 'etiquettes_incluses', 'verification', 'mesure',
 ];
+
+/** Clés retirées du schéma : un message qui dit quoi faire plutôt que « clé inconnue ». */
+const CLES_SUPPRIMEES: Record<string, string> = {
+  annulable: '« annulable » n\'existe plus : retirez-la (tout engagement peut être retiré ; obligatoire: false le rend libre)',
+  decalable: '« decalable » n\'existe plus : retirez-la (tout engagement peut être décalé ; obligatoire: false le rend libre)',
+};
 
 /** Distance d'édition avec transposition (« WROK » est à 1 de « WORK »). */
 function distance(a: string, b: string): number {
@@ -718,7 +720,9 @@ function messageIssue(issue: z.core.$ZodIssue): string {
       if (issue.input === undefined) return 'champ obligatoire manquant';
       return `${NOMS_TYPES[issue.expected] ?? issue.expected} attendu, reçu ${typeDe(issue.input)}`;
     case 'unrecognized_keys':
-      return issue.keys.map((k) => `clé inconnue « ${k} »${suggestion(k, CLES_CONNUES)}`).join(' ; ');
+      return issue.keys
+        .map((k) => CLES_SUPPRIMEES[k] ?? `clé inconnue « ${k} »${suggestion(k, CLES_CONNUES)}`)
+        .join(' ; ');
     case 'invalid_value':
       return `valeur ${typeof issue.input === 'string' ? `« ${issue.input} »` : String(issue.input)} invalide ; attendu : ${issue.values.map(String).join(', ')}`;
     case 'too_small':

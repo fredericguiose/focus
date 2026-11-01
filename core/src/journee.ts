@@ -62,7 +62,9 @@ export function engagementEffectif(config: Config, routine: Routine, id: string)
   if (!base) return undefined;
   const surcharge = routine.engagements?.[id];
   if (!surcharge) return base;
-  if ('sansHeure' in surcharge) return sansIndefinis({ annulable: base.annulable, decalable: base.decalable, verification: base.verification });
+  if ('sansHeure' in surcharge) {
+    return sansIndefinis({ obligatoire: surcharge.obligatoire ?? base.obligatoire, verification: base.verification });
+  }
   const horaire = surcharge.heure !== undefined || surcharge.reveil !== undefined;
   const fusion: Engagement = { ...base, ...surcharge };
   if (horaire) {
@@ -83,8 +85,7 @@ export interface EngagementDuJour {
   /** Minutes depuis minuit du jour ; peut être négatif (réveil la veille au soir). */
   reveilMin?: number;
   heureMin?: number;
-  annulable: boolean;
-  decalable: boolean;
+  obligatoire: boolean;
   origine: 'routine' | 'exception';
 }
 
@@ -108,8 +109,7 @@ export function engagementsDuJour(contexte: Contexte, date: DateLocale): Engagem
       id,
       reveilMin: reveilDe(e),
       heureMin: e.heure !== undefined ? minutesDe(e.heure) : undefined,
-      annulable: e.annulable,
-      decalable: e.decalable,
+      obligatoire: e.obligatoire,
       origine: 'routine' as const,
     });
   });
@@ -120,14 +120,14 @@ export function engagementsDuJour(contexte: Contexte, date: DateLocale): Engagem
         id: d.libelle,
         reveilMin: reveilDe(d),
         heureMin: d.heure !== undefined ? minutesDe(d.heure) : undefined,
-        annulable: true,
-        decalable: true,
+        obligatoire: d.obligatoire ?? true,
         origine: 'exception',
       }));
     } else if (d.type === 'retire') {
       liste = liste.filter((e) => e.id !== d.engagement);
     } else {
-      liste = liste.map((e) => (e.id === d.engagement ? decaler(e, minutesDe(d.heure)) : e));
+      const preparation = d.preparationMin ?? contexte.config.engagements[d.engagement]?.preparationMin ?? PREPARATION_PAR_DEFAUT_MIN;
+      liste = liste.map((e) => (e.id === d.engagement ? decaler(e, minutesDe(d.heure), preparation) : e));
     }
   }
   return liste;
@@ -147,15 +147,20 @@ export function engagementsPrevus(contexte: Contexte, date: DateLocale): Engagem
     nom: nomEngagement(e),
     reveil: instant(e.reveilMin),
     heure: instant(e.heureMin),
-    annulable: e.annulable,
-    decalable: e.decalable,
+    obligatoire: e.obligatoire,
     origine: e.origine,
   }));
 }
 
-/** Décaler déplace l'heure ; le réveil suit du même écart (préparation conservée). */
-function decaler(e: EngagementDuJour, nouvelleHeure: number): EngagementDuJour {
-  if (e.reveilMin === undefined) return e;
+/** Préparation donnée à un engagement sans heure qui en reçoit une, faute d'en avoir dans la config. */
+export const PREPARATION_PAR_DEFAUT_MIN = 30;
+
+/**
+ * Décaler déplace l'heure ; le réveil suit du même écart (préparation conservée). Un engagement
+ * sans heure en reçoit une : son réveil devient heure − préparation.
+ */
+function decaler(e: EngagementDuJour, nouvelleHeure: number, preparationSiSansHeure: number): EngagementDuJour {
+  if (e.reveilMin === undefined) return { ...e, heureMin: nouvelleHeure, reveilMin: nouvelleHeure - preparationSiSansHeure };
   const reference = e.heureMin ?? e.reveilMin;
   return { ...e, heureMin: nouvelleHeure, reveilMin: e.reveilMin + nouvelleHeure - reference };
 }

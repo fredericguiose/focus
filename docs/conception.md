@@ -44,20 +44,31 @@ sommeil:
 ```
 
 ### 2.3 Engagements
-Une raison de se lever. Deux formes :
+Une raison de se lever. Un engagement répond à **trois questions indépendantes** :
 ```yaml
 engagements:
-  salle: { heure: "05:00", preparation: 30, annulable: true, decalable: true,
-           verification: { mesure: seance } }  # réveil 04:30
-  cours: { reveil: "06:00", annulable: true, decalable: true }
+  salle: { heure: "05:00", preparation: 30, verification: { mesure: seance } }  # réveil 04:30
+  cours: { reveil: "06:00" }
+  lecture: { obligatoire: false }   # sans heure, facultatif
 ```
-- Réveil d'un engagement = `reveil`, sinon `heure − preparation`.
-- `verification` (facultatif) : l'engagement est **vérifié** par une mesure du type donné le jour
-  même (§3.8). Types connus : `sommeil`, `seance` ; un autre type est refusé. Sans ce champ
-  (ex. `cours`), l'engagement n'est jamais vérifié. Le moteur ne connaît aucune source : ce sont les
-  adaptateurs de l'API (§4.4) qui rangent les mesures par type.
-- Une routine peut surcharger un engagement (`heure: libre` = engagement sans heure : il ne
-  donne pas de réveil, il sert seulement au suivi).
+1. **Fixe-t-il le réveil ?** `heure` (+ `preparation`) ou `reveil` : réveil = `reveil`, sinon
+   `heure − preparation`. Sans heure (aucun des deux, ou `heure: libre` dans une routine) : il ne
+   fixe rien, il sert au suivi. Une exception `decale` peut lui **donner une heure** pour un jour
+   (§3.4) : il fixe alors le réveil ce jour-là.
+2. **Est-il obligatoire ?** `obligatoire` (défaut `true`). Obligatoire : le retirer ou le
+   repousser est un desserrage (raison exigée, §3.4). Facultatif (`false`) : le retirer ou le
+   repousser est libre ; seul le plafond de sommeil s'applique. L'avancer ou en ajouter un reste
+   libre dans les deux cas.
+3. **Comment sait-on qu'il est fait ?** `verification` (facultatif) : l'engagement est **vérifié**
+   par une mesure du type donné le jour même (§3.8). Types connus : `sommeil`, `seance` ; un autre
+   type est refusé. Sans ce champ (ex. `cours`), l'engagement n'est jamais vérifié. Le moteur ne
+   connaît aucune source : ce sont les adaptateurs de l'API (§4.4) qui rangent les mesures par type.
+- Tout engagement peut être retiré, et décalé s'il a une heure (ou pour lui en donner une).
+  `annulable` et `decalable` n'existent plus : la config qui les porte est refusée avec un message
+  qui dit de les retirer.
+- Une routine peut surcharger un engagement : `heure`, `preparation`, `reveil`, `obligatoire` ;
+  `heure: libre` (engagement sans heure ce jour-là) ne se combine qu'avec `obligatoire`, ex.
+  `engagements: { salle: { heure: libre, obligatoire: false } }` pour les vacances.
 
 ### 2.4 Catalogue, groupes, appareils
 ```yaml
@@ -166,7 +177,8 @@ prix_du_report:
 ### 3.1 Journée
 - **Lever(D)** pour un jour local D :
   1. engagements du jour D = ceux de la routine de D pour ce jour de semaine, plus les
-     exceptions `ajoute`, moins `retire`, avec `decale` appliqué ;
+     exceptions `ajoute`, moins `retire`, avec `decale` appliqué (un engagement sans heure
+     décalé reçoit l'heure demandée et réveil = heure − préparation) ;
   2. si au moins un engagement donne un réveil : lever = min(réveils, `reveil_libre`) ;
   3. sinon lever = `reveil_libre` ;
   4. si la nuit D−1 porte une exception **avancer le coucher** et que D n'a aucun engagement
@@ -192,13 +204,17 @@ prix_du_report:
 - iPhone : `bloquer_apps` = identifiants `iphone` des apps bloquées.
 
 ### 3.4 Exceptions
-Types : `ajoute` (date, libellé, `heure` + `preparation` ou `reveil`), `retire` (date,
-engagement — refusé si non `annulable`), `decale` (date, engagement, nouvelle heure — refusé si
-non `decalable`), `coucher` (nuit, nouvelle heure de coucher), `avancer_coucher` (nuit, heure =
-maintenant : « je vais dormir »).
-- **Resserrer** (coucher plus tôt, engagement ajouté ou avancé) : toujours permis, sans
-  friction, à toute heure.
-- **Desserrer** (coucher plus tard, engagement retiré ou repoussé) — pour la nuit D :
+Types : `ajoute` (date, libellé, `heure` + `preparation` ou `reveil`, `obligatoire` facultatif,
+défaut vrai), `retire` (date, engagement), `decale` (date, engagement, nouvelle heure ; pour un
+engagement sans heure, `preparation` facultative, défaut celle de la config, sinon 30 min),
+`coucher` (nuit, nouvelle heure de coucher), `avancer_coucher` (nuit, heure = maintenant :
+« je vais dormir »). Retirer ou décaler un engagement absent ce jour-là est refusé.
+- **Resserrer** (coucher plus tôt, engagement ajouté ou avancé, heure donnée à un engagement sans
+  heure) : toujours permis, sans friction, à toute heure.
+- **Engagement facultatif** retiré ou repoussé : libre (friction `aucune`, pas de décision de
+  nuit consommée), avant comme après l'ouverture ; refusé seulement si le sommeil prévu passe sous
+  `minimum` (avant l'ouverture) ou `plancher_nuit` (après).
+- **Desserrer** (coucher plus tard, engagement obligatoire retiré ou repoussé) — pour la nuit D :
   | Moment de la demande | Friction | Plafond de sommeil | Limite |
   |---|---|---|---|
   | avant ouverture(D) | `raison` ≥ 50 caractères (sans phrase) | sommeil prévu ≥ `minimum` | aucune |
@@ -291,10 +307,13 @@ jour D de `du` à `au` et chaque engagement vérifiable **prévu** par la routin
 plus ceux qu'une exception `retire` a enlevés ce jour-là) → `{ date, engagement, nom, statut }` :
 1. `fait` s'il existe au moins une mesure du type déclaré qui commence le jour local D (fuseau de la
    routine de D) ;
-2. sinon `saute_declare` si une exception `retire` le concernait ce jour-là ;
-3. sinon `saute_non_declare` si D est passé (date locale de maintenant > D) ;
-4. sinon `a_faire`.
-Un engagement sans heure (`heure: libre`) reste vérifiable. Une exception `ajoute` n'est jamais
+2. sinon, s'il est **facultatif** ce jour-là (config ou surcharge de la routine) :
+   `facultatif_non_fait` s'il a été retiré ou si D est passé, `a_faire` sinon ;
+3. sinon `saute_declare` si une exception `retire` le concernait ce jour-là ;
+4. sinon `saute_non_declare` si D est passé (date locale de maintenant > D) ;
+5. sinon `a_faire`.
+Un engagement sans heure (`heure: libre`) reste vérifiable. `facultatif_non_fait` n'est jamais
+compté parmi les sautés. Une exception `ajoute` n'est jamais
 vérifiée (pas de champ `verification`).
 
 ## 4. L'API
@@ -455,7 +474,7 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   },
   "engagements_demain": [
     { "id": "sport", "nom": "Sport", "reveil": "…Z" | null, "heure": "…Z" | null,
-      "annulable": bool, "decalable": bool, "origine": "routine" | "exception" }
+      "obligatoire": bool, "sans_heure": bool, "origine": "routine" | "exception" }
   ],
   "nuits": [ { "nuit": "YYYY-MM-DD", "dette_min": number, "dette_reelle_min": number | null,
                "endormi_min": number | null, "incomplete": bool,
@@ -468,7 +487,8 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   "sommeil_mesure": { "derniere_synchro": "…Z" | null, "erreur": string | null } | null,
   "aujourdhui": "YYYY-MM-DD",
   "engagements_verifies": [ { "date", "engagement", "nom",
-                              "statut": "fait" | "saute_declare" | "saute_non_declare" | "a_faire" } ],
+                              "statut": "fait" | "saute_declare" | "saute_non_declare"
+                                        | "facultatif_non_fait" | "a_faire" } ],
   "sautes_semaine": number,
   "seances_mesurees": { "derniere_synchro": "…Z" | null, "erreur": string | null } | null,
   "appareils": [ { "nom", "type", "mode", "sessions", "session_possible": bool,
@@ -491,7 +511,10 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   `/v1/exceptions/prix`.
 - `engagements_demain` : `engagementsPrevus(contexte, J + 1)` du moteur, exceptions appliquées
   (un engagement décalé garde l'origine `routine`). `nom` : libellé pour une exception `ajoute`,
-  sinon l'identifiant avec une majuscule.
+  sinon l'identifiant avec une majuscule. `obligatoire` : retirer ou repousser demande une raison ;
+  `sans_heure` (= `reveil` null) : il ne fixe pas le réveil. La web app propose **tous** les
+  engagements de demain à « Retirer » et « Décaler » ; pour un engagement sans heure, « Décaler »
+  devient « Donner une heure ». « Ajouter » a un interrupteur « Facultatif » (défaut obligatoire).
 - `nuits` : les 7 nuits terminées J−7 … J−1, de la plus ancienne à la plus récente, `dette_min` =
   `journee(D).detteNuitMin` recalculée par le moteur avec la config active et les exceptions
   enregistrées ; `dette_cumulee_min` = leur somme.
@@ -534,12 +557,13 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   journée courante ; `engagements_verifies` = `verifierEngagements` sur les séances mesurées, des 7
   derniers jours à la fin de la semaine en cours (dimanche) : les jours après aujourd'hui sont
   `a_faire` (« à venir » pour l'interface). `sautes_semaine` = nombre de `saute_declare` +
-  `saute_non_declare` du lundi à aujourd'hui (information seulement, rien n'est bloqué).
+  `saute_non_declare` du lundi à aujourd'hui (information seulement, rien n'est bloqué ;
+  `facultatif_non_fait` n'y entre jamais).
   `seances_mesurees` : dernière synchro Hevy réussie et code d'erreur (null si jamais tentée).
 - **Carte « Engagements »** de la web app : pour aujourd'hui, chaque engagement vérifiable et son
   état (✓ vert fait, ✗ orange à faire, gris annulé à l'avance) ; puis la semaine lun → dim en cases
-  pour les jours prévus (fait, annulé à l'avance, sauté sans l'annuler en rouge, à venir) et
-  « N séances sautées cette semaine ». Clé Hevy refusée : avertissement.
+  pour les jours prévus (fait, annulé à l'avance, sauté sans l'annuler en rouge, non faite
+  (facultative) en gris pointillé, à venir) et « N séances sautées cette semaine ». Clé Hevy refusée : avertissement.
 - `appareils[].jusqua` : fin du segment en cours du planning de l'appareil (`planifier(…)[0].fin`).
   **Suppose les faits Todoist constants** : pour MORNING_LOCK ou WORK, c'est une borne, pas une
   heure de sortie. L'interface affiche `sortie` (et ne présente jamais un mode conditionnel

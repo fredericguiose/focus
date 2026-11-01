@@ -10,14 +10,15 @@ describe('ajouter un engagement', () => {
   });
 
   it('ne construit la demande qu’avec un libellé et une heure valides', () => {
-    expect(demandeAjout({ date: '2026-11-04', libelle: '  ', heure: '08:00', preparationMin: 30 })).toBeNull();
-    expect(demandeAjout({ date: '2026-11-04', libelle: 'Dentiste', heure: '', preparationMin: 30 })).toBeNull();
-    expect(demandeAjout({ date: '2026-11-04', libelle: ' Dentiste ', heure: '08:00', preparationMin: 45 })).toEqual({
+    expect(demandeAjout({ date: '2026-11-04', libelle: '  ', heure: '08:00', preparationMin: 30, facultatif: false })).toBeNull();
+    expect(demandeAjout({ date: '2026-11-04', libelle: 'Dentiste', heure: '', preparationMin: 30, facultatif: false })).toBeNull();
+    expect(demandeAjout({ date: '2026-11-04', libelle: ' Dentiste ', heure: '08:00', preparationMin: 45, facultatif: false })).toEqual({
       type: 'ajoute',
       date: '2026-11-04',
       libelle: 'Dentiste',
       heure: '08:00',
       preparationMin: 45,
     });
+    expect(demandeAjout({ date: '2026-11-04', libelle: 'Conférence', heure: '09:00', preparationMin: 30, facultatif: true })).toMatchObject({ obligatoire: false });
   });
 });

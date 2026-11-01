@@ -80,21 +80,40 @@ const GROUPES: { id: string; nom: string; apps: string[] }[] = [
 
 interface EngagementSimule {
   nom: string;
-  heure: HeureLocale;
+  /** null = sans heure : ne fixe pas le réveil. */
+  heure: HeureLocale | null;
   preparationMin: number;
-  annulable: boolean;
-  decalable: boolean;
+  obligatoire: boolean;
 }
 const ENGAGEMENTS: Record<string, EngagementSimule> = {
-  sport: { nom: 'Sport', heure: '06:00', preparationMin: 30, annulable: true, decalable: true },
-  travail: { nom: 'Travail', heure: '06:30', preparationMin: 0, annulable: false, decalable: false },
+  sport: { nom: 'Sport', heure: '06:00', preparationMin: 30, obligatoire: true },
+  travail: { nom: 'Travail', heure: '06:30', preparationMin: 0, obligatoire: true },
+  revisions: { nom: 'Révisions', heure: null, preparationMin: 30, obligatoire: false },
 };
 /** Engagements vérifiés par une séance mesurée (salle). */
 const VERIFIES = ['sport'];
-/** Jours prévus passés sans séance, comptés à rebours depuis hier (1 = le plus récent). */
+/** Jours obligatoires passés sans séance, comptés à rebours depuis hier (1 = le plus récent). */
 const SEANCES_MANQUEES = [2];
 /** Index = jour de semaine (0 = dimanche). */
-const ENGAGEMENTS_PAR_JOUR: string[][] = [['sport'], ['sport', 'travail'], ['travail'], ['sport', 'travail'], ['travail'], ['sport', 'travail'], []];
+const ENGAGEMENTS_PAR_JOUR: string[][] = [
+  [],
+  ['sport', 'travail', 'revisions'],
+  ['travail', 'revisions'],
+  ['sport', 'travail', 'revisions'],
+  ['travail', 'revisions'],
+  ['sport', 'travail'],
+  ['sport'],
+];
+/** Le samedi, la séance est sans heure et facultative. */
+const SURCHARGES_PAR_JOUR: Partial<Record<number, Record<string, Partial<EngagementSimule>>>> = {
+  6: { sport: { heure: null, obligatoire: false } },
+};
+const PREPARATION_PAR_DEFAUT_MIN = 30;
+
+function engagementDuJour(id: string, date: DateLocale): EngagementSimule | undefined {
+  const e = ENGAGEMENTS[id];
+  return e && { ...e, ...SURCHARGES_PAR_JOUR[jourDeSemaine(date)]?.[id] };
+}
 /** null = « $coucher - 2h ». */
 const OUVERTURE_PAR_JOUR: (HeureLocale | null)[] = ['14:00', null, null, null, null, '18:00', '14:00'];
 
@@ -211,31 +230,34 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
     /** Minutes depuis minuit (null = sans heure). */
     heure: number | null;
     reveil: number | null;
-    annulable: boolean;
-    decalable: boolean;
+    obligatoire: boolean;
     origine: 'routine' | 'exception';
   }
 
   function engagementsDuJour(date: DateLocale, liste: Exception[]): Map<string, EngagementDuJour> {
     const resultat = new Map<string, EngagementDuJour>();
     for (const id of ENGAGEMENTS_PAR_JOUR[jourDeSemaine(date)] ?? []) {
-      const e = ENGAGEMENTS[id];
+      const e = engagementDuJour(id, date);
       if (!e) continue;
-      const heure = enMinutes(e.heure);
-      resultat.set(id, { nom: e.nom, heure, reveil: heure - e.preparationMin, annulable: e.annulable, decalable: e.decalable, origine: 'routine' });
+      const heure = e.heure === null ? null : enMinutes(e.heure);
+      resultat.set(id, { nom: e.nom, heure, reveil: heure === null ? null : heure - e.preparationMin, obligatoire: e.obligatoire, origine: 'routine' });
     }
     for (const { demande: d } of liste) {
       if (d.type === 'ajoute' && d.date === date) {
         const heure = d.heure ? enMinutes(d.heure) : null;
         const reveil = d.reveil ? enMinutes(d.reveil) : heure === null ? null : heure - (d.preparationMin ?? 0);
-        resultat.set(d.libelle, { nom: d.libelle, heure, reveil, annulable: true, decalable: false, origine: 'exception' });
+        resultat.set(d.libelle, { nom: d.libelle, heure, reveil, obligatoire: d.obligatoire ?? true, origine: 'exception' });
       } else if (d.type === 'retire' && d.date === date) {
         resultat.delete(d.engagement);
       } else if (d.type === 'decale' && d.date === date) {
         const e = resultat.get(d.engagement);
         if (e) {
           const heure = enMinutes(d.heure);
-          resultat.set(d.engagement, { ...e, heure, reveil: heure - (ENGAGEMENTS[d.engagement]?.preparationMin ?? 0) });
+          // Sans heure, il en reçoit une : réveil = heure − préparation (demandée, sinon celle de l'engagement).
+          const preparation = e.reveil === null
+            ? (d.preparationMin ?? ENGAGEMENTS[d.engagement]?.preparationMin ?? PREPARATION_PAR_DEFAUT_MIN)
+            : e.heure === null ? 0 : e.heure - e.reveil;
+          resultat.set(d.engagement, { ...e, heure, reveil: heure - preparation });
         }
       }
     }
@@ -328,8 +350,8 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
       nom: e.nom,
       reveil: instant(e.reveil),
       heure: instant(e.heure),
-      annulable: e.annulable,
-      decalable: e.decalable,
+      obligatoire: e.obligatoire,
+      sans_heure: e.reveil === null,
       origine: e.origine,
     }));
   }
@@ -642,14 +664,19 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
       const e = engagementsDuJour(demande.date, exceptions).get(demande.engagement);
       const refus = (motifRefus: string): PrixException => ({ ...base, admissible: false, motifRefus, friction: 'aucune', resserre: false });
       if (!e) return refus(`pas d'engagement « ${majuscule(demande.engagement)} » le ${dateCourte(demande.date)}`);
-      if (demande.type === 'retire' && !e.annulable) return refus(`l'engagement « ${e.nom} » ne peut pas être annulé`);
-      if (demande.type === 'decale' && !e.decalable) return refus(`l'engagement « ${e.nom} » ne peut pas être décalé`);
     }
     if (coucherApres <= coucherAvant && leverApres <= leverAvant) {
       return { ...base, admissible: true, friction: 'aucune', resserre: true };
     }
 
     const sommeil = (leverApres - coucherApres) / MINUTE;
+    if ((demande.type === 'retire' || demande.type === 'decale') && engagementsDuJour(demande.date, exceptions).get(demande.engagement)?.obligatoire === false) {
+      const [plafond, nom] = t < ouverture(nuit, exceptions) ? [MINIMUM_MIN, 'le minimum'] : [PLANCHER_NUIT_MIN, 'le plancher de nuit'];
+      if (sommeil < plafond) {
+        return { ...base, admissible: false, motifRefus: `sommeil prévu ${formaterDuree(sommeil)}, sous ${nom} de ${formaterDuree(plafond)}`, friction: 'aucune', resserre: false };
+      }
+      return { ...base, admissible: true, friction: 'aucune', resserre: false };
+    }
     const avecFriction = (f: 'raison' | 'raison_phrase', motifRefus: string | undefined): PrixException => {
       const manque = motifRefus === undefined ? frictionManquante(friction, f === 'raison_phrase') : undefined;
       const refus = motifRefus ?? manque;
@@ -694,9 +721,15 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
       for (const id of VERIFIES) {
         const prevu = (ENGAGEMENTS_PAR_JOUR[jourDeSemaine(date)] ?? []).includes(id);
         if (!prevu) continue;
+        const obligatoire = engagementDuJour(id, date)?.obligatoire ?? true;
+        const nonFait: StatutEngagement = obligatoire ? 'saute_non_declare' : 'facultatif_non_fait';
+        const retire: StatutEngagement = obligatoire ? 'saute_declare' : 'facultatif_non_fait';
         let statut: StatutEngagement;
-        if (date >= aujourdhui) statut = retires.includes(id) ? 'saute_declare' : 'a_faire';
-        else statut = retires.includes(id) ? 'saute_declare' : SEANCES_MANQUEES.includes(++passes) ? 'saute_non_declare' : 'fait';
+        // La séance facultative n'est jamais faite ici : de quoi montrer « non faite (facultative) ».
+        if (date >= aujourdhui) statut = retires.includes(id) ? retire : 'a_faire';
+        else if (retires.includes(id)) statut = retire;
+        else if (!obligatoire) statut = nonFait;
+        else statut = SEANCES_MANQUEES.includes(++passes) ? nonFait : 'fait';
         liste.unshift({ date, engagement: id, nom: ENGAGEMENTS[id]?.nom ?? id, statut });
       }
     }

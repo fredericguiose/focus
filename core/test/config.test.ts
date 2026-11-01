@@ -14,8 +14,8 @@ describe('validerConfig — exemple', () => {
     if (!r.ok) throw new Error(r.erreurs.join('\n'));
     const c = r.config;
     expect(c.sommeil).toEqual({ cibleMin: 480, minimumMin: 420, plancherNuitMin: 360, leverPlancher: '04:30' });
-    expect(c.engagements.sport).toEqual({ heure: '06:00', preparationMin: 30, annulable: true, decalable: true, verification: { mesure: 'seance' } });
-    expect(c.engagements.travail).toEqual({ reveil: '06:30', annulable: true, decalable: true });
+    expect(c.engagements.sport).toEqual({ heure: '06:00', preparationMin: 30, obligatoire: true, verification: { mesure: 'seance' } });
+    expect(c.engagements.travail).toEqual({ reveil: '06:30', obligatoire: true });
     expect(c.apps.safari).toEqual({ nom: 'Safari', domaines: [], iphone: 'com.apple.mobilesafari' });
     expect(c.appareils.iphone).toEqual({ type: 'iphone', comptesDeTravail: [] });
     expect(c.modes.EVENING_FREE).toEqual({
@@ -27,7 +27,7 @@ describe('validerConfig — exemple', () => {
       parametres: { ouverture: '$coucher - 2h' },
     });
     expect(c.modes.NIGHT_LOCK!.effets).toEqual({ bloque: 'tout', sauf: ['claude_code'], verrouillerSession: true });
-    expect(c.routines.conges!.engagements).toEqual({ sport: { sansHeure: true } });
+    expect(c.routines.conges!.engagements).toEqual({ sport: { sansHeure: true, obligatoire: false } });
     expect(c.routines.conges!.reveilLibre).toBe('08:00');
     expect(c.routines.semaine!.jours.dim).toEqual({
       parametres: { EVENING_FREE: { ouverture: '14:00' } },
@@ -43,10 +43,9 @@ describe('validerConfig — exemple', () => {
     });
   });
 
-  it('applique les défauts (todoist, sessions, annulable/decalable)', () => {
+  it('applique les défauts (todoist, sessions)', () => {
     let yaml = remplacer(EXEMPLE, '  recap_tolerance_jours: 1\n  prioritaires: [p1, p2]\n  etiquettes_exclues: [planning, recap]\n', '');
     yaml = remplacer(yaml, yaml.slice(yaml.indexOf('sessions:\n  plafond_quotidien')), '');
-    yaml = remplacer(yaml, 'travail: { reveil: "06:30", annulable: true, decalable: true }', 'travail: { reveil: "06:30" }');
     const r = validerConfig(yaml);
     if (!r.ok) throw new Error(r.erreurs.join('\n'));
     expect(r.config.todoist).toEqual({
@@ -58,7 +57,6 @@ describe('validerConfig — exemple', () => {
     });
     expect(r.config.sessions.attentesS).toEqual([0, 3, 5, 10, 15, 20]);
     expect(r.config.sessions.intervalleQuestionMin).toEqual({ pc: 25, iphone: 10 });
-    expect(r.config.engagements.travail).toEqual({ reveil: '06:30', annulable: false, decalable: false });
   });
 
   it('lit les durées "1h30" et les préparations en nombre ou en durée', () => {
@@ -140,7 +138,7 @@ describe('validerConfig — références inconnues', () => {
     expect(erreurs(remplacer(EXEMPLE, 'mar: { engagements: [travail] }', 'mar: { engagements: [travial] }'))).toEqual([
       'routines.semaine.jours.mar.engagements[0] : engagement inconnu « travial » (vouliez-vous dire « travail » ?)',
     ]);
-    expect(erreurs(remplacer(EXEMPLE, 'engagements: { sport: { heure: libre } }', 'engagements: { sprot: { heure: libre } }'))).toEqual([
+    expect(erreurs(remplacer(EXEMPLE, 'engagements: { sport: { heure: libre, obligatoire: false } }', 'engagements: { sprot: { heure: libre } }'))).toEqual([
       'routines.conges.engagements.sprot : engagement inconnu « sprot » (vouliez-vous dire « sport » ?)',
     ]);
   });
@@ -243,8 +241,22 @@ describe('validerConfig — formes et valeurs', () => {
     ]);
   });
 
-  it('heure: libre ne se combine pas', () => {
-    expect(erreurs(remplacer(EXEMPLE, '{ sport: { heure: libre } }', '{ sport: { heure: libre, preparation: 10 } }'))).toEqual([
+  it('annulable et decalable n\'existent plus : refus qui dit de les retirer', () => {
+    expect(erreurs(remplacer(EXEMPLE, 'travail: { reveil: "06:30" }', 'travail: { reveil: "06:30", annulable: true, decalable: false }'))).toEqual([
+      "engagements.travail : « annulable » n'existe plus : retirez-la (tout engagement peut être retiré ; obligatoire: false le rend libre) ; " +
+        "« decalable » n'existe plus : retirez-la (tout engagement peut être décalé ; obligatoire: false le rend libre)",
+    ]);
+  });
+
+  it('obligatoire : défaut vrai, surchargeable par la routine', () => {
+    const r = validerConfig(remplacer(EXEMPLE, 'travail: { reveil: "06:30" }', 'travail: { reveil: "06:30", obligatoire: false }'));
+    if (!r.ok) throw new Error(r.erreurs.join('\n'));
+    expect(r.config.engagements.travail).toEqual({ reveil: '06:30', obligatoire: false });
+    expect(erreurs(remplacer(EXEMPLE, 'obligatoire: false } }', 'obligatoire: non } }'))).toHaveLength(1);
+  });
+
+  it('heure: libre ne se combine pas (sauf avec obligatoire)', () => {
+    expect(erreurs(remplacer(EXEMPLE, '{ sport: { heure: libre, obligatoire: false } }', '{ sport: { heure: libre, preparation: 10 } }'))).toEqual([
       'routines.conges.engagements.sport.heure : heure: libre s\'écrit seule (reçu aussi : preparation)',
     ]);
   });

@@ -2,7 +2,7 @@
 // exige une raison, et coûte plus cher une fois la soirée ouverte.
 
 import type { Contexte, DemandeException, Exception, FrictionFournie, Journee, PrixException } from './types';
-import { engagementEffectif, engagementsDuJour, journee, nuitDe, routineDuJour } from './journee';
+import { engagementsDuJour, journee, nuitDe } from './journee';
 import { dateCourte, estDate, estHeure, lireInstant, local, MINUTE, minutesDe } from './temps';
 
 export const PHRASE_DECISION_DE_NUIT = 'JE NE PEUX PAS DECALER';
@@ -46,14 +46,8 @@ function motifInvalide(contexte: Contexte, d: DemandeException): string | undefi
       const present = engagementsDuJour(contexte, d.date).find((e) => e.id === d.engagement);
       const nom = `« ${d.engagement.charAt(0).toUpperCase()}${d.engagement.slice(1)} »`;
       if (!present) return `pas d'engagement ${nom} le ${dateCourte(d.date)}`;
-      const { routine } = routineDuJour(contexte.config, d.date);
-      const definition = engagementEffectif(contexte.config, routine, d.engagement);
-      if (d.type === 'retire' && !(definition?.annulable ?? present.annulable)) {
-        return `l'engagement ${nom} ne peut pas être annulé`;
-      }
-      if (d.type === 'decale') {
-        if (!(definition?.decalable ?? present.decalable)) return `l'engagement ${nom} ne peut pas être décalé`;
-        if (present.reveilMin === undefined) return `l'engagement ${nom} n'a pas d'heure : rien à décaler`;
+      if (d.type === 'decale' && d.preparationMin !== undefined && !(Number.isInteger(d.preparationMin) && d.preparationMin >= 0)) {
+        return 'préparation invalide : attendu un nombre entier de minutes';
       }
       return undefined;
     }
@@ -74,13 +68,21 @@ function resserre(contexte: Contexte, d: DemandeException, avant: Journee, apres
     case 'retire':
       return false;
     case 'decale': {
+      // Sans heure, il ne fixait aucun réveil : lui en donner un ne peut qu'avancer le lever.
       const e = engagementsDuJour(contexte, d.date).find((x) => x.id === d.engagement)!;
-      return minutesDe(d.heure) <= (e.heureMin ?? e.reveilMin!);
+      const reference = e.heureMin ?? e.reveilMin;
+      return reference === undefined || minutesDe(d.heure) <= reference;
     }
     case 'coucher':
     case 'avancer_coucher':
       return lireInstant(apres.coucherApplique) <= lireInstant(avant.coucherApplique);
   }
+}
+
+/** Retirer ou repousser un engagement facultatif est libre : seul le plafond de sommeil compte. */
+function facultatif(contexte: Contexte, d: DemandeException): boolean {
+  if (d.type !== 'retire' && d.type !== 'decale') return false;
+  return engagementsDuJour(contexte, d.date).find((e) => e.id === d.engagement)?.obligatoire === false;
 }
 
 function raisonManquante(friction: FrictionFournie | undefined): string | undefined {
@@ -137,6 +139,12 @@ export function prixException(contexte: Contexte, demande: DemandeException, fri
   if (bilan.resserre) return accepte('aucune');
 
   const sommeilApres = (lireInstant(apres.leverSuivant) - lireInstant(apres.coucherApplique)) / MINUTE;
+  if (facultatif(contexte, demande)) {
+    const [plafond, nom] = t < lireInstant(avant.ouverture)
+      ? [sommeil.minimumMin, 'le minimum'] : [sommeil.plancherNuitMin, 'le plancher de nuit'];
+    if (sommeilApres < plafond) return refuse(`sommeil prévu ${duree(sommeilApres)}, sous ${nom} de ${duree(plafond)}`);
+    return accepte('aucune');
+  }
   if (t < lireInstant(avant.ouverture)) {
     if (sommeilApres < sommeil.minimumMin) {
       return refuse(`sommeil prévu ${duree(sommeilApres)}, sous le minimum de ${duree(sommeil.minimumMin)}`, 'raison');

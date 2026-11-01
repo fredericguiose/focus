@@ -174,8 +174,9 @@ export function actionsPossibles(j: Journee, phase: Phase) {
   };
 }
 
+/** `sans_heure` : ne fixe pas le réveil ce jour-là ; « décaler » lui en donne une. */
 function vueEngagement(e: EngagementPrevu) {
-  return { id: e.id, nom: e.nom, reveil: e.reveil, heure: e.heure, annulable: e.annulable, decalable: e.decalable, origine: e.origine };
+  return { id: e.id, nom: e.nom, reveil: e.reveil, heure: e.heure, obligatoire: e.obligatoire, sans_heure: e.reveil === null, origine: e.origine };
 }
 
 /** Une sieste qui finit moins de 4 h avant le coucher appliqué rend l'endormissement plus difficile. */

@@ -4,7 +4,7 @@ import type { Contexte, DemandeException, FrictionFournie, Moteur, PrixException
 import { chargerContexte, nouvelIdentifiant } from './contexte';
 import type { Dependances, JetonAuthentifie } from './env';
 import { ErreurApi, requeteInvalide } from './erreurs';
-import { type Corps, dateLocale, entierFacultatif, heureLocale, texte, texteFacultatif } from './validation';
+import { booleenFacultatif, type Corps, dateLocale, entierFacultatif, heureLocale, texte, texteFacultatif } from './validation';
 
 const TYPES = ['ajoute', 'retire', 'decale', 'coucher', 'avancer_coucher'] as const;
 
@@ -16,6 +16,7 @@ function lireDemande(corps: Corps, contexte: Contexte, moteur: Moteur): DemandeE
       const reveil = corps.reveil === undefined ? undefined : heureLocale(corps, 'reveil');
       if (!heure && !reveil) throw requeteInvalide('Un engagement ajouté demande « heure » ou « reveil ».');
       const preparationMin = entierFacultatif(corps, 'preparation_min', 0, 600);
+      const obligatoire = booleenFacultatif(corps, 'obligatoire');
       return {
         type,
         date: dateLocale(corps, 'date'),
@@ -23,12 +24,21 @@ function lireDemande(corps: Corps, contexte: Contexte, moteur: Moteur): DemandeE
         ...(heure ? { heure } : {}),
         ...(preparationMin !== undefined ? { preparationMin } : {}),
         ...(reveil ? { reveil } : {}),
+        ...(obligatoire !== undefined ? { obligatoire } : {}),
       };
     }
     case 'retire':
       return { type, date: dateLocale(corps, 'date'), engagement: texte(corps, 'engagement', 100) };
-    case 'decale':
-      return { type, date: dateLocale(corps, 'date'), engagement: texte(corps, 'engagement', 100), heure: heureLocale(corps, 'heure') };
+    case 'decale': {
+      const preparationMin = entierFacultatif(corps, 'preparation_min', 0, 600);
+      return {
+        type,
+        date: dateLocale(corps, 'date'),
+        engagement: texte(corps, 'engagement', 100),
+        heure: heureLocale(corps, 'heure'),
+        ...(preparationMin !== undefined ? { preparationMin } : {}),
+      };
+    }
     case 'coucher':
       return { type, nuit: dateLocale(corps, 'nuit'), heure: heureLocale(corps, 'heure') };
     case 'avancer_coucher':
@@ -44,7 +54,7 @@ function lireDemande(corps: Corps, contexte: Contexte, moteur: Moteur): DemandeE
 }
 
 function vueDemande(d: DemandeException): Record<string, unknown> {
-  if (d.type === 'ajoute') {
+  if (d.type === 'ajoute' || d.type === 'decale') {
     const { preparationMin, ...reste } = d;
     return { ...reste, ...(preparationMin !== undefined ? { preparation_min: preparationMin } : {}) };
   }

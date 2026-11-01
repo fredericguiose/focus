@@ -49,6 +49,15 @@ describe('verifierEngagements', () => {
     ]);
   });
 
+  it('facultatif (congés) : passé ou retiré sans être fait, « facultatif_non_fait », jamais sauté', () => {
+    const ctx = contexte('2026-12-26T10:00:00Z', { exceptions: [retrait('2026-12-23')] });
+    expect(verifierEngagements(ctx, [seance('2026-12-25T09:00:00Z')], '2026-12-21', '2026-12-26').map((e) => [e.date, e.statut])).toEqual([
+      ['2026-12-21', 'facultatif_non_fait'],
+      ['2026-12-23', 'facultatif_non_fait'],
+      ['2026-12-25', 'fait'],
+    ]);
+  });
+
   it('sans champ verification, rien n\'est vérifié', () => {
     const config = lireConfig(remplacer(EXEMPLE, ', verification: { mesure: seance }', ''));
     expect(verifierEngagements({ ...contexte(MERCREDI), config }, [], '2026-11-02', '2026-11-08')).toEqual([]);

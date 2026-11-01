@@ -211,7 +211,8 @@ export function prixDepuisFil(p: PrixFil): PrixException {
 export function corpsExceptionVersFil({ demande, friction }: CorpsException): Record<string, unknown> {
   let champs: Record<string, unknown>;
   switch (demande.type) {
-    case 'ajoute': {
+    case 'ajoute':
+    case 'decale': {
       const { preparationMin, ...reste } = demande;
       champs = { ...reste, ...(preparationMin !== undefined ? { preparation_min: preparationMin } : {}) };
       break;

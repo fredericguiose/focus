@@ -30,8 +30,8 @@ export interface Engagement {
   reveil?: HeureLocale;
   heure?: HeureLocale;
   preparationMin?: number;
-  annulable: boolean;
-  decalable: boolean;
+  /** Obligatoire : le retirer ou le repousser est un desserrage (raison exigée). Facultatif : libre. */
+  obligatoire: boolean;
   /** Fait vérifié par une mesure de ce type le jour même ; absent = engagement non vérifié. */
   verification?: { mesure: TypeMesure };
 }
@@ -95,7 +95,7 @@ export interface Routine {
   fuseau: string;
   modes: string[];
   reveilLibre?: HeureLocale;
-  engagements?: Record<string, Partial<Engagement> | { sansHeure: true }>;
+  engagements?: Record<string, Partial<Engagement> | { sansHeure: true; obligatoire?: boolean }>;
   parametres?: Record<string, Record<string, string>>;
   jours: Partial<Record<JourSemaine, JourRoutine>>;
 }
@@ -188,9 +188,10 @@ export interface FaitsTodoist {
 // ─── Exceptions et sessions ──────────────────────────────────────────────────
 
 export type DemandeException =
-  | { type: 'ajoute'; date: DateLocale; libelle: string; heure?: HeureLocale; preparationMin?: number; reveil?: HeureLocale }
+  | { type: 'ajoute'; date: DateLocale; libelle: string; heure?: HeureLocale; preparationMin?: number; reveil?: HeureLocale; obligatoire?: boolean }
   | { type: 'retire'; date: DateLocale; engagement: string }
-  | { type: 'decale'; date: DateLocale; engagement: string; heure: HeureLocale }
+  /** `preparationMin` ne sert que pour un engagement sans heure (défaut : celle de la config, sinon 30). */
+  | { type: 'decale'; date: DateLocale; engagement: string; heure: HeureLocale; preparationMin?: number }
   | { type: 'coucher'; nuit: DateLocale; heure: HeureLocale }
   | { type: 'avancer_coucher'; nuit: DateLocale; a: Instant };
 
@@ -255,8 +256,7 @@ export interface EngagementPrevu {
   nom: string;
   reveil: Instant | null;
   heure: Instant | null;
-  annulable: boolean;
-  decalable: boolean;
+  obligatoire: boolean;
   origine: 'routine' | 'exception';
 }
 
@@ -332,7 +332,7 @@ export interface Mesure {
   fin: Instant | null;
 }
 
-export type StatutEngagement = 'fait' | 'saute_declare' | 'saute_non_declare' | 'a_faire';
+export type StatutEngagement = 'fait' | 'saute_declare' | 'saute_non_declare' | 'facultatif_non_fait' | 'a_faire';
 
 export interface EngagementVerifie {
   date: DateLocale;

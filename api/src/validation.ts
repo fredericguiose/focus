@@ -71,3 +71,10 @@ export function entierFacultatif(corps: Corps, cle: string, min: number, max: nu
   }
   return v;
 }
+
+export function booleenFacultatif(corps: Corps, cle: string): boolean | undefined {
+  const v = corps[cle];
+  if (v === undefined || v === null) return undefined;
+  if (typeof v !== 'boolean') throw requeteInvalide(`Champ « ${cle} » : true ou false attendu.`, { champ: cle });
+  return v;
+}

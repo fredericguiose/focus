@@ -93,6 +93,21 @@ describe('exceptions (§3.4)', () => {
     expect((await api.post('/v1/exceptions/prix', web, { type: 'inconnu' })).statut).toBe(400);
     expect((await api.post('/v1/exceptions/prix', web, { type: 'coucher', nuit: '03/11/2026', heure: '22:00' })).statut).toBe(400);
     expect((await api.post('/v1/exceptions/prix', web, { type: 'ajoute', date: '2026-11-04', libelle: 'x' })).statut).toBe(400);
+    expect((await api.post('/v1/exceptions/prix', web, { type: 'ajoute', date: '2026-11-04', libelle: 'x', heure: '08:00', obligatoire: 'non' })).statut).toBe(400);
+    expect((await api.post('/v1/exceptions/prix', web, { type: 'decale', date: '2026-11-04', engagement: 'sport', heure: '07:00', preparation_min: -1 })).statut).toBe(400);
+  });
+
+  it('ajout facultatif : le retirer ensuite est libre', async () => {
+    await api.post('/v1/exceptions', web, { type: 'ajoute', date: '2026-11-04', libelle: 'Dentiste', heure: '08:00', obligatoire: false });
+    const r = await api.post('/v1/exceptions/prix', web, { type: 'retire', date: '2026-11-04', engagement: 'Dentiste' });
+    expect(r.corps.demande).toEqual({ type: 'retire', date: '2026-11-04', engagement: 'Dentiste' });
+    expect(r.corps.prix).toMatchObject({ admissible: true, friction: 'aucune' });
+  });
+
+  it('décaler avec une préparation : renvoyée en preparation_min', async () => {
+    const r = await api.post('/v1/exceptions/prix', web, { type: 'decale', date: '2026-11-04', engagement: 'sport', heure: '05:30', preparation_min: 10 });
+    expect(r.corps.demande).toEqual({ type: 'decale', date: '2026-11-04', engagement: 'sport', heure: '05:30', preparation_min: 10 });
+    expect(r.corps.prix).toMatchObject({ admissible: true, resserre: true, friction: 'aucune' });
   });
 
   it('retirer un engagement : le lever du lendemain recule', async () => {

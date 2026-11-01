@@ -174,13 +174,18 @@ export interface EngagementDemain {
   nom: string;
   reveil: Instant | null;
   heure: Instant | null;
-  annulable: boolean;
-  decalable: boolean;
+  /** Obligatoire : le retirer ou le repousser demande une raison. Facultatif : libre. */
+  obligatoire: boolean;
+  /** Ne fixe pas le réveil ; « décaler » lui donne une heure pour ce jour-là. */
+  sans_heure: boolean;
   origine: 'routine' | 'exception';
 }
 
-/** fait ; sauté et déclaré (exception « retire ») ; sauté sans le dire ; pas encore fait (aujourd'hui ou à venir). */
-export type StatutEngagement = 'fait' | 'saute_declare' | 'saute_non_declare' | 'a_faire';
+/**
+ * fait ; sauté et déclaré (exception « retire ») ; sauté sans le dire ; facultatif et non fait
+ * (jamais compté dans les sautés) ; pas encore fait (aujourd'hui ou à venir).
+ */
+export type StatutEngagement = 'fait' | 'saute_declare' | 'saute_non_declare' | 'facultatif_non_fait' | 'a_faire';
 
 /** Un engagement vérifié par une mesure (ex. séance Hevy) un jour où il était prévu. */
 export interface EngagementVerifie {

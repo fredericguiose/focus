@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { creerApiSimulee } from '@/api/simule';
 import { CarteEngagements, etatDe, sautesEnMots } from '@/composants/statut/CarteEngagements';
 
-// Vendredi 06/11/2026 16:00 à Paris ; sport (simulé) dim, lun, mer, ven.
+// Vendredi 06/11/2026 16:00 à Paris ; sport (simulé) lun, mer, ven, et le samedi sans heure, facultatif.
 const VENDREDI = Date.parse('2026-11-06T15:00:00Z');
 const api = () => creerApiSimulee({ maintenant: () => VENDREDI, fuseau: 'Europe/Paris', phase: 'journee' });
 
@@ -14,20 +14,28 @@ describe('carte « Engagements »', () => {
     expect(s.aujourdhui).toBe('2026-11-06');
     expect(s.engagements_verifies!.map((e) => [e.date, e.statut])).toEqual([
       ['2026-10-30', 'fait'],
-      ['2026-11-01', 'fait'],
+      ['2026-10-31', 'facultatif_non_fait'],
       ['2026-11-02', 'saute_non_declare'],
       ['2026-11-04', 'fait'],
       ['2026-11-06', 'a_faire'],
-      ['2026-11-08', 'a_faire'],
+      ['2026-11-07', 'a_faire'],
     ]);
     expect(s.sautes_semaine).toBe(1);
   });
 
-  it('annuler la séance de demain la marque « annulée à l’avance »', async () => {
+  it('annuler une séance obligatoire : « annulée à l’avance » ; une facultative : non faite, hors des sautées', async () => {
+    const jeudi = creerApiSimulee({ maintenant: () => Date.parse('2026-11-05T15:00:00Z'), fuseau: 'Europe/Paris', phase: 'journee' });
+    await jeudi.enregistrerException({ demande: { type: 'retire', date: '2026-11-06', engagement: 'sport' }, friction: { raison: 'r'.repeat(50) } });
+    expect((await jeudi.statut()).engagements_verifies!.find((e) => e.date === '2026-11-06')!.statut).toBe('saute_declare');
+
     const a = api();
-    await a.enregistrerException({ demande: { type: 'retire', date: '2026-11-08', engagement: 'sport' }, friction: { raison: 'r'.repeat(50) } });
+    await a.enregistrerException({ demande: { type: 'retire', date: '2026-11-07', engagement: 'sport' } });
     const s = await a.statut();
-    expect(s.engagements_verifies!.at(-1)!.statut).toBe('saute_declare');
+    expect(s.engagements_verifies!.at(-1)).toMatchObject({ date: '2026-11-07', statut: 'facultatif_non_fait' });
+    expect(s.sautes_semaine).toBe(1);
+    render(<CarteEngagements statut={s} />);
+    expect(screen.getByLabelText('sam. 7 nov. : non faite (facultative)')).toBeTruthy();
+    expect(screen.getByText(/séances facultatives non comptées/)).toBeTruthy();
   });
 
   it('affiche l’état du jour, la semaine en cases et le compte des séances sautées', async () => {
@@ -36,7 +44,7 @@ describe('carte « Engagements »', () => {
     expect(screen.getByText('Engagements')).toBeTruthy();
     expect(screen.getByText('pas encore de séance enregistrée')).toBeTruthy();
     expect(screen.getByLabelText('lun. 2 nov. : sauté sans l’annuler')).toBeTruthy();
-    expect(screen.getByLabelText('dim. 8 nov. : à venir')).toBeTruthy();
+    expect(screen.getByLabelText('sam. 7 nov. : à venir')).toBeTruthy();
     expect(screen.getByText('1 séance sautée cette semaine')).toBeTruthy();
   });
 

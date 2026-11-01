@@ -30,7 +30,7 @@ const OPTIONS: { option: OptionDecalage; titre: string; description: string; ico
   {
     option: 'retire',
     titre: 'Retirer un engagement de demain',
-    description: 'Le réveil recule si cet engagement le fixait.',
+    description: 'Le réveil recule si cet engagement le fixait. Obligatoire : une raison est demandée.',
     icone: CalendarX2,
     classe: 'bg-destructive/10 text-destructive',
   },
@@ -44,7 +44,7 @@ const OPTIONS: { option: OptionDecalage; titre: string; description: string; ico
   {
     option: 'decale',
     titre: 'Décaler un engagement de demain',
-    description: "Changer l'heure d'un engagement.",
+    description: "Changer l'heure d'un engagement, ou en donner une à un engagement sans heure.",
     icone: CalendarClock,
     classe: 'bg-mode-matin/12 text-mode-matin',
   },
@@ -57,11 +57,9 @@ const OPTIONS: { option: OptionDecalage; titre: string; description: string; ico
   },
 ];
 
-/** Engagements proposés pour une option : seulement ceux que la config permet. */
+/** Tout engagement de demain peut être retiré ou décalé ; le prix dépend de « obligatoire ». */
 export function engagementsPour(option: OptionDecalage, liste: EngagementDemain[]): EngagementDemain[] {
-  if (option === 'retire') return liste.filter((e) => e.annulable);
-  if (option === 'decale') return liste.filter((e) => e.decalable);
-  return liste;
+  return option === 'retire' || option === 'decale' ? liste : [];
 }
 
 function BandeauDecision({ motif }: { motif: string | null }) {
@@ -96,7 +94,7 @@ function MenuOptions({ engagements, choisir }: { engagements: EngagementDemain[]
               <span className="grid min-w-0 flex-1 gap-0.5">
                 <span className="text-sm font-medium">{titre}</span>
                 <span className="text-muted-foreground text-xs">
-                  {vide ? `Aucun engagement ${option === 'retire' ? 'annulable' : 'décalable'} demain.` : description}
+                  {vide ? 'Aucun engagement demain.' : description}
                 </span>
               </span>
               <ChevronRight className="text-muted-foreground size-4 shrink-0" />
@@ -135,18 +133,31 @@ function ChoixEngagement({
               )}
             >
               <RadioGroupItem id={id} value={e.id} />
-              <span className="min-w-0 flex-1 font-medium">{e.nom}</span>
-              <span className="text-muted-foreground text-xs tabular-nums">
-                {e.heure ? `à ${formaterHeure(e.heure, fuseau)}` : 'sans heure'}
-                {e.reveil ? ` · réveil ${formaterHeure(e.reveil, fuseau)}` : ''}
+              <span className="grid min-w-0 flex-1 gap-0.5">
+                <span className="font-medium">{e.nom}</span>
+                <span className="text-muted-foreground text-xs tabular-nums">
+                  {e.sans_heure ? 'sans heure, ne fixe pas le réveil' : e.heure ? `à ${formaterHeure(e.heure, fuseau)}` : ''}
+                  {e.reveil ? `${e.heure ? ' · ' : ''}réveil ${formaterHeure(e.reveil, fuseau)}` : ''}
+                </span>
               </span>
-              {e.origine === 'exception' ? <Badge variant="outline">ajouté</Badge> : null}
+              <span className="flex shrink-0 flex-wrap justify-end gap-1">
+                {e.obligatoire ? null : <Badge variant="secondary">facultatif</Badge>}
+                {e.origine === 'exception' ? <Badge variant="outline">ajouté</Badge> : null}
+              </span>
             </Label>
           );
         })}
       </RadioGroup>
     </fieldset>
   );
+}
+
+function aideDecalage(e: EngagementDemain, fuseau: string): string {
+  if (e.sans_heure) {
+    return 'Sans heure, il ne fixe pas le réveil. Avec une heure, il fixe celui de demain (heure moins la préparation, 30 min par défaut). C’est libre : cela ne peut pas retarder le lever.';
+  }
+  const actuelle = e.heure ? `Actuellement à ${formaterHeure(e.heure, fuseau)}. ` : '';
+  return actuelle + (e.obligatoire ? 'Plus tôt : libre. Plus tard : une raison est demandée.' : 'Facultatif : plus tôt ou plus tard, c’est libre.');
 }
 
 /** Heure de coucher : saisie libre et raccourcis relatifs au coucher appliqué. */
@@ -176,11 +187,11 @@ function FormulaireOption({ option, decisionDeNuit, surTermine }: { option: Opti
   const maintenant = useHeureServeur();
   const j = statut.journee;
   const demain = ajouterJours(j.date, 1);
-  const engagements = engagementsPour(option, statut.engagements_demain ?? []);
+  const engagements = option === 'retire' || option === 'decale' ? (statut.engagements_demain ?? []) : [];
 
   const [engagement, setEngagement] = useState(() => (engagements.length === 1 ? (engagements[0]?.id ?? '') : ''));
   const [heure, setHeure] = useState('');
-  const [ajout, setAjout] = useState<ChampsAjoutType>({ date: demain, libelle: '', heure: '', preparationMin: PREPARATION_DEFAUT });
+  const [ajout, setAjout] = useState<ChampsAjoutType>({ date: demain, libelle: '', heure: '', preparationMin: PREPARATION_DEFAUT, facultatif: false });
   const [raison, setRaison] = useState('');
   const [phrase, setPhrase] = useState('');
   const [envoi, setEnvoi] = useState(false);
@@ -194,11 +205,14 @@ function FormulaireOption({ option, decisionDeNuit, surTermine }: { option: Opti
 
   const apercu = useApercuPrix(demande ? JSON.stringify(demande) : null, () => demande);
   const prix = apercu.prix;
-  // L'API reste juge (prix.friction) ; en décision de nuit, desserrer exige la friction d'emblée.
+  const choisi = engagements.find((e) => e.id === engagement);
+  // L'API reste juge (prix.friction) ; en décision de nuit, desserrer un engagement obligatoire
+  // exige la friction d'emblée. Un facultatif se retire ou se repousse librement.
+  const libre = option === 'ajoute' || choisi?.obligatoire === false;
   const exigee: PrixException['friction'] =
     prix?.friction === 'raison' || prix?.friction === 'raison_phrase'
       ? prix.friction
-      : decisionDeNuit && option !== 'ajoute' && prix?.resserre !== true
+      : decisionDeNuit && !libre && prix?.resserre !== true
         ? 'raison_phrase'
         : 'aucune';
   const avecPhrase = exigee === 'raison_phrase';
@@ -207,7 +221,6 @@ function FormulaireOption({ option, decisionDeNuit, surTermine }: { option: Opti
   const recevable = prix !== null && (prix.admissible || prix.frictionManquante === true);
   const afficherFriction = exigee !== 'aucune' && (prix === null || recevable);
   const peutValider = demande !== null && recevable && !apercu.calcul && !envoi && (exigee === 'aucune' || friction.valide);
-  const choisi = engagements.find((e) => e.id === engagement);
 
   async function valider() {
     if (!demande) return;
@@ -241,8 +254,8 @@ function FormulaireOption({ option, decisionDeNuit, surTermine }: { option: Opti
         {option === 'decale' && choisi ? (
           <Champ
             id="decaler-heure"
-            libelle="Nouvelle heure de l'engagement"
-            aide={choisi.heure ? `Actuellement à ${formaterHeure(choisi.heure, j.fuseau)}` : undefined}
+            libelle={choisi.sans_heure ? 'Donner une heure' : "Nouvelle heure de l'engagement"}
+            aide={aideDecalage(choisi, j.fuseau)}
           >
             <Input id="decaler-heure" type="time" value={heure} onChange={(e) => setHeure(e.target.value)} className="tabular-nums" />
           </Champ>

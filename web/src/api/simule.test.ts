@@ -38,7 +38,7 @@ describe('API simulée : statut', () => {
     expect(journee).toMatchObject({
       date: '2026-11-03',
       fuseau: 'Europe/Paris',
-      engagements: ['travail'],
+      engagements: ['travail', 'revisions'],
       lever: '2026-11-03T05:30:00Z',
       leverSuivant: '2026-11-04T04:30:00Z',
       coucherApplique: '2026-11-03T20:30:00Z',
@@ -66,7 +66,7 @@ describe('API simulée : statut', () => {
 });
 
 describe('API simulée : phase et actions', () => {
-  it('journée : « Je vais dormir » libre, décalage sur raison ; engagements de demain avec leurs droits', async () => {
+  it('journée : « Je vais dormir » libre, décalage sur raison ; engagements de demain, obligatoires ou non', async () => {
     const statut = await simulation().api.statut();
     expect(statut.phase).toBe('journee');
     expect(statut.actions).toEqual({
@@ -74,8 +74,9 @@ describe('API simulée : phase et actions', () => {
       decaler_coucher: { mode: 'raison', motif: null },
     });
     expect(statut.engagements_demain).toEqual([
-      { id: 'sport', nom: 'Sport', reveil: '2026-11-04T04:30:00Z', heure: '2026-11-04T05:00:00Z', annulable: true, decalable: true, origine: 'routine' },
-      { id: 'travail', nom: 'Travail', reveil: '2026-11-04T05:30:00Z', heure: '2026-11-04T05:30:00Z', annulable: false, decalable: false, origine: 'routine' },
+      { id: 'sport', nom: 'Sport', reveil: '2026-11-04T04:30:00Z', heure: '2026-11-04T05:00:00Z', obligatoire: true, sans_heure: false, origine: 'routine' },
+      { id: 'travail', nom: 'Travail', reveil: '2026-11-04T05:30:00Z', heure: '2026-11-04T05:30:00Z', obligatoire: true, sans_heure: false, origine: 'routine' },
+      { id: 'revisions', nom: 'Révisions', reveil: null, heure: null, obligatoire: false, sans_heure: true, origine: 'routine' },
     ]);
     expect(statut.appareils[0]).toMatchObject({ mode: 'WORK', jusqua: '2026-11-03T18:50:00Z' });
   });
@@ -153,10 +154,29 @@ describe('API simulée : phase et actions', () => {
     });
   });
 
-  it('refuse de retirer un engagement non annulable', async () => {
-    const prix = await simulation().api.prixException({ demande: { type: 'retire', date: '2026-11-04', engagement: 'travail' } });
-    expect(prix.admissible).toBe(false);
-    expect(prix.motifRefus).toBe("l'engagement « Travail » ne peut pas être annulé");
+  it('retirer : obligatoire, une raison ; facultatif, libre', async () => {
+    const { api } = simulation();
+    expect(await api.prixException({ demande: { type: 'retire', date: '2026-11-04', engagement: 'sport' } })).toMatchObject({
+      admissible: false,
+      friction: 'raison',
+      frictionManquante: true,
+    });
+    expect(await api.prixException({ demande: { type: 'retire', date: '2026-11-04', engagement: 'revisions' } })).toMatchObject({
+      admissible: true,
+      friction: 'aucune',
+    });
+  });
+
+  it('donner une heure à un engagement sans heure : il fixe le réveil, librement', async () => {
+    const { api } = simulation();
+    const demande = { type: 'decale' as const, date: '2026-11-04', engagement: 'revisions', heure: '04:30' };
+    expect(await api.prixException({ demande })).toMatchObject({ admissible: true, friction: 'aucune', resserre: true, leverApres: '2026-11-04T03:00:00Z' });
+    await api.enregistrerException({ demande: { ...demande, preparationMin: 15 } });
+    expect((await api.statut()).engagements_demain?.find((e) => e.id === 'revisions')).toMatchObject({
+      reveil: '2026-11-04T03:15:00Z',
+      heure: '2026-11-04T03:30:00Z',
+      sans_heure: false,
+    });
   });
 });
 

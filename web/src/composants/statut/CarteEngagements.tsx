@@ -1,4 +1,4 @@
-import { Check, Clock, Dumbbell, Minus, TriangleAlert, X } from "lucide-react";
+import { Check, CircleDashed, Clock, Dumbbell, Minus, TriangleAlert, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -13,7 +13,12 @@ import { ajouterJours, formaterDateCourte, jourDeSemaine } from "@/lib/temps";
 import { cn } from "@/lib/utils";
 
 type Etat =
-  "fait" | "a_faire" | "a_venir" | "saute_declare" | "saute_non_declare";
+  | "fait"
+  | "a_faire"
+  | "a_venir"
+  | "saute_declare"
+  | "saute_non_declare"
+  | "facultatif_non_fait";
 
 const ETATS: Record<
   Etat,
@@ -43,6 +48,11 @@ const ETATS: Record<
     libelle: "Sauté sans l’annuler",
     icone: X,
     classe: "bg-destructive/10 text-destructive border-destructive/30",
+  },
+  facultatif_non_fait: {
+    libelle: "Non faite (facultative)",
+    icone: CircleDashed,
+    classe: "bg-muted/60 text-muted-foreground border-border border-dashed",
   },
 };
 
@@ -100,6 +110,9 @@ export function CarteEngagements({ statut }: { statut: ReponseStatut }) {
     ).entries(),
   ];
   const sautes = statut.sautes_semaine ?? 0;
+  const facultatives = liste.some(
+    (e) => e.date >= lundi && e.statut === "facultatif_non_fait",
+  );
   const cleRefusee = statut.seances_mesurees?.erreur === "cle_hevy_refusee";
 
   return (
@@ -222,6 +235,7 @@ export function CarteEngagements({ statut }: { statut: ReponseStatut }) {
                   "fait",
                   "saute_declare",
                   "saute_non_declare",
+                  ...(facultatives ? (["facultatif_non_fait"] as const) : []),
                   "a_venir",
                 ] as const
               ).map((etat) => {
@@ -255,7 +269,9 @@ export function CarteEngagements({ statut }: { statut: ReponseStatut }) {
           {sautesEnMots(sautes)}
           <span className="text-muted-foreground font-normal">
             {" "}
-            · pour information, rien n’est bloqué
+            ·{" "}
+            {facultatives ? "séances facultatives non comptées ; " : ""}
+            pour information, rien n’est bloqué
           </span>
         </p>
         {cleRefusee ? (

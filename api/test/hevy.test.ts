@@ -167,4 +167,19 @@ describe('GET /v1/statut : engagements vérifiés', () => {
     expect(r.corps.sautes_semaine).toBe(1);
     expect(r.corps.seances_mesurees).toBeNull();
   });
+
+  it('engagement facultatif non fait : « facultatif_non_fait », hors des sautés', async () => {
+    const horloge = Horloge.a('2026-11-06T15:00:00Z');
+    const config = configExemple();
+    config.engagements.sport = { ...config.engagements.sport!, obligatoire: false };
+    await installerConfig(config);
+    const web = await creerJeton('interface', 'web');
+    const r = await client(horloge).get('/v1/statut', web);
+    expect(r.corps.engagements_verifies.filter((e: { date: string }) => e.date >= '2026-11-02')).toEqual([
+      { date: '2026-11-02', engagement: 'sport', nom: 'Sport', statut: 'facultatif_non_fait' },
+      { date: '2026-11-04', engagement: 'sport', nom: 'Sport', statut: 'facultatif_non_fait' },
+      { date: '2026-11-06', engagement: 'sport', nom: 'Sport', statut: 'a_faire' },
+    ]);
+    expect(r.corps.sautes_semaine).toBe(0);
+  });
 });

@@ -75,6 +75,7 @@ export function ApercuPrix({
   const heure = (instant: string) => formaterHeureRelative(instant, fuseau, maintenantMs);
   const enAttente = !prix.admissible && prix.frictionManquante === true;
   const refuse = !prix.admissible && !enAttente;
+  const sansEffet = prix.coucherAvant === prix.coucherApres && prix.leverAvant === prix.leverApres;
   return (
     <section
       aria-label="Prix du changement"
@@ -85,7 +86,7 @@ export function ApercuPrix({
         <span className="text-sm font-semibold">Prix</span>
         {prix.admissible || (enAttente && frictionValide) ? (
           <Badge variant="outline" className="text-succes border-succes/40">
-            <CircleCheck /> {prix.resserre ? 'Plus strict : toujours accepté' : 'Accepté'}
+            <CircleCheck /> {sansEffet ? 'Sans effet sur la nuit : accepté' : prix.resserre ? 'Plus strict : toujours accepté' : 'Accepté'}
           </Badge>
         ) : enAttente ? (
           <Badge variant="outline">
