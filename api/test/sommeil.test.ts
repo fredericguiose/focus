@@ -1,9 +1,10 @@
 import { env } from 'cloudflare:workers';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { executerTachesPlanifiees } from '../src/planifie';
+import { chiffrer, dechiffrer } from '../src/chiffrement';
 import { nuitDeLaSession, rattacherAuxNuits, type SommeilMesure } from '../src/sommeil';
-import { type ClientXiaomi, ErreurXiaomi, type SessionSommeil } from '../src/xiaomi';
-import { Horloge, MARDI, client, creerJeton, installerConfig } from './aides';
+import { type ClientXiaomi, ErreurXiaomi, type IdentifiantsXiaomi, type SessionSommeil } from '../src/xiaomi';
+import { Horloge, MARDI, client, configExemple, creerJeton, installerConfig } from './aides';
 
 const PARIS = 'Europe/Paris';
 
@@ -33,21 +34,32 @@ function session(p: Partial<SessionSommeil> & { id: string; debut: string; fin: 
   };
 }
 
+/** Faux client : `refuses` sont les passTokens que le compte n'accepte plus ; `tourne` celui qu'il renvoie. */
 function fauxXiaomi(sessions: () => SessionSommeil[]) {
-  const appels = { n: 0, plages: [] as [string, string][] };
-  let erreur: Error | null = null;
-  const c: ClientXiaomi = {
-    async sessionsSommeil(debut, fin) {
-      appels.n++;
-      appels.plages.push([debut.toISOString(), fin.toISOString()]);
-      if (erreur) throw erreur;
-      return sessions();
-    },
+  const appels = { n: 0, plages: [] as [string, string][], jetons: [] as string[] };
+  const o = { erreur: null as Error | null, refuses: new Set<string>(), tourne: null as string | null };
+  const fabrique = (ids: IdentifiantsXiaomi): ClientXiaomi => {
+    appels.jetons.push(ids.passToken);
+    let recu: string | null = null;
+    return {
+      passTokenRecu: () => recu,
+      async sessionsSommeil(debut, fin) {
+        appels.n++;
+        appels.plages.push([debut.toISOString(), fin.toISOString()]);
+        if (o.refuses.has(ids.passToken)) throw new ErreurXiaomi('jeton_xiaomi_expire', 'passToken refusé');
+        if (o.erreur) throw o.erreur;
+        recu = o.tourne;
+        return sessions();
+      },
+    };
   };
-  return { c, appels, enPanne: (e: Error | null) => (erreur = e) };
+  return { fabrique, appels, o, enPanne: (e: Error | null) => (o.erreur = e) };
 }
 
-const SECRETS = { XIAOMI_USER_ID: '42', XIAOMI_PASS_TOKEN: 'jeton-factice', XIAOMI_REGION: 'de' };
+const SECRETS = { XIAOMI_USER_ID: '42', XIAOMI_PASS_TOKEN: 'jeton-factice', XIAOMI_REGION: 'de', XIAOMI_UTILISATEUR: 'alice' };
+/** Déjà rattrapé : seule la lecture des 3 derniers jours a lieu. */
+const RATTRAPE = { XIAOMI_DEPUIS: '2026-11-01' };
+const CLE = { CLE_CHIFFREMENT: 'cle-de-test' };
 
 const lignes = () =>
   env.DB.prepare(`SELECT cle, debut, fin, valeur, details, recu_le FROM mesures WHERE type = 'sommeil' AND source = 'xiaomi' ORDER BY debut`).all<{
@@ -85,7 +97,7 @@ describe('rattachement d\'une session à sa nuit', () => {
         { nuit: '2026-11-02', fuseau: PARIS },
       ],
     );
-    expect(nuits.get('2026-11-01')).toEqual({ endormi_min: 420, phases: { legere: 210, profonde: 105, rem: 105, eveil: 20 } });
+    expect(nuits.get('2026-11-01')).toEqual({ endormi_min: 420, phases: { legere: 210, profonde: 105, rem: 105, eveil: 20 }, incomplete: false });
     expect(nuits.has('2026-11-02')).toBe(false);
   });
 });
@@ -94,9 +106,9 @@ describe('synchronisation du sommeil (§4.4)', () => {
   const horloge = Horloge.a(MARDI.matin);
   let sessions: SessionSommeil[];
   let faux: ReturnType<typeof fauxXiaomi>;
-  const lancer = (secrets: Record<string, string> = SECRETS) => {
+  const lancer = (secrets: Record<string, string> = { ...SECRETS, ...RATTRAPE }) => {
     const { deps } = client(horloge);
-    return executerTachesPlanifiees({ ...env, ...secrets }, { ...deps, xiaomi: () => faux.c });
+    return executerTachesPlanifiees({ ...env, ...secrets }, { ...deps, xiaomi: faux.fabrique });
   };
 
   beforeEach(async () => {
@@ -106,10 +118,83 @@ describe('synchronisation du sommeil (§4.4)', () => {
     await installerConfig();
   });
 
-  it('sans secrets : sautée', async () => {
+  it('sans secrets ou sans utilisateur rattaché : sautée', async () => {
     await lancer({});
-    await lancer({ XIAOMI_USER_ID: '42', XIAOMI_PASS_TOKEN: ' ' });
+    await lancer({ ...SECRETS, XIAOMI_PASS_TOKEN: ' ' });
+    await lancer({ ...SECRETS, XIAOMI_UTILISATEUR: '' });
     expect(faux.appels.n).toBe(0);
+  });
+
+  it('seul l\'utilisateur rattaché au compte Xiaomi est synchronisé', async () => {
+    await installerConfig({ ...configExemple(), utilisateur: 'bob' }, 'b0b');
+    await lancer({ ...SECRETS, ...RATTRAPE, XIAOMI_UTILISATEUR: 'bob' });
+    expect(faux.appels.n).toBe(1);
+    const parUtilisateur = await env.DB.prepare(`SELECT DISTINCT utilisateur FROM mesures`).all<{ utilisateur: string }>();
+    expect(parUtilisateur.results).toEqual([{ utilisateur: 'bob' }]);
+  });
+
+  it('premier passage : rattrapage de 60 jours par morceaux de 10, étalé sur deux passages, puis 3 jours par heure', async () => {
+    await lancer(SECRETS);
+    expect(faux.appels.plages).toEqual([
+      ['2026-10-31T10:00:00.000Z', '2026-11-03T11:00:00.000Z'],
+      ['2026-10-21T10:00:00.000Z', '2026-10-31T22:00:00.000Z'],
+      ['2026-10-11T10:00:00.000Z', '2026-10-21T22:00:00.000Z'],
+      ['2026-10-01T10:00:00.000Z', '2026-10-11T22:00:00.000Z'],
+    ]);
+    horloge.avancer(60);
+    await lancer(SECRETS);
+    expect(faux.appels.plages.slice(4)).toEqual([
+      ['2026-09-21T10:00:00.000Z', '2026-10-01T22:00:00.000Z'],
+      ['2026-09-11T10:00:00.000Z', '2026-09-21T22:00:00.000Z'],
+      ['2026-09-04T10:00:00.000Z', '2026-09-11T22:00:00.000Z'],
+    ]);
+    horloge.avancer(60);
+    await lancer(SECRETS);
+    expect(faux.appels.n).toBe(7);
+    horloge.avancer(3600);
+    await lancer(SECRETS);
+    expect(faux.appels.plages.slice(7)).toEqual([['2026-10-31T11:02:00.000Z', '2026-11-03T12:02:00.000Z']]);
+  });
+
+  it('état d\'avant le rattrapage (synchro récente) : le rattrapage part sans attendre l\'heure', async () => {
+    const avant = { tentee_le: '2026-11-03T09:50:00Z', reussie_le: '2026-11-03T09:50:00Z', erreur: null, sessions: 1 };
+    await env.DB.prepare(`INSERT INTO cache_todoist (utilisateur, cle, valeur, maj_le) VALUES ('alice', 'synchro_xiaomi', ?, ?)`)
+      .bind(JSON.stringify(avant), avant.tentee_le)
+      .run();
+    await lancer(SECRETS);
+    expect(faux.appels.n).toBe(4);
+  });
+
+  it('rattrapage depuis XIAOMI_DEPUIS', async () => {
+    await lancer({ ...SECRETS, XIAOMI_DEPUIS: '2026-10-15' });
+    expect(faux.appels.plages.at(-1)).toEqual(['2026-10-15T00:00:00.000Z', '2026-10-21T22:00:00.000Z']);
+    expect(faux.appels.n).toBe(3);
+  });
+
+  it('panne pendant le rattrapage : repris là où il s\'était arrêté, une heure plus tard', async () => {
+    await lancer(SECRETS);
+    faux.enPanne(new ErreurXiaomi('xiaomi_indisponible', 'HTTP 502'));
+    horloge.avancer(60);
+    await expect(lancer(SECRETS)).rejects.toThrow(AggregateError);
+    expect(faux.appels.n).toBe(5);
+    faux.enPanne(null);
+    horloge.avancer(60);
+    await lancer(SECRETS);
+    expect(faux.appels.n).toBe(5);
+    horloge.avancer(3600);
+    await lancer(SECRETS);
+    expect(faux.appels.plages.slice(5).map(([d]) => d)).toEqual(['2026-10-31T11:02:00.000Z', '2026-09-21T10:00:00.000Z', '2026-09-11T10:00:00.000Z', '2026-09-04T10:00:00.000Z']);
+  });
+
+  it('nuits récentes manquantes (synchro arrêtée plus de 3 jours) : rattrapage depuis la dernière lecture', async () => {
+    await lancer();
+    faux.appels.plages = [];
+    horloge.avancer(6 * 86_400);
+    await lancer();
+    expect(faux.appels.plages).toEqual([
+      ['2026-11-06T10:00:00.000Z', '2026-11-09T11:00:00.000Z'],
+      ['2026-11-02T10:00:00.000Z', '2026-11-06T22:00:00.000Z'],
+    ]);
   });
 
   it('lit les 3 derniers jours, une fois par heure', async () => {
@@ -160,6 +245,68 @@ describe('synchronisation du sommeil (§4.4)', () => {
     expect(r.corps.sommeil_mesure).toEqual({ derniere_synchro: null, erreur: 'jeton_xiaomi_expire' });
     expect(JSON.stringify(r.corps)).not.toContain('jeton-factice');
   });
+
+  const garde = () =>
+    env.DB.prepare(`SELECT valeur FROM cache_todoist WHERE utilisateur = 'alice' AND cle = 'jeton_xiaomi'`).first<{ valeur: string }>();
+
+  it('passToken tournant : le plus récent est gardé chiffré et sert au passage suivant', async () => {
+    faux.o.tourne = 'jeton-2';
+    await lancer({ ...SECRETS, ...RATTRAPE, ...CLE });
+    expect(faux.appels.jetons).toEqual(['jeton-factice']);
+    const ligne = await garde();
+    expect(ligne?.valeur).toBeTruthy();
+    expect(ligne!.valeur).not.toContain('jeton-2');
+    faux.o.tourne = 'jeton-3';
+    horloge.avancer(3600);
+    await lancer({ ...SECRETS, ...RATTRAPE, ...CLE });
+    expect(faux.appels.jetons).toEqual(['jeton-factice', 'jeton-2']);
+    expect((await garde())!.valeur).not.toContain('jeton-3');
+  });
+
+  it('jeton gardé refusé : repli sur le secret, puis le nouveau jeton remplace l\'ancien', async () => {
+    faux.o.tourne = 'jeton-2';
+    await lancer({ ...SECRETS, ...RATTRAPE, ...CLE });
+    faux.o.refuses.add('jeton-2');
+    faux.o.tourne = 'jeton-3';
+    horloge.avancer(3600);
+    await lancer({ ...SECRETS, ...RATTRAPE, ...CLE });
+    expect(faux.appels.jetons).toEqual(['jeton-factice', 'jeton-2', 'jeton-factice']);
+    expect((await lignes()).results).toHaveLength(1);
+    horloge.avancer(3600);
+    await lancer({ ...SECRETS, ...RATTRAPE, ...CLE });
+    expect(faux.appels.jetons.at(-1)).toBe('jeton-3');
+  });
+
+  it('jeton renvoyé identique : gardé une fois, pas réécrit à chaque passage', async () => {
+    faux.o.tourne = 'jeton-factice';
+    await lancer({ ...SECRETS, ...RATTRAPE, ...CLE });
+    const premier = (await garde())!.valeur;
+    horloge.avancer(3600);
+    await lancer({ ...SECRETS, ...RATTRAPE, ...CLE });
+    expect((await garde())!.valeur).toBe(premier);
+    expect(premier).not.toContain('jeton-factice');
+  });
+
+  it('sans CLE_CHIFFREMENT : rien n\'est gardé, le secret sert toujours', async () => {
+    faux.o.tourne = 'jeton-2';
+    await lancer();
+    horloge.avancer(3600);
+    await lancer();
+    expect(await garde()).toBeNull();
+    expect(faux.appels.jetons).toEqual(['jeton-factice', 'jeton-factice']);
+  });
+});
+
+describe('chiffrement (AES-GCM)', () => {
+  it('aller-retour ; mauvaise clé ou mauvais contexte : null', async () => {
+    const c = await chiffrer('cle', 'secret', 'ctx');
+    expect(JSON.stringify(c)).not.toContain('secret');
+    expect(await dechiffrer('cle', c, 'ctx')).toBe('secret');
+    expect(await dechiffrer('autre', c, 'ctx')).toBeNull();
+    expect(await dechiffrer('cle', c, 'autre')).toBeNull();
+    const d = await chiffrer('cle', 'secret', 'ctx');
+    expect(d.iv).not.toBe(c.iv);
+  });
 });
 
 describe('GET /v1/statut : dette réelle (§4.6)', () => {
@@ -168,11 +315,11 @@ describe('GET /v1/statut : dette réelle (§4.6)', () => {
 
   beforeEach(async () => installerConfig());
 
-  const poser = (cle: string, debut: string, fin: string, endormi: number, sieste = false) =>
+  const poser = (cle: string, debut: string, fin: string, endormi: number, sieste = false, incomplete = false) =>
     env.DB.prepare(
       `INSERT INTO mesures (utilisateur, type, source, cle, debut, fin, valeur, details, recu_le) VALUES ('alice', 'sommeil', 'xiaomi', ?, ?, ?, ?, ?, ?)`,
     )
-      .bind(cle, debut, fin, endormi, JSON.stringify({ eveille_min: 10, phases: { legere: endormi - 150, profonde: 80, rem: 70, eveil: 10 }, score: 75, sieste }), MARDI.matin)
+      .bind(cle, debut, fin, endormi, JSON.stringify({ eveille_min: 10, phases: { legere: endormi - 150, profonde: 80, rem: 70, eveil: 10 }, score: 75, sieste, incomplete }), MARDI.matin)
       .run();
 
   it('sans mesure : dette réelle nulle, dette prévue inchangée', async () => {
@@ -189,12 +336,14 @@ describe('GET /v1/statut : dette réelle (§4.6)', () => {
     await poser('s2', '2026-11-02T13:00:00Z', '2026-11-02T14:00:00Z', 55, true); // sieste
     await poser('n1a', '2026-11-01T22:00:00Z', '2026-11-02T02:00:00Z', 230); // nuit du 01/11 en deux morceaux
     await poser('n1b', '2026-11-02T02:30:00Z', '2026-11-02T06:00:00Z', 200); // 430 min → +50
-    await poser('n0', '2026-10-31T20:30:00Z', '2026-11-01T05:30:00Z', 510); // nuit du 31/10 : −30
+    await poser('n0', '2026-10-31T20:30:00Z', '2026-11-01T05:30:00Z', 510, false, true); // nuit du 31/10 : −30, incomplète
     const r = await api.get('/v1/statut', await creerJeton('interface', 'web'));
     const par = Object.fromEntries(r.corps.nuits.map((n: { nuit: string }) => [n.nuit, n]));
     expect(par['2026-11-02']).toMatchObject({ dette_reelle_min: 60, endormi_min: 420, phases: { legere: 270, profonde: 80, rem: 70, eveil: 10 } });
     expect(par['2026-11-01']).toMatchObject({ dette_reelle_min: 50, phases: { legere: 130, profonde: 160, rem: 140, eveil: 20 } });
-    expect(par['2026-10-31']).toMatchObject({ dette_reelle_min: -30 });
+    expect(par['2026-10-31']).toMatchObject({ dette_reelle_min: -30, endormi_min: 510, incomplete: true });
+    expect(par['2026-11-02']).toMatchObject({ incomplete: false });
+    expect(r.corps.objectif_sommeil_min).toBe(480);
     expect(par['2026-10-30']).toMatchObject({ dette_reelle_min: null, phases: null, dette_min: 0 });
     expect(r.corps.dette_cumulee_reelle_min).toBe(80);
     expect(r.corps.dette_cumulee_min).toBe(0);

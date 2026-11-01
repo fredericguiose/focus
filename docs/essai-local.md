@@ -24,7 +24,10 @@ La commande est idempotente : relancée, elle ne refait que ce qui manque ou a c
 5. Si `~/.config/focus/secrets.env` contient `TODOIST_TOKEN` et/ou les lignes `XIAOMI_*`
    remplies (`XIAOMI_USER_ID`, `XIAOMI_PASS_TOKEN`, `XIAOMI_REGION`) et que git ignore
    `api/.dev.vars`, recopie ces lignes dans ce fichier en 600, sans les afficher (lecture
-   Todoist et sommeil Xiaomi réels) ; sinon lance sans eux.
+   Todoist et sommeil Xiaomi réels) ; sinon lance sans eux. Pour Xiaomi, ajoute
+   `XIAOMI_UTILISATEUR` (celui de `secrets.env`, sinon l'utilisateur de la config privée : seul
+   synchronisé) et `CLE_CHIFFREMENT` (clé aléatoire créée une fois dans
+   `~/.config/focus/local/cle-chiffrement`, 600) ; `XIAOMI_DEPUIS` est recopié s'il est posé.
 6. Lance `wrangler dev --local` sur le port 8799 avec `FOCUS_ENVIRONNEMENT=local` (horloge
    réglable), puis déclenche une première tâche planifiée.
 7. Copie le jeton `interface` dans le presse-papiers (`wl-copy`, sinon l'affiche) et ouvre le
@@ -85,8 +88,10 @@ git check-ignore .dev.vars         # doit répondre « .dev.vars »
 (umask 077; grep '^TODOIST_TOKEN=' ~/.config/focus/secrets.env > .dev.vars)
 ```
 
-Même chose pour le sommeil mesuré (montre Xiaomi) : ajouter les trois lignes `XIAOMI_*` à
-`.dev.vars` (`(umask 077; grep '^XIAOMI_' ~/.config/focus/secrets.env >> .dev.vars)`).
+Même chose pour le sommeil mesuré (montre Xiaomi) : ajouter les lignes `XIAOMI_*` à
+`.dev.vars` (`(umask 077; grep '^XIAOMI_' ~/.config/focus/secrets.env >> .dev.vars)`), plus
+`XIAOMI_UTILISATEUR=<utilisateur de la config>` s'il n'y est pas (sans lui, pas de synchro) et,
+pour garder le passToken tournant, `CLE_CHIFFREMENT=<clé aléatoire>`.
 
 Sans `.dev.vars`, la tâche planifiée saute Todoist et le sommeil, et l'API travaille sur le cache
 de la base.

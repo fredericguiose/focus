@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CarteActions } from '@/composants/actions/CarteActions';
-import { CarteDette } from '@/composants/statut/CarteDette';
+import { CarteSommeil } from '@/composants/statut/CarteSommeil';
 import { CarteMode } from '@/composants/statut/CarteMode';
 import { Indicateur } from '@/composants/statut/Indicateur';
 import { ParcoursJournee } from '@/composants/statut/ParcoursJournee';
@@ -78,7 +78,7 @@ export function EcranStatut() {
         <ParcoursJournee statut={statut} maintenant={maintenant} />
         <div className="grid min-w-0 gap-4 md:gap-6 lg:col-span-2 [&>*]:min-w-0">
           <TableauAppareils appareils={statut.appareils} maintenant={maintenant} />
-          <CarteDette statut={statut} />
+          <CarteSommeil statut={statut} />
         </div>
       </div>
     </div>

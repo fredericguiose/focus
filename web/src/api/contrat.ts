@@ -140,8 +140,11 @@ export interface NuitPassee {
   dette_min: number;
   /** Dette réelle : cible − temps endormi mesuré ; null ou absente sans mesure. */
   dette_reelle_min?: number | null;
+  /** Minutes dormies mesurées par la montre (siestes exclues) ; null ou absent sans mesure. */
   endormi_min?: number | null;
   phases?: PhasesSommeil | null;
+  /** La montre a marqué la mesure incomplète. */
+  incomplete?: boolean;
 }
 
 /** Moment de la journée, décidé par l'API. */
@@ -184,6 +187,8 @@ export interface ReponseStatut {
   dette_cumulee_reelle_min?: number | null;
   /** État de la synchro du sommeil mesuré ; null si jamais tentée. */
   sommeil_mesure?: { derniere_synchro: Instant | null; erreur: string | null } | null;
+  /** Objectif de sommeil de la config (`sommeil.cible`), en minutes. */
+  objectif_sommeil_min?: number;
   /** Absents d'une API plus ancienne : l'interface n'invente alors rien (actions désactivées). */
   phase?: Phase;
   actions?: ActionsStatut;

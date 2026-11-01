@@ -4,7 +4,7 @@
 //   npm run local:heure -- 18:00 | +3h | reel      règle l'horloge du Worker local
 //   npm run local:reset                            efface la base locale et les jetons locaux
 import { spawn, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync, chmodSync } from 'node:fs';
 import { connect } from 'node:net';
 import { homedir } from 'node:os';
@@ -158,14 +158,35 @@ async function config({ fichier, yaml, utilisateur }) {
 
 // ── 6. Secrets : Todoist, Xiaomi ───────────────────────────────────────────────
 
+/** Clé de chiffrement locale des jetons gardés en base (créée une fois, 600). */
+function cleChiffrement() {
+  const f = join(DOSSIER, 'cle-chiffrement');
+  if (!existsSync(f)) writeFileSync(f, `${randomBytes(32).toString('base64url')}\n`, { mode: 0o600 });
+  chmodSync(f, 0o600);
+  return readFileSync(f, 'utf8').trim();
+}
+
+/** Propriétaire du compte Xiaomi : XIAOMI_UTILISATEUR de secrets.env, sinon l'utilisateur de la config privée. */
+function proprietaireXiaomi(remplie) {
+  const ligne = remplie('XIAOMI_UTILISATEUR');
+  if (ligne) return ligne.slice(ligne.indexOf('=') + 1).trim();
+  if (!existsSync(CONFIG_PRIVEE)) return null;
+  return /^utilisateur:\s*["']?([A-Za-z0-9_.-]+)/m.exec(readFileSync(CONFIG_PRIVEE, 'utf8'))?.[1] ?? null;
+}
+
 /** Copie dans api/.dev.vars (600, effacé à l'arrêt) les secrets remplis ; n'affiche jamais une valeur. */
 function secrets() {
   const lignes = existsSync(SECRETS) ? readFileSync(SECRETS, 'utf8').split('\n') : [];
   const remplie = (nom) => lignes.find((l) => new RegExp(`^${nom}=\\S`).test(l));
   const todoist = remplie('TODOIST_TOKEN');
-  const xiaomi = remplie('XIAOMI_USER_ID') && remplie('XIAOMI_PASS_TOKEN') ? ['XIAOMI_USER_ID', 'XIAOMI_PASS_TOKEN', 'XIAOMI_REGION'].map(remplie).filter(Boolean) : [];
+  let xiaomi = remplie('XIAOMI_USER_ID') && remplie('XIAOMI_PASS_TOKEN') ? ['XIAOMI_USER_ID', 'XIAOMI_PASS_TOKEN', 'XIAOMI_REGION', 'XIAOMI_DEPUIS'].map(remplie).filter(Boolean) : [];
+  const proprietaire = xiaomi.length > 0 ? proprietaireXiaomi(remplie) : null;
+  if (xiaomi.length > 0 && !proprietaire) {
+    info('Sans sommeil Xiaomi : propriétaire du compte inconnu (XIAOMI_UTILISATEUR ou config privée).');
+    xiaomi = [];
+  } else if (proprietaire) xiaomi.push(`XIAOMI_UTILISATEUR=${proprietaire}`, `CLE_CHIFFREMENT=${cleChiffrement()}`);
   if (!todoist) info('Sans Todoist (pas de TODOIST_TOKEN dans ~/.config/focus/secrets.env).');
-  if (xiaomi.length === 0) info('Sans sommeil Xiaomi (XIAOMI_USER_ID et XIAOMI_PASS_TOKEN vides dans ~/.config/focus/secrets.env).');
+  if (xiaomi.length === 0 && !remplie('XIAOMI_USER_ID')) info('Sans sommeil Xiaomi (XIAOMI_USER_ID et XIAOMI_PASS_TOKEN vides dans ~/.config/focus/secrets.env).');
   const a = [todoist, ...xiaomi].filter(Boolean);
   if (a.length === 0) return false;
   const ignore = spawnSync('git', ['check-ignore', '-q', '.dev.vars'], { cwd: API });
@@ -173,7 +194,7 @@ function secrets() {
   writeFileSync(DEV_VARS, `${a.join('\n')}\n`, { mode: 0o600 });
   chmodSync(DEV_VARS, 0o600);
   if (todoist) info('Todoist : lecture réelle (jeton dans api/.dev.vars, effacé à l\'arrêt).');
-  if (xiaomi.length > 0) info('Sommeil Xiaomi : lecture réelle, une fois par heure (secrets dans api/.dev.vars, effacés à l\'arrêt).');
+  if (xiaomi.length > 0) info(`Sommeil Xiaomi : lecture réelle pour « ${proprietaire} » seulement, une fois par heure (secrets dans api/.dev.vars, effacés à l'arrêt).`);
   return true;
 }
 

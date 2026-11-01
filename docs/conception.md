@@ -338,8 +338,11 @@ Chaque minute : rafraîchir les faits Todoist en cache (réécrits seulement s'i
 retard à cet instant, toutes priorités, hors exclusions). Au coucher appliqué : photo de la
 nuit (table `nuits`, pour l'historique). Une fois par jour : vérifier que les étiquettes de la
 config existent dans Todoist.
-Une fois par heure, si les secrets `XIAOMI_USER_ID` et `XIAOMI_PASS_TOKEN` sont posés
-(`XIAOMI_REGION` : `de` pour un compte européen, vide = Chine) : **sommeil mesuré**. Les sessions
+Une fois par heure, si les secrets `XIAOMI_USER_ID`, `XIAOMI_PASS_TOKEN` et `XIAOMI_UTILISATEUR`
+sont posés (`XIAOMI_REGION` : `de` pour un compte européen, vide = Chine) : **sommeil mesuré**.
+Le compte Xiaomi appartient à **un seul utilisateur** : `XIAOMI_UTILISATEUR` (identifiant
+`utilisateur` de sa config) ; les autres utilisateurs de la base ne sont jamais synchronisés
+(variable plutôt que champ YAML : le compte est un secret du Worker, pas de la config). Les sessions
 de sommeil des 3 derniers jours sont lues dans le cloud Mi Fitness (`api/src/xiaomi.ts`, lecture
 seule) et écrites dans `mesures` (`type = sommeil`, `source = xiaomi`, `cle` = identifiant de la
 session chez Xiaomi, `valeur` = minutes endormi, `details` = éveil, phases, score, sieste, et ce
@@ -351,6 +354,27 @@ insérée, mise à jour si elle a changé, effacée si Xiaomi l'a supprimée. Se
 sautée. Chaque requête porte un User-Agent : sans lui, le compte refuse le passToken (code
 70016, cas du `fetch` des Workers). passToken refusé : erreur `jeton_xiaomi_expire` notée dans le cache (`synchro_xiaomi`),
 renvoyée par le statut et relancée l'heure suivante ; le jeton n'est jamais journalisé.
+
+**Rattrapage de l'historique.** Lancé au premier passage (pas d'état de rattrapage dans
+`synchro_xiaomi`, ou aucune mesure Xiaomi pour l'utilisateur et dernier rattrapage lancé il y a plus
+d'un jour) depuis `XIAOMI_DEPUIS` (date `AAAA-MM-JJ`, UTC) ou, à défaut, 60 jours en arrière ; et
+quand des nuits récentes manquent (dernière lecture réussie des 3 jours antérieure au début de la
+fenêtre : la synchro n'a pas tourné pendant plus de 3 jours), depuis cette lecture moins un jour.
+Lecture du plus récent au plus ancien, par morceaux de 10 jours (recouvrement de 12 h), 3 morceaux
+au plus par passage, une seule connexion par passage : environ 2 + 3 × (pages) sous-requêtes, loin
+des 50 du Worker. Tant qu'il reste des morceaux et que le dernier passage a réussi, la tâche
+reprend à la minute suivante ; le curseur (`rattrapage.curseur`) n'avance qu'après un morceau
+écrit, donc une panne reprend là où elle s'est arrêtée, une heure plus tard. Les 3 derniers jours
+restent lus une fois par heure (`recente_le`).
+
+**passToken tournant.** Xiaomi renvoie un passToken à chaque connexion (champ `passToken` de la
+réponse, sinon cookie). Si le secret `CLE_CHIFFREMENT` est posé, le plus récent est gardé dans le
+cache (clé `jeton_xiaomi`) chiffré en AES-GCM 256 (Web Crypto ; clé dérivée par HKDF-SHA-256 du
+secret ; IV aléatoire de 12 octets ; données associées `jeton_xiaomi:<utilisateur>:<userId>`), et
+il sert de préférence au secret `XIAOMI_PASS_TOKEN`. Refusé (`jeton_xiaomi_expire`) : il est
+effacé et le passage reprend avec le secret ; le jeton reçu ensuite le remplace. Sans
+`CLE_CHIFFREMENT` : rien n'est gardé, le secret sert toujours. Ni le jeton ni la clé ne sont
+journalisés ou renvoyés par l'API.
 
 ### 4.5 Sessions
 - **Session possible** sur un appareil seulement si (1) le mode en vigueur sur l'appareil a
@@ -395,9 +419,10 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
       "annulable": bool, "decalable": bool, "origine": "routine" | "exception" }
   ],
   "nuits": [ { "nuit": "YYYY-MM-DD", "dette_min": number, "dette_reelle_min": number | null,
-               "endormi_min": number | null,
+               "endormi_min": number | null, "incomplete": bool,
                "phases": { "legere", "profonde", "rem", "eveil" } | null } ],
   "dette_cumulee_min": number, "dette_cumulee_reelle_min": number | null,
+  "objectif_sommeil_min": number,
   "sommeil_mesure": { "derniere_synchro": "…Z" | null, "erreur": string | null } | null,
   "appareils": [ { "nom", "type", "mode", "sessions", "session_possible": bool,
                    "session_motif": string | null, "raison", "actions", "apps_bloquees",
@@ -427,8 +452,15 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   la nuit du jour du soir : date locale de son milieu moins 12 h. `phases` : minutes par phase,
   cumulées sur la nuit. `dette_cumulee_reelle_min` = somme sur les seules nuits mesurées (null si
   aucune). `sommeil_mesure` : dernière synchro réussie et code d'erreur de la dernière tentative
-  (null si jamais tentée). La web app montre la dette mesurée en premier quand il y en a une, la
-  dette prévue en second.
+  (null si jamais tentée). `endormi_min` : minutes dormies de la nuit (null sans mesure) ;
+  `incomplete` : une session de la nuit est marquée incomplète par la montre (`is_uncomplete`).
+  `objectif_sommeil_min` : `sommeil.cible` de la config.
+- **Carte « Sommeil »** de la web app : temps dormi de la dernière nuit mesurée (« Cette nuit »
+  si c'est J−1, sinon « Nuit du … »), écart à l'objectif en mots (« 29 min de moins que
+  l'objectif », « … de plus … », « objectif atteint » à 5 min près), phases léger → REM → profond
+  et éveil à part ; puis les 7 nuits en barres (heures dormies, trait de l'objectif, pas de barre
+  sans mesure, barre pâle si incomplète) et l'écart total sur les nuits mesurées. Elle ne montre
+  plus la dette prévue (`dette_min`, toujours renvoyée) ; le coucher prévu est dans « Ce soir ».
 - `appareils[].jusqua` : fin du segment en cours du planning de l'appareil (`planifier(…)[0].fin`).
   **Suppose les faits Todoist constants** : pour MORNING_LOCK ou WORK, c'est une borne, pas une
   heure de sortie. L'interface affiche `sortie` (et ne présente jamais un mode conditionnel

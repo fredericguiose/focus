@@ -48,17 +48,18 @@ const NUIT = {
 };
 
 /** Faux cloud Xiaomi : vérifie le chiffrement et la signature comme le ferait le serveur. */
-function fauxCloud(o: { passToken?: string; pages?: unknown[][]; codeDonnees?: number; statutDonnees?: number } = {}) {
-  const journal: { url: string; cookie: string | null; charges: Record<string, unknown>[] } = { url: '', cookie: null, charges: [] };
+function fauxCloud(o: { passToken?: string; pages?: unknown[][]; codeDonnees?: number; statutDonnees?: number; nouveau?: string } = {}) {
+  const journal: { url: string; cookie: string | null; charges: Record<string, unknown>[]; connexions: number } = { url: '', cookie: null, charges: [], connexions: 0 };
   const pages = o.pages ?? [[brut(NUIT)]];
   const f = async (url: string, init: RequestInit): Promise<Response> => {
     const entetes = new Headers(init.headers);
     if (url === URL_CONNEXION) {
+      journal.connexions++;
       // Comme le vrai compte : sans User-Agent, passToken refusé (70016).
       const valide =
         entetes.get('Cookie') === `userId=42; passToken=${o.passToken ?? 'bon'}` && (o.passToken ?? 'bon') === 'bon' && !!entetes.get('User-Agent');
       const corps = valide
-        ? { code: 0, userId: 42, passToken: 'bon', ssecurity: versBase64(SSECURITY), location: LIEU }
+        ? { code: 0, userId: 42, passToken: o.nouveau ?? 'bon', ssecurity: versBase64(SSECURITY), location: LIEU }
         : { code: 70016, desc: 'login', location: 'https://account.xiaomi.com/pass/serviceLogin' };
       return new Response(`&&&START&&&${JSON.stringify(corps)}`);
     }
@@ -155,6 +156,20 @@ describe('client Xiaomi', () => {
     const sessions = await client(faux).sessionsSommeil(DEBUT, FIN);
     expect(sessions.map((s) => s.id.split('_')[0])).toEqual(['a', 'b', 'c']);
     expect(faux.journal.charges.map((c) => c.next_key)).toEqual([undefined, 'p1', 'p2']);
+  });
+
+  it('une connexion par client ; passToken renvoyé par la connexion exposé', async () => {
+    const meme = fauxCloud();
+    const c1 = client(meme);
+    expect(c1.passTokenRecu?.()).toBeNull();
+    await c1.sessionsSommeil(DEBUT, FIN);
+    expect(c1.passTokenRecu?.()).toBe('bon');
+    const faux = fauxCloud({ pages: [[brut(NUIT, 'a')], [brut(NUIT, 'b')]], nouveau: 'tourne' });
+    const c = client(faux);
+    await c.sessionsSommeil(DEBUT, FIN);
+    await c.sessionsSommeil(DEBUT, FIN);
+    expect(faux.journal.connexions).toBe(1);
+    expect(c.passTokenRecu?.()).toBe('tourne');
   });
 
   it('passToken refusé → jeton_xiaomi_expire, sans le jeton dans le message', async () => {

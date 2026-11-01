@@ -10,6 +10,8 @@ export const CLES_CACHE = {
   idUtilisateurTodoist: 'id_utilisateur_todoist',
   etiquettes: 'etiquettes',
   synchroXiaomi: 'synchro_xiaomi',
+  /** passToken Xiaomi le plus récent, chiffré (AES-GCM). */
+  jetonXiaomi: 'jeton_xiaomi',
 } as const;
 
 /** Assez pour recalculer les 7 dernières nuits du statut (jour UTC et jour local peuvent différer d'un). */

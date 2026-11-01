@@ -89,6 +89,8 @@ export interface SessionSommeil {
 
 export interface ClientXiaomi {
   sessionsSommeil(debut: Date, fin: Date): Promise<SessionSommeil[]>;
+  /** passToken renvoyé par la dernière connexion (Xiaomi peut le faire tourner) ; null s'il n'y en a pas. */
+  passTokenRecu?(): string | null;
 }
 
 export interface OptionsXiaomi extends IdentifiantsXiaomi {
@@ -281,6 +283,19 @@ interface Session {
   cookies: string;
 }
 
+/** Valeur d'un cookie dans les en-têtes Set-Cookie, ou null. */
+function cookieRecu(r: Response, nom: string): string | null {
+  for (const c of r.headers.getSetCookie()) {
+    const paire = c.split(';', 1)[0]!;
+    const i = paire.indexOf('=');
+    if (i > 0 && paire.slice(0, i).trim() === nom) {
+      const v = paire.slice(i + 1).trim();
+      return v === '' || v === 'EXPIRED' ? null : v;
+    }
+  }
+  return null;
+}
+
 const estErreurAuth = (code: unknown, message: string) =>
   code === 401 || code === 403 || code === -6 || code === -10001 || /expired|unauthori|not logged|login required|invalid pass ?token/i.test(message);
 
@@ -289,6 +304,8 @@ export function creerClientXiaomi(o: OptionsXiaomi): ClientXiaomi {
   const maintenant = o.maintenant ?? Date.now;
   const aleatoire = o.aleatoire ?? ((n) => crypto.getRandomValues(new Uint8Array(n)));
   const base = hoteSante(o.region);
+  let session: Promise<Session> | null = null;
+  let jetonRecu: string | null = null;
 
   async function appel(url: string, init: RequestInit): Promise<Response> {
     try {
@@ -306,7 +323,7 @@ export function creerClientXiaomi(o: OptionsXiaomi): ClientXiaomi {
     if (!r.ok) throw new ErreurXiaomi('xiaomi_indisponible', `connexion : HTTP ${r.status}`);
     const texte = await r.text();
     if (!texte.startsWith(PREFIXE_CONNEXION)) throw new ErreurXiaomi('xiaomi_reponse_invalide', 'réponse de connexion inattendue');
-    let corps: { code?: unknown; ssecurity?: unknown; location?: unknown };
+    let corps: { code?: unknown; ssecurity?: unknown; location?: unknown; passToken?: unknown };
     try {
       corps = JSON.parse(texte.slice(PREFIXE_CONNEXION.length));
     } catch {
@@ -320,6 +337,7 @@ export function creerClientXiaomi(o: OptionsXiaomi): ClientXiaomi {
     if (lieu.protocol !== 'https:' || !/(^|\.)(mi|xiaomi)\.com$/.test(lieu.hostname)) {
       throw new ErreurXiaomi('xiaomi_reponse_invalide', 'redirection de connexion hors des domaines Xiaomi');
     }
+    const nouveau = typeof corps.passToken === 'string' && corps.passToken !== '' ? corps.passToken : cookieRecu(r, 'passToken');
     const rs = await appel(lieu.toString(), {});
     if (rs.status >= 400) throw new ErreurXiaomi('xiaomi_indisponible', `jeton de service : HTTP ${rs.status}`);
     const cookies = rs.headers
@@ -327,6 +345,7 @@ export function creerClientXiaomi(o: OptionsXiaomi): ClientXiaomi {
       .map((c) => c.split(';', 1)[0]!.trim())
       .filter((c) => c.includes('='));
     if (!cookies.some((c) => c.startsWith('serviceToken='))) throw new ErreurXiaomi('jeton_xiaomi_expire', 'pas de jeton de service');
+    if (nouveau) jetonRecu = nouveau;
     return { ssecurity: depuisBase64(corps.ssecurity), cookies: cookies.join('; ') };
   }
 
@@ -363,8 +382,14 @@ export function creerClientXiaomi(o: OptionsXiaomi): ClientXiaomi {
   }
 
   return {
+    passTokenRecu: () => jetonRecu,
     async sessionsSommeil(debut, fin) {
-      const s = await connecter();
+      // Une connexion par client : les plages lues au même passage la partagent.
+      session ??= connecter().catch((e: unknown) => {
+        session = null;
+        throw e;
+      });
+      const s = await session;
       const enregistrements: EnregistrementXiaomi[] = [];
       const vus = new Set<string>();
       let suivante: string | undefined;

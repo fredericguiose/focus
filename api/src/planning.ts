@@ -198,6 +198,7 @@ export function dernieresNuits(moteur: Moteur, contexte: Contexte, j: Journee, s
       dette_reelle_min: m ? cible - m.endormi_min : null,
       endormi_min: m ? m.endormi_min : null,
       phases: m?.phases ?? null,
+      incomplete: m?.incomplete ?? false,
     };
   });
 }
@@ -240,6 +241,7 @@ export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuth
     nuits,
     dette_cumulee_min: nuits.reduce((total, n) => total + n.dette_min, 0),
     dette_cumulee_reelle_min: detteCumuleeReelle(nuits),
+    objectif_sommeil_min: config.sommeil.cibleMin,
     sommeil_mesure: synchro,
     appareils: Object.entries(config.appareils).map(([nom, def]) => {
       const etat = deps.moteur.etat(contexte, nom);

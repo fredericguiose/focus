@@ -79,6 +79,7 @@ export interface StatutFil {
   dette_cumulee_min?: number;
   dette_cumulee_reelle_min?: number | null;
   sommeil_mesure?: ReponseStatut['sommeil_mesure'];
+  objectif_sommeil_min?: number;
   phase?: Phase;
   actions?: ActionsStatut;
   engagements_demain?: EngagementDemain[];
@@ -162,6 +163,7 @@ export function statutDepuisFil(s: StatutFil): ReponseStatut {
     ...(s.dette_cumulee_min !== undefined ? { dette_cumulee_min: s.dette_cumulee_min } : {}),
     ...(s.dette_cumulee_reelle_min !== undefined ? { dette_cumulee_reelle_min: s.dette_cumulee_reelle_min } : {}),
     ...(s.sommeil_mesure !== undefined ? { sommeil_mesure: s.sommeil_mesure } : {}),
+    ...(s.objectif_sommeil_min !== undefined ? { objectif_sommeil_min: s.objectif_sommeil_min } : {}),
     ...(s.phase ? { phase: s.phase } : {}),
     ...(s.actions ? { actions: s.actions } : {}),
     ...(s.engagements_demain ? { engagements_demain: s.engagements_demain } : {}),

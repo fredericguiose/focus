@@ -50,6 +50,8 @@ const MESURES_FICTIVES: (null | { legere: number; profonde: number; rem: number;
   { legere: 240, profonde: 85, rem: 95, eveil: 30 },
   { legere: 262, profonde: 92, rem: 104, eveil: 18 },
 ];
+/** Nuit fictive que la montre a marquée incomplète. */
+const INCOMPLETE_FICTIVE = 4;
 // La vraie API pose la question après 25 min (PC) ou 10 min (iPhone) ; 30 s suffisent pour essayer.
 const INTERVALLE_QUESTION_SIMULE_S = 30;
 
@@ -672,6 +674,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
             dette_reelle_min: endormi === null ? null : CIBLE_MIN - endormi,
             endormi_min: endormi,
             phases,
+            incomplete: i === INCOMPLETE_FICTIVE,
           };
         });
         const reelles = nuits.filter((n) => n.dette_reelle_min !== null);
@@ -691,6 +694,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
           dette_cumulee_min: nuits.reduce((total, n) => total + n.dette_min, 0),
           dette_cumulee_reelle_min: reelles.length === 0 ? null : reelles.reduce((total, n) => total + n.dette_reelle_min!, 0),
           sommeil_mesure: { derniere_synchro: versInstant(t - 20 * MINUTE), erreur: null },
+          objectif_sommeil_min: CIBLE_MIN,
           phase: phaseA(t),
           actions: actionsA(t),
           engagements_demain: engagementsDemain(t),

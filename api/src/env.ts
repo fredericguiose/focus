@@ -14,6 +14,12 @@ export interface Liaisons {
   XIAOMI_PASS_TOKEN?: string;
   /** « de », « sg », « us »… ; vide ou « cn » : hôte chinois. */
   XIAOMI_REGION?: string;
+  /** Utilisateur Focus à qui appartient le compte Xiaomi ; seul synchronisé. Absent : pas de synchro. */
+  XIAOMI_UTILISATEUR?: string;
+  /** Début du rattrapage de l'historique (AAAA-MM-JJ) ; absent : 60 jours en arrière. */
+  XIAOMI_DEPUIS?: string;
+  /** Secret de chiffrement des jetons gardés en base ; absent : le passToken reçu n'est pas gardé. */
+  CLE_CHIFFREMENT?: string;
   /** « local » seulement pour un essai sur la machine : autorise l'horloge réglable. */
   FOCUS_ENVIRONNEMENT?: string;
   /** Instant ISO ou décalage (« +3h », « -90min ») ; ignorée hors environnement local. */
