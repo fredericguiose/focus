@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Options — Focus</title>
+    <link rel="stylesheet" href="style.css" />
+    <script type="module" src="options.js"></script>
+  </head>
+  <body>
+    <main>
+      <h1>Focus — options</h1>
+      <p class="discret">
+        L'extension ne bloque rien : elle explique les sites bloqués par le client PC et permet d'ouvrir une session.
+      </p>
+      <form id="formulaire">
+        <section>
+          <label class="champ">Adresse de l'API
+            <input type="url" id="api" required placeholder="https://focus.exemple.workers.dev" autocomplete="off" />
+          </label>
+          <label class="champ">Jeton interface
+            <input type="password" id="jeton" required autocomplete="off" />
+          </label>
+          <label class="champ">Nom de l'appareil (dans la config)
+            <input type="text" id="appareil" required placeholder="pc_linux" autocomplete="off" />
+          </label>
+          <div class="actions">
+            <button type="submit" class="primaire" id="enregistrer">Enregistrer et vérifier</button>
+          </div>
+          <p class="erreur" id="erreur" role="alert" hidden></p>
+          <p class="succes" id="succes" role="status" hidden></p>
+        </section>
+      </form>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,176 @@
+import { describe, expect, it } from 'vitest';
+
+import { PHRASE_NUIT } from '@/lib/decisionNuit';
+import { ErreurFocus } from './erreur';
+import { creerApiSimulee } from './simule';
+
+// Mardi 3 novembre 2026, 15:00 à Paris. Lever 06:30 (travail), lever du mercredi 05:30 (sport),
+// donc coucher 21:30 et ouverture 19:30 + 20 min de report = 19:50.
+const MARDI_15H = Date.parse('2026-11-03T14:00:00Z');
+
+function simulation(depart = MARDI_15H) {
+  let t = depart;
+  const api = creerApiSimulee({ maintenant: () => t, fuseau: 'Europe/Paris' });
+  return {
+    api,
+    regler: (iso: string) => {
+      t = Date.parse(iso);
+    },
+    avancer: (ms: number) => {
+      t += ms;
+    },
+  };
+}
+
+async function erreurDe(promesse: Promise<unknown>): Promise<ErreurFocus> {
+  try {
+    await promesse;
+  } catch (e) {
+    if (e instanceof ErreurFocus) return e;
+    throw e;
+  }
+  throw new Error('La promesse aurait dû être rejetée.');
+}
+
+describe('API simulée : statut', () => {
+  it('calcule la journée avec des horaires fictifs', async () => {
+    const { journee, appareils, sessions } = await simulation().api.statut();
+    expect(journee).toMatchObject({
+      date: '2026-11-03',
+      fuseau: 'Europe/Paris',
+      engagements: ['travail'],
+      lever: '2026-11-03T05:30:00Z',
+      leverSuivant: '2026-11-04T04:30:00Z',
+      coucherApplique: '2026-11-03T20:30:00Z',
+      ouverture: '2026-11-03T18:50:00Z',
+      prixDuReportMin: 20,
+      detteNuitMin: 0,
+      decisionDeNuitPrise: false,
+    });
+    expect(appareils.map((a) => [a.appareil, a.mode])).toEqual([
+      ['pc_linux', 'WORK'],
+      ['pc_windows', 'WORK'],
+      ['iphone', 'WORK'],
+    ]);
+    expect(appareils[0]?.vu_le).toBe('2026-11-03T13:59:20Z');
+    expect(appareils[0]?.apps_bloquees?.find((a) => a.id === 'chatgpt')?.domaines).toContain('chatgpt.com');
+    expect(sessions[0]?.question?.attente_s).toBe(5);
+  });
+
+  it('passe en NIGHT_LOCK au coucher, sessions interdites', async () => {
+    const sim = simulation();
+    sim.regler('2026-11-03T20:30:00Z');
+    const { appareils } = await sim.api.statut();
+    expect(appareils[0]).toMatchObject({ mode: 'NIGHT_LOCK', sessions: 'interdites' });
+  });
+});
+
+describe('API simulée : sessions', () => {
+  it('refuse une tâche créée il y a moins de 15 min', async () => {
+    const { api } = simulation();
+    const t3 = (await api.taches()).taches.find((t) => t.id === 't3');
+    expect(t3?.eligible_le).toBe('2026-11-03T14:10:00Z');
+    const e = await erreurDe(api.ouvrirSession({ appareil: 'pc_linux', tache_id: 't3', apps: ['youtube'] }));
+    expect(e.erreur).toBe('tache_trop_recente');
+  });
+
+  it('ouvre une session puis pose une question', async () => {
+    const sim = simulation();
+    await sim.api.ouvrirSession({ appareil: 'pc_linux', tache_id: 't2', apps: ['youtube'] });
+    let session = (await sim.api.statut()).sessions.find((s) => s.tache?.id === 't2');
+    expect(session?.domaines).toEqual(['m.youtube.com', 'www.youtube.com', 'youtu.be', 'youtube.com']);
+    expect(session?.question).toBeNull();
+    sim.avancer(30_000);
+    session = (await sim.api.statut()).sessions.find((s) => s.tache?.id === 't2');
+    expect(session?.question).toMatchObject({ attente_s: 0 });
+  });
+
+  it('refuse les sessions la nuit', async () => {
+    const sim = simulation();
+    sim.regler('2026-11-03T21:00:00Z');
+    const e = await erreurDe(sim.api.ouvrirSession({ appareil: 'pc_linux', tache_id: 't1', apps: ['youtube'] }));
+    expect(e.erreur).toBe('sessions_interdites');
+  });
+
+  it('applique l’attente progressive puis ferme la session sans réponse', async () => {
+    const sim = simulation();
+    const session = (await sim.api.statut()).sessions[0];
+    const question = session?.question;
+    if (!session || !question) throw new Error('session de démonstration absente');
+
+    const tot = await erreurDe(sim.api.repondre(session.id, { question_id: question.id, reponse: 'continue' }));
+    expect(tot.erreur).toBe('trop_tot');
+
+    sim.avancer(4_000);
+    await sim.api.repondre(session.id, { question_id: question.id, reponse: 'continue' });
+
+    sim.avancer(30_000);
+    const suivante = (await sim.api.statut()).sessions[0]?.question;
+    expect(suivante?.attente_s).toBe(10);
+
+    sim.avancer(71_000);
+    expect((await sim.api.statut()).sessions).toHaveLength(0);
+  });
+
+  it('« J’arrête » ferme la session tout de suite, même pendant l’attente', async () => {
+    const sim = simulation();
+    const session = (await sim.api.statut()).sessions[0];
+    await sim.api.repondre(session?.id ?? '', { question_id: session?.question?.id ?? '', reponse: 'arrete' });
+    expect((await sim.api.statut()).sessions).toHaveLength(0);
+  });
+});
+
+describe('API simulée : exceptions', () => {
+  it('avant l’ouverture : sans friction, plafonné par le sommeil minimum', async () => {
+    const { api } = simulation();
+    const refuse = await api.prixException({ demande: { type: 'coucher', nuit: '2026-11-03', heure: '23:00' } });
+    expect(refuse).toMatchObject({ admissible: false, friction: 'aucune', resserre: false });
+    expect(refuse.motifRefus).toContain('minimum');
+
+    const accepte = await api.prixException({ demande: { type: 'coucher', nuit: '2026-11-03', heure: '22:00' } });
+    expect(accepte).toMatchObject({
+      admissible: true,
+      friction: 'aucune',
+      coucherAvant: '2026-11-03T20:30:00Z',
+      coucherApres: '2026-11-03T21:00:00Z',
+      detteAvantMin: 0,
+      detteApresMin: 30,
+    });
+  });
+
+  it('resserrer est toujours permis', async () => {
+    const sim = simulation();
+    sim.regler('2026-11-03T20:00:00Z');
+    const prix = await sim.api.prixException({ demande: { type: 'avancer_coucher', nuit: '2026-11-03', a: '2026-11-03T20:00:00Z' } });
+    expect(prix).toMatchObject({ admissible: true, resserre: true, friction: 'aucune', detteApresMin: -30 });
+  });
+
+  it('après l’ouverture : raison + phrase, une seule fois par nuit', async () => {
+    const sim = simulation();
+    sim.regler('2026-11-03T19:00:00Z');
+    const demande = { type: 'coucher', nuit: '2026-11-03', heure: '22:30' } as const;
+    expect(await sim.api.prixException({ demande })).toMatchObject({ admissible: true, friction: 'raison_phrase' });
+
+    const sansFriction = await erreurDe(sim.api.enregistrerException({ demande }));
+    expect(sansFriction.erreur).toBe('friction_requise');
+
+    await sim.api.enregistrerException({ demande, friction: { raison: 'r'.repeat(50), phrase: PHRASE_NUIT } });
+    const { journee } = await sim.api.statut();
+    expect(journee.coucherApplique).toBe('2026-11-03T21:30:00Z');
+    expect(journee.decisionDeNuitPrise).toBe(true);
+    // « $coucher - 2h » suit le coucher appliqué : l'ouverture a reculé à 20:50 (19:50Z).
+    expect(journee.ouverture).toBe('2026-11-03T19:50:00Z');
+
+    sim.regler('2026-11-03T20:00:00Z');
+    const encore = await sim.api.prixException({ demande: { type: 'coucher', nuit: '2026-11-03', heure: '22:45' } });
+    expect(encore.admissible).toBe(false);
+    expect(encore.motifRefus).toContain('une seule par nuit');
+  });
+
+  it('retirer un engagement inconnu est refusé avec un motif', async () => {
+    const { api } = simulation();
+    const prix = await api.prixException({ demande: { type: 'retire', date: '2026-11-04', engagement: 'piscine' } });
+    expect(prix.admissible).toBe(false);
+    expect(prix.motifRefus).toContain('piscine');
+  });
+});

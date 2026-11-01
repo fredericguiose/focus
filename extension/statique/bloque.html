@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bloqué — Focus</title>
+    <link rel="stylesheet" href="style.css" />
+    <script type="module" src="bloque.js"></script>
+  </head>
+  <body>
+    <main>
+      <h1 id="titre">Vérification…</h1>
+      <p class="erreur" id="erreur" role="alert" hidden></p>
+
+      <section id="detail" hidden>
+        <dl>
+          <dt>Domaine</dt><dd id="domaine"></dd>
+          <dt>App</dt><dd id="app"></dd>
+          <dt>Mode</dt><dd id="mode"></dd>
+          <dt>Raison</dt><dd id="raison"></dd>
+        </dl>
+        <div class="actions">
+          <button type="button" id="reessayer">Réessayer la page</button>
+        </div>
+      </section>
+
+      <section id="session" hidden>
+        <h2>Ouvrir une session</h2>
+        <p class="discret" id="session-aide"></p>
+        <div class="taches" id="taches" role="radiogroup" aria-label="Tâche du jour"></div>
+        <div class="actions">
+          <button type="button" class="primaire" id="ouvrir" disabled>Ouvrir la session</button>
+          <button type="button" id="annuler" hidden>Annuler</button>
+          <span id="compte" role="status"></span>
+        </div>
+        <div class="actions" id="ajout" hidden>
+          <button type="button" class="primaire" id="ajouter">Ajouter l'app à la session ouverte</button>
+        </div>
+        <p class="succes" id="succes" role="status" hidden></p>
+        <p class="discret">L'envoi part 10 s après le clic : le temps de se demander si c'est nécessaire.</p>
+      </section>
+    </main>
+  </body>
+</html>

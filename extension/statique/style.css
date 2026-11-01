@@ -1,0 +1,48 @@
+:root {
+  color-scheme: light dark;
+  --fond: #ffffff;
+  --texte: #171717;
+  --discret: #737373;
+  --bord: #e5e5e5;
+  --primaire: #171717;
+  --sur-primaire: #fafafa;
+  --erreur: #dc2626;
+  --succes: #059669;
+  font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fond: #171717;
+    --texte: #fafafa;
+    --discret: #a3a3a3;
+    --bord: #2e2e2e;
+    --primaire: #e5e5e5;
+    --sur-primaire: #171717;
+    --erreur: #f87171;
+    --succes: #34d399;
+  }
+}
+body { margin: 0; background: var(--fond); color: var(--texte); }
+main { max-width: 36rem; margin: 0 auto; padding: 2.5rem 1rem; display: grid; gap: 1.25rem; }
+h1 { font-size: 1.4rem; margin: 0; }
+h2 { font-size: 1.05rem; margin: 0 0 0.5rem; }
+section { border: 1px solid var(--bord); border-radius: 0.6rem; padding: 1rem; display: grid; gap: 0.75rem; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1rem; margin: 0; }
+dt { color: var(--discret); }
+dd { margin: 0; overflow-wrap: anywhere; }
+.discret { color: var(--discret); font-size: 0.875rem; margin: 0; }
+.erreur { color: var(--erreur); margin: 0; }
+.erreur code { display: block; font-size: 0.75rem; opacity: 0.7; }
+.succes { color: var(--succes); font-weight: 600; margin: 0; }
+.taches { display: grid; gap: 0.4rem; }
+.taches label { display: flex; gap: 0.6rem; align-items: center; border: 1px solid var(--bord); border-radius: 0.4rem; padding: 0.45rem 0.7rem; cursor: pointer; }
+.taches label.inactive { opacity: 0.5; cursor: not-allowed; }
+.taches .nom { flex: 1; }
+.taches .info { font-size: 0.8rem; color: var(--discret); }
+.actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+button { font: inherit; border-radius: 0.4rem; padding: 0.45rem 0.9rem; border: 1px solid var(--bord); background: transparent; color: var(--texte); cursor: pointer; }
+button.primaire { background: var(--primaire); color: var(--sur-primaire); border-color: var(--primaire); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+label.champ { display: grid; gap: 0.3rem; font-weight: 600; font-size: 0.9rem; }
+input[type='text'], input[type='url'], input[type='password'] { font: inherit; padding: 0.45rem 0.6rem; border: 1px solid var(--bord); border-radius: 0.4rem; background: transparent; color: inherit; }
+[hidden] { display: none !important; }
