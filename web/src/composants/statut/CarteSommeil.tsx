@@ -77,11 +77,9 @@ function GraphiqueNuits({ nuits, objectif }: { nuits: NuitPassee[]; objectif: nu
       // 0 plutôt que null : la barre est invisible mais l'infobulle dit « pas de mesure ».
       heures: m === null ? 0 : m / 60,
       minutes: m,
-      incomplete: n.incomplete === true,
     };
   });
   const max = Math.max(objectif / 60, ...donnees.map((d) => d.heures)) * 1.08;
-  const avecIncomplete = donnees.some((d) => d.incomplete && d.minutes !== null);
   const sansMesure = donnees.some((d) => d.minutes === null);
   return (
     <div className="grid gap-1.5">
@@ -98,14 +96,14 @@ function GraphiqueNuits({ nuits, objectif }: { nuits: NuitPassee[]; objectif: nu
                 formatter={(_valeur, _nom, element) => {
                   const d = element.payload as (typeof donnees)[number];
                   if (d.minutes === null) return 'pas de mesure';
-                  return `${formaterDuree(d.minutes)} dormies${d.incomplete ? ' · mesure incomplète' : ''}`;
+                  return `${formaterDuree(d.minutes)} dormies`;
                 }}
               />
             }
           />
           <Bar dataKey="heures" radius={4} maxBarSize={28} isAnimationActive={false}>
             {donnees.map((d) => (
-              <Cell key={d.date} fill="var(--sommeil-nuit)" fillOpacity={d.incomplete ? 0.4 : 1} />
+              <Cell key={d.date} fill="var(--sommeil-nuit)" />
             ))}
           </Bar>
           <ReferenceLine y={objectif / 60} stroke="var(--muted-foreground)" strokeDasharray="4 3" strokeWidth={1.5} ifOverflow="extendDomain" />
@@ -118,11 +116,6 @@ function GraphiqueNuits({ nuits, objectif }: { nuits: NuitPassee[]; objectif: nu
         <span className="flex items-center gap-1.5">
           <span className="border-muted-foreground w-3 border-t-[1.5px] border-dashed" /> objectif
         </span>
-        {avecIncomplete ? (
-          <span className="flex items-center gap-1.5">
-            <span className="size-2 rounded-[2px] opacity-40" style={{ background: 'var(--sommeil-nuit)' }} /> mesure incomplète
-          </span>
-        ) : null}
         {sansMesure ? <span>pas de barre : pas de mesure</span> : null}
       </div>
       <ul className="sr-only">
@@ -170,7 +163,6 @@ export function CarteSommeil({ statut }: { statut: ReponseStatut }) {
             <div className="grid gap-0.5">
               <span className="text-muted-foreground text-sm">
                 {titreNuit}
-                {derniere.incomplete ? ' · mesure incomplète' : ''}
               </span>
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                 <span className="text-3xl font-semibold tracking-tight tabular-nums">{formaterDuree(dormi(derniere)!)}</span>

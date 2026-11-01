@@ -31,7 +31,7 @@ describe('carte « Sommeil »', () => {
     // 450 + 385 + 465 + 355 + 420 + 458 = 2533 min pour 6 × 480 = 2880.
     expect(screen.getByText(/^5 h 47 de moins au total/)).toBeTruthy();
     expect(screen.getByText('(6 nuits mesurées)')).toBeTruthy();
-    expect(screen.getByText('mesure incomplète')).toBeTruthy();
+    expect(screen.queryByText(/incompl/)).toBeNull();
     expect(screen.getByText(/pas de mesure$/, { selector: 'li' })).toBeTruthy();
     const texte = container.textContent ?? '';
     expect(texte).not.toMatch(/dette|prévu|[+−]\d/i);
