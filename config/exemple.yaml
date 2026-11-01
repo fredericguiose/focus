@@ -1,0 +1,112 @@
+# Configuration d'EXEMPLE de Focus (horaires fictifs). La vraie configuration vit dans un
+# dépôt privé et arrive dans la base à chaque push, après validation par le même schéma.
+# Format : YAML 1.2. Heures toujours entre guillemets. Voir docs/conception.md §2.
+
+version: 1
+utilisateur: alice
+
+sommeil:
+  cible: "8h"
+  minimum: "7h"
+  plancher_nuit: "6h"
+  lever_plancher: "04:30"
+
+reveil_libre: "07:00"
+
+engagements:
+  sport: { heure: "06:00", preparation: 30, annulable: true, decalable: true }   # réveil 05:30
+  travail: { reveil: "06:30", annulable: true, decalable: true }
+
+apps:
+  youtube:   { nom: YouTube,  domaines: [youtube.com, www.youtube.com, m.youtube.com, youtu.be], iphone: com.google.ios.youtube }
+  x:         { nom: X,        domaines: [x.com, twitter.com, www.x.com], iphone: com.atebits.Tweetie2 }
+  chatgpt:   { nom: ChatGPT,  domaines: [chatgpt.com, chat.openai.com], iphone: com.openai.chat }
+  gemini:    { nom: Gemini,   domaines: [gemini.google.com], iphone: com.google.gemini }
+  claude_ai: { nom: Claude,   domaines: [claude.ai], iphone: com.anthropic.claude }
+  claude_code: { nom: Claude Code, domaines: [api.anthropic.com, console.anthropic.com] }
+  gmail:     { nom: Gmail,    domaines: [mail.google.com, gmail.com], iphone: com.google.Gmail }
+  whatsapp:  { nom: WhatsApp, domaines: [web.whatsapp.com, whatsapp.com], iphone: net.whatsapp.WhatsApp }
+  safari:    { nom: Safari,   iphone: com.apple.mobilesafari }
+
+groupes:
+  ia_conversationnelle: [chatgpt, gemini, claude_ai]
+  divertissement: [youtube, x]
+  navigateurs: [safari]
+  matin: [gmail, whatsapp, claude_ai, claude_code]
+
+appareils:
+  pc_linux:   { type: pc_linux, comptes_de_travail: [alice] }
+  pc_windows: { type: pc_windows, comptes_de_travail: [] }
+  iphone:     { type: iphone }
+
+modes:
+  NIGHT_LOCK:
+    quand: { heure: { apres: "$coucher" } }
+    effets: { bloque: tout, sauf: [claude_code], verrouiller_session: true }
+    sessions: interdites
+  MORNING_LOCK:
+    quand: { pas: planning_fait }
+    appareils: [pc_linux, pc_windows]
+    effets: { bloque: tout, fermer_comptes_hors_travail: true }
+    sessions: interdites
+  EVENING_FREE:
+    quand:
+      tous:
+        - { heure: { apres: "$ouverture", decale_par: prix_du_report } }
+        - prioritaires_faites
+        - recap_fait
+    effets: {}
+    parametres: { ouverture: "$coucher - 2h" }
+  WORK:
+    quand: toujours
+    effets: { bloque: [ia_conversationnelle, divertissement, navigateurs], fermer_comptes_hors_travail: true }
+    sessions: autorisees
+
+routines:
+  semaine:
+    fuseau: Europe/Paris
+    modes: [NIGHT_LOCK, MORNING_LOCK, EVENING_FREE, WORK]
+    jours:
+      lun: { engagements: [sport, travail] }
+      mar: { engagements: [travail] }
+      mer: { engagements: [sport, travail] }
+      jeu: { engagements: [travail] }
+      ven: { engagements: [sport, travail], parametres: { EVENING_FREE: { ouverture: "18:00" } } }
+      sam: { parametres: { EVENING_FREE: { ouverture: "14:00" } } }
+      dim:
+        parametres: { EVENING_FREE: { ouverture: "14:00" } }
+        conditions_en_plus: { EVENING_FREE: [aucun_retard] }
+  conges:
+    fuseau: Europe/Paris
+    reveil_libre: "08:00"
+    modes: [NIGHT_LOCK, MORNING_LOCK, EVENING_FREE, WORK]
+    engagements: { sport: { heure: libre } }
+    parametres: { EVENING_FREE: { ouverture: "16:00" } }
+    jours:
+      lun: { engagements: [sport] }
+      mer: { engagements: [sport] }
+      ven: { engagements: [sport] }
+
+routine_par_defaut: semaine
+calendrier:
+  - { routine: conges, du: "2026-12-19", au: "2027-01-03" }
+
+todoist:
+  etiquette_planning: planning
+  etiquette_recap: recap
+  recap_tolerance_jours: 1
+  prioritaires: [p1, p2]
+  etiquettes_exclues: [planning, recap]
+
+prix_du_report:
+  par_report: "20min"
+  plafond: "90min"
+  commentaire_min: 15
+  deadline: { reports_max: 3, jours_minimum: 2 }
+
+sessions:
+  plafond_quotidien: "3h"
+  attentes_s: [0, 3, 5, 10, 15, 20]
+  delai_nouvelle_tache: "15min"
+  expiration_question_s: 60
+  intervalle_question: { pc: "25min", iphone: "10min" }
