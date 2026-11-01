@@ -21,6 +21,10 @@ export interface ConfigSommeil {
   leverPlancher: HeureLocale;
 }
 
+/** Types de mesure que les sources (adaptateurs de l'API) rangent dans `mesures`. */
+export const TYPES_DE_MESURE = ['sommeil', 'seance'] as const;
+export type TypeMesure = (typeof TYPES_DE_MESURE)[number];
+
 export interface Engagement {
   /** Réveil donné directement, ou calculé = heure − préparation. Absent = sans heure. */
   reveil?: HeureLocale;
@@ -28,6 +32,8 @@ export interface Engagement {
   preparationMin?: number;
   annulable: boolean;
   decalable: boolean;
+  /** Fait vérifié par une mesure de ce type le jour même ; absent = engagement non vérifié. */
+  verification?: { mesure: TypeMesure };
 }
 
 export interface App {
@@ -314,6 +320,24 @@ export interface SortieMode {
   auPlusTard: Instant;
 }
 
+// ─── Vérification des engagements ────────────────────────────────────────────
+
+/** Une mesure venue d'une source (séance, sommeil…), réduite à ce que le moteur juge. */
+export interface Mesure {
+  type: TypeMesure;
+  debut: Instant;
+  fin: Instant | null;
+}
+
+export type StatutEngagement = 'fait' | 'saute_declare' | 'saute_non_declare' | 'a_faire';
+
+export interface EngagementVerifie {
+  date: DateLocale;
+  engagement: string;
+  nom: string;
+  statut: StatutEngagement;
+}
+
 // ─── Fonctions exposées par le moteur (core/src/index.ts) ─────────────────────
 
 export interface Moteur {
@@ -327,6 +351,8 @@ export interface Moteur {
   expliquer(contexte: Contexte, appareil: string): ModeExplique[];
   sortie(contexte: Contexte, appareil: string): SortieMode;
   prixException(contexte: Contexte, demande: DemandeException, friction?: FrictionFournie): PrixException;
+  /** Engagements vérifiables prévus de `du` à `au` (dates incluses) et leur statut (§3.8). */
+  verifierEngagements(contexte: Contexte, mesures: Mesure[], du: DateLocale, au: DateLocale): EngagementVerifie[];
   /** Secondes d'attente exigées pour le n-ième « continue » (n commence à 0). */
   attenteContinue(config: Config, n: number): number;
 }

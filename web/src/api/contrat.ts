@@ -3,6 +3,7 @@
 import type {
   ActionsIphone,
   ActionsPc,
+  DateLocale,
   DemandeException,
   Exception,
   FrictionFournie,
@@ -13,7 +14,7 @@ import type {
   TypeAppareil,
 } from '../../../core/src/types';
 
-export type { ActionsIphone, ActionsPc, DemandeException, Exception, FrictionFournie, Instant, Journee, Priorite, PrixException, TypeAppareil };
+export type { ActionsIphone, ActionsPc, DateLocale, DemandeException, Exception, FrictionFournie, Instant, Journee, Priorite, PrixException, TypeAppareil };
 
 /** Corps de toute réponse d'erreur (§4.2). */
 export interface CorpsErreur {
@@ -178,6 +179,17 @@ export interface EngagementDemain {
   origine: 'routine' | 'exception';
 }
 
+/** fait ; sauté et déclaré (exception « retire ») ; sauté sans le dire ; pas encore fait (aujourd'hui ou à venir). */
+export type StatutEngagement = 'fait' | 'saute_declare' | 'saute_non_declare' | 'a_faire';
+
+/** Un engagement vérifié par une mesure (ex. séance Hevy) un jour où il était prévu. */
+export interface EngagementVerifie {
+  date: DateLocale;
+  engagement: string;
+  nom: string;
+  statut: StatutEngagement;
+}
+
 /** GET /v1/statut */
 export interface ReponseStatut {
   heure_serveur: Instant;
@@ -210,6 +222,14 @@ export interface ReponseStatut {
   phase?: Phase;
   actions?: ActionsStatut;
   engagements_demain?: EngagementDemain[];
+  /** Date civile du jour (fuseau de la journée). */
+  aujourdhui?: DateLocale;
+  /** 7 derniers jours, aujourd'hui et le reste de la semaine (lun → dim). */
+  engagements_verifies?: EngagementVerifie[];
+  /** Sautés (déclarés ou non) du lundi à aujourd'hui. */
+  sautes_semaine?: number;
+  /** État de la synchro des séances (Hevy) ; null si jamais tentée. */
+  seances_mesurees?: { derniere_synchro: Instant | null; erreur: string | null } | null;
 }
 
 export interface TacheSession {

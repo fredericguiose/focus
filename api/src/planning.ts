@@ -1,6 +1,7 @@
 // Planning d'un appareil (§4.3), statut pour l'interface, tâches du jour, raison d'un blocage.
-import type { ActionsIphone, ActionsPc, Config, Contexte, EngagementPrevu, Journee, Moteur, Segment, SortieMode } from '../../core/src/types';
-import { dateCourte } from '../../core/src/temps';
+import type { ActionsIphone, ActionsPc, Config, Contexte, EngagementPrevu, Journee, Mesure, Moteur, Segment, SortieMode } from '../../core/src/types';
+import { dateCourte, JOURS_SEMAINE, jourSemaine } from '../../core/src/temps';
+import { etatSynchroHevy, lireSeances } from './hevy';
 import { CLES_CACHE, chargerContexte, lireCache } from './contexte';
 import type { Dependances, JetonAuthentifie } from './env';
 import { ErreurApi, requeteInvalide } from './erreurs';
@@ -14,7 +15,7 @@ import {
   type VueSession,
 } from './sessions';
 import { etatSynchro, type JourneeDeVeille, lireSommeil, rattacherAuxNuits, type Sieste, type SommeilMesure, separerSiestes } from './sommeil';
-import { ajouterJours, debutJourLocal, decaler, heureLocale, ms, versInstant } from './temps';
+import { ajouterJours, dateLocale, debutJourLocal, decaler, heureLocale, ms, versInstant } from './temps';
 
 export const HORIZON_H = 36;
 export const VERSION_FORMAT_PLANNING = 1;
@@ -234,12 +235,29 @@ export function siesteTardive(j: Journee, siestes: Sieste[], maintenant: Date): 
   return derniere ? { fin: derniere.fin, coucher: j.coucherApplique } : null;
 }
 
+export const JOURS_VERIFIES = 7;
+
+/**
+ * Engagements vérifiés (§4.6) : les 7 derniers jours, aujourd'hui et le reste de la semaine en
+ * cours (à venir) ; `sautes_semaine` compte les sautés, déclarés ou non, du lundi à aujourd'hui.
+ */
+export function engagementsVerifies(moteur: Moteur, contexte: Contexte, mesures: Mesure[], aujourdhui: string) {
+  const lundi = ajouterJours(aujourdhui, -JOURS_SEMAINE.indexOf(jourSemaine(aujourdhui)));
+  const liste = moteur.verifierEngagements(contexte, mesures, ajouterJours(aujourdhui, -JOURS_VERIFIES), ajouterJours(lundi, 6));
+  return {
+    aujourdhui,
+    engagements_verifies: liste.map((e) => ({ date: e.date, engagement: e.engagement, nom: e.nom, statut: e.statut })),
+    sautes_semaine: liste.filter((e) => e.date >= lundi && e.date <= aujourdhui && e.statut.startsWith('saute')).length,
+  };
+}
+
 export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuthentifie) {
   const maintenant = deps.maintenant();
   const { contexte, version } = await chargerContexte(db, jeton.utilisateur, maintenant);
   const { config } = contexte;
   const journee = deps.moteur.journeeCourante(contexte);
-  const [pings, etiquettes, sessions, cumulS, sommeil, synchro] = await Promise.all([
+  const jourCivil = dateLocale(maintenant, journee.fuseau);
+  const [pings, etiquettes, sessions, cumulS, sommeil, synchro, seances, synchroSeances] = await Promise.all([
     db
       .prepare(
         `SELECT nom, MAX(vu_le) AS vu_le FROM appareils
@@ -252,6 +270,8 @@ export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuth
     cumulSessionsS(db, jeton.utilisateur, journee, maintenant),
     lireSommeil(db, jeton.utilisateur, versInstant(debutJourLocal(ajouterJours(journee.date, -NUITS_DU_STATUT - 1), journee.fuseau))),
     etatSynchro(db, jeton.utilisateur),
+    lireSeances(db, jeton.utilisateur, versInstant(debutJourLocal(ajouterJours(jourCivil, -JOURS_VERIFIES - 1), journee.fuseau))),
+    etatSynchroHevy(db, jeton.utilisateur),
   ]);
   const vuLe = new Map(pings.results.map((p) => [p.nom, p.vu_le]));
   const phase = phaseDe(journee, maintenant);
@@ -273,6 +293,8 @@ export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuth
     sieste_tardive: siesteTardive(journee, aujourdhui, maintenant),
     objectif_sommeil_min: config.sommeil.cibleMin,
     sommeil_mesure: synchro,
+    ...engagementsVerifies(deps.moteur, contexte, seances, jourCivil),
+    seances_mesurees: synchroSeances,
     appareils: Object.entries(config.appareils).map(([nom, def]) => {
       const etat = deps.moteur.etat(contexte, nom);
       const segment = deps.moteur.planifier(contexte, nom, HORIZON_H)[0];

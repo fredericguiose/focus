@@ -14,7 +14,7 @@ describe('validerConfig — exemple', () => {
     if (!r.ok) throw new Error(r.erreurs.join('\n'));
     const c = r.config;
     expect(c.sommeil).toEqual({ cibleMin: 480, minimumMin: 420, plancherNuitMin: 360, leverPlancher: '04:30' });
-    expect(c.engagements.sport).toEqual({ heure: '06:00', preparationMin: 30, annulable: true, decalable: true });
+    expect(c.engagements.sport).toEqual({ heure: '06:00', preparationMin: 30, annulable: true, decalable: true, verification: { mesure: 'seance' } });
     expect(c.engagements.travail).toEqual({ reveil: '06:30', annulable: true, decalable: true });
     expect(c.apps.safari).toEqual({ nom: 'Safari', domaines: [], iphone: 'com.apple.mobilesafari' });
     expect(c.appareils.iphone).toEqual({ type: 'iphone', comptesDeTravail: [] });
@@ -143,6 +143,13 @@ describe('validerConfig — références inconnues', () => {
     expect(erreurs(remplacer(EXEMPLE, 'engagements: { sport: { heure: libre } }', 'engagements: { sprot: { heure: libre } }'))).toEqual([
       'routines.conges.engagements.sprot : engagement inconnu « sprot » (vouliez-vous dire « sport » ?)',
     ]);
+  });
+
+  it('type de mesure inconnu dans une vérification', () => {
+    expect(erreurs(remplacer(EXEMPLE, 'verification: { mesure: seance }', 'verification: { mesure: seances }'))).toEqual([
+      'engagements.sport.verification.mesure : type de mesure inconnu « seances » (vouliez-vous dire « seance » ?)',
+    ]);
+    expect(erreurs(remplacer(EXEMPLE, 'verification: { mesure: seance }', 'verification: { type: seance }'))).not.toHaveLength(0);
   });
 
   it('routine inconnue dans le calendrier et par défaut', () => {

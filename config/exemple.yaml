@@ -14,7 +14,8 @@ sommeil:
 reveil_libre: "07:00"
 
 engagements:
-  sport: { heure: "06:00", preparation: 30, annulable: true, decalable: true }   # réveil 05:30
+  # réveil 05:30 ; « fait » quand une séance est mesurée ce jour-là (Hevy), sinon « sauté »
+  sport: { heure: "06:00", preparation: 30, annulable: true, decalable: true, verification: { mesure: seance } }
   travail: { reveil: "06:30", annulable: true, decalable: true }
 
 apps:

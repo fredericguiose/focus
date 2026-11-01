@@ -87,6 +87,10 @@ export interface StatutFil {
   phase?: Phase;
   actions?: ActionsStatut;
   engagements_demain?: EngagementDemain[];
+  aujourdhui?: string;
+  engagements_verifies?: ReponseStatut['engagements_verifies'];
+  sautes_semaine?: number;
+  seances_mesurees?: ReponseStatut['seances_mesurees'];
 }
 
 export interface TachesFil {
@@ -175,6 +179,10 @@ export function statutDepuisFil(s: StatutFil): ReponseStatut {
     ...(s.phase ? { phase: s.phase } : {}),
     ...(s.actions ? { actions: s.actions } : {}),
     ...(s.engagements_demain ? { engagements_demain: s.engagements_demain } : {}),
+    ...(s.aujourdhui ? { aujourdhui: s.aujourdhui } : {}),
+    ...(s.engagements_verifies ? { engagements_verifies: s.engagements_verifies } : {}),
+    ...(s.sautes_semaine !== undefined ? { sautes_semaine: s.sautes_semaine } : {}),
+    ...(s.seances_mesurees !== undefined ? { seances_mesurees: s.seances_mesurees } : {}),
   };
 }
 

@@ -28,6 +28,8 @@ La commande est idempotente : relancée, elle ne refait que ce qui manque ou a c
    `XIAOMI_UTILISATEUR` (celui de `secrets.env`, sinon l'utilisateur de la config privée : seul
    synchronisé) et `CLE_CHIFFREMENT` (clé aléatoire créée une fois dans
    `~/.config/focus/local/cle-chiffrement`, 600) ; `XIAOMI_DEPUIS` est recopié s'il est posé.
+   `HEVY_API_KEY` (séances Hevy) est recopié de même, avec `HEVY_UTILISATEUR` (même règle que
+   `XIAOMI_UTILISATEUR`).
 6. Lance `wrangler dev --local` sur le port 8799 avec `FOCUS_ENVIRONNEMENT=local` (horloge
    réglable), puis déclenche une première tâche planifiée.
 7. Copie le jeton `interface` dans le presse-papiers (`wl-copy`, sinon l'affiche) et ouvre le

@@ -13,6 +13,7 @@ import type {
   CorpsException,
   DemandeException,
   EngagementDemain,
+  EngagementVerifie,
   EtapeParcours,
   Exception,
   Journee,
@@ -23,6 +24,7 @@ import type {
   SessionOuverte,
   SortieMode,
   StatutAppareil,
+  StatutEngagement,
   TacheSession,
   TypeAppareil,
 } from './contrat';
@@ -87,6 +89,10 @@ const ENGAGEMENTS: Record<string, EngagementSimule> = {
   sport: { nom: 'Sport', heure: '06:00', preparationMin: 30, annulable: true, decalable: true },
   travail: { nom: 'Travail', heure: '06:30', preparationMin: 0, annulable: false, decalable: false },
 };
+/** Engagements vérifiés par une séance mesurée (salle). */
+const VERIFIES = ['sport'];
+/** Jours prévus passés sans séance, comptés à rebours depuis hier (1 = le plus récent). */
+const SEANCES_MANQUEES = [2];
 /** Index = jour de semaine (0 = dimanche). */
 const ENGAGEMENTS_PAR_JOUR: string[][] = [['sport'], ['sport', 'travail'], ['travail'], ['sport', 'travail'], ['travail'], ['sport', 'travail'], []];
 /** null = « $coucher - 2h ». */
@@ -658,6 +664,29 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
 
   // ─── Points d'entrée ────────────────────────────────────────────────────────
 
+  /** Engagements vérifiés : 7 derniers jours, aujourd'hui et la fin de la semaine (§4.6). */
+  function engagementsVerifies(t: number) {
+    const aujourdhui = dateLocale(t, fuseau);
+    const lundi = ajouterJours(aujourdhui, -((jourDeSemaine(aujourdhui) + 6) % 7));
+    const liste: EngagementVerifie[] = [];
+    let passes = 0;
+    for (let n = 0; ; n++) {
+      const date = ajouterJours(lundi, 6 - n);
+      if (date < ajouterJours(aujourdhui, -7)) break;
+      const retires = exceptions.filter((e) => e.demande.type === 'retire' && e.demande.date === date).map((e) => (e.demande as { engagement: string }).engagement);
+      for (const id of VERIFIES) {
+        const prevu = (ENGAGEMENTS_PAR_JOUR[jourDeSemaine(date)] ?? []).includes(id);
+        if (!prevu) continue;
+        let statut: StatutEngagement;
+        if (date >= aujourdhui) statut = retires.includes(id) ? 'saute_declare' : 'a_faire';
+        else statut = retires.includes(id) ? 'saute_declare' : SEANCES_MANQUEES.includes(++passes) ? 'saute_non_declare' : 'fait';
+        liste.unshift({ date, engagement: id, nom: ENGAGEMENTS[id]?.nom ?? id, statut });
+      }
+    }
+    const sautes = liste.filter((e) => e.date >= lundi && e.date <= aujourdhui && e.statut.startsWith('saute')).length;
+    return { aujourdhui, engagements_verifies: liste, sautes_semaine: sautes };
+  }
+
   async function servir<T>(calcul: () => T): Promise<T> {
     if (latenceMs > 0) await new Promise((r) => setTimeout(r, latenceMs));
     return copie(calcul());
@@ -721,6 +750,8 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
           phase: phaseA(t),
           actions: actionsA(t),
           engagements_demain: engagementsDemain(t),
+          ...engagementsVerifies(t),
+          seances_mesurees: { derniere_synchro: versInstant(t - 35 * MINUTE), erreur: null },
         };
       }),
 

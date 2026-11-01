@@ -47,10 +47,15 @@ sommeil:
 Une raison de se lever. Deux formes :
 ```yaml
 engagements:
-  salle: { heure: "05:00", preparation: 30, annulable: true, decalable: true } # réveil 04:30
+  salle: { heure: "05:00", preparation: 30, annulable: true, decalable: true,
+           verification: { mesure: seance } }  # réveil 04:30
   cours: { reveil: "06:00", annulable: true, decalable: true }
 ```
 - Réveil d'un engagement = `reveil`, sinon `heure − preparation`.
+- `verification` (facultatif) : l'engagement est **vérifié** par une mesure du type donné le jour
+  même (§3.8). Types connus : `sommeil`, `seance` ; un autre type est refusé. Sans ce champ
+  (ex. `cours`), l'engagement n'est jamais vérifié. Le moteur ne connaît aucune source : ce sont les
+  adaptateurs de l'API (§4.4) qui rangent les mesures par type.
 - Une routine peut surcharger un engagement (`heure: libre` = engagement sans heure : il ne
   donne pas de réveil, il sert seulement au suivi).
 
@@ -272,6 +277,18 @@ S'il existe un chemin dépendant d'une action et possible avant `auPlusTard`, il
 après 20:30 ») et `certaine` = faux ; sinon le texte est celui du changement certain (« au
 coucher, 22:30 », « au lever, 06:30 », « à 20:30 ») et `certaine` = vrai.
 
+### 3.8 Vérification des engagements
+`verifierEngagements(contexte, mesures, du, au)` (mesures : `{ type, debut, fin }`) : pour chaque
+jour D de `du` à `au` et chaque engagement vérifiable **prévu** par la routine de D (après exceptions,
+plus ceux qu'une exception `retire` a enlevés ce jour-là) → `{ date, engagement, nom, statut }` :
+1. `fait` s'il existe au moins une mesure du type déclaré qui commence le jour local D (fuseau de la
+   routine de D) ;
+2. sinon `saute_declare` si une exception `retire` le concernait ce jour-là ;
+3. sinon `saute_non_declare` si D est passé (date locale de maintenant > D) ;
+4. sinon `a_faire`.
+Un engagement sans heure (`heure: libre`) reste vérifiable. Une exception `ajoute` n'est jamais
+vérifiée (pas de champ `verification`).
+
 ## 4. L'API
 
 ### 4.1 Authentification
@@ -376,6 +393,20 @@ effacé et le passage reprend avec le secret ; le jeton reçu ensuite le remplac
 `CLE_CHIFFREMENT` : rien n'est gardé, le secret sert toujours. Ni le jeton ni la clé ne sont
 journalisés ou renvoyés par l'API.
 
+Une fois par heure, si les secrets `HEVY_API_KEY` et `HEVY_UTILISATEUR` sont posés : **séances
+mesurées** (`api/src/hevy.ts`, lecture seule ; API publique officielle de Hevy, comptes Pro,
+doc https://api.hevyapp.com/docs/, clé dans l'en-tête `api-key`). Même règle de compte que Xiaomi :
+seul `HEVY_UTILISATEUR` est synchronisé. `GET /v1/workouts` est paginé (10 au plus) et n'a pas de
+filtre de date : lecture de la page 1 jusqu'à la première page qui contient une séance antérieure
+à la période (les séances arrivent de la plus récente à la plus ancienne ; 15 pages au plus).
+Période : les 7 derniers jours ; au premier passage (aucune synchro réussie), 60 jours ; après une
+panne, depuis la dernière réussite moins un jour (60 jours au plus). Chaque séance, normalisée en
+`{ id, debut, fin, titre }`, est rangée dans `mesures` (`type = seance`, `source = hevy`, `cle` =
+identifiant Hevy, `valeur` = durée en minutes, `details` = `{ titre }`) : insérée, mise à jour si
+elle a changé ; une séance de la période absente de la réponse (supprimée chez Hevy) est effacée.
+État dans le cache (`synchro_hevy`) ; clé refusée (HTTP 401/403) : erreur `cle_hevy_refusee`,
+relancée l'heure suivante. La clé n'est jamais journalisée. Secrets absents : étape sautée.
+
 ### 4.5 Sessions
 - **Session possible** sur un appareil seulement si (1) le mode en vigueur sur l'appareil a
   `sessions: autorisees`, (2) ce mode bloque au moins une app sur l'appareil (domaines pour un
@@ -427,6 +458,11 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   "sieste_tardive": { "fin": "…Z", "coucher": "…Z" } | null,
   "objectif_sommeil_min": number,
   "sommeil_mesure": { "derniere_synchro": "…Z" | null, "erreur": string | null } | null,
+  "aujourdhui": "YYYY-MM-DD",
+  "engagements_verifies": [ { "date", "engagement", "nom",
+                              "statut": "fait" | "saute_declare" | "saute_non_declare" | "a_faire" } ],
+  "sautes_semaine": number,
+  "seances_mesurees": { "derniere_synchro": "…Z" | null, "erreur": string | null } | null,
   "appareils": [ { "nom", "type", "mode", "sessions", "session_possible": bool,
                    "session_motif": string | null, "raison", "actions", "apps_bloquees",
                    "groupes_bloques": [ { "id", "nom", "apps": [id] } ],
@@ -485,6 +521,16 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   Σ nuits + `siestes_total_min` − objectif × nuits mesurées, dit « 5 h 47 de moins au total, dont
   1 h rattrapée en siestes » (« dont … » omis sans sieste). `sieste_tardive` : note discrète
   « Sieste tardive : vous endormir à 21:30 pourrait être plus difficile. »
+- **Engagements vérifiés** (§3.8) : `aujourdhui` = date civile de maintenant dans le fuseau de la
+  journée courante ; `engagements_verifies` = `verifierEngagements` sur les séances mesurées, des 7
+  derniers jours à la fin de la semaine en cours (dimanche) : les jours après aujourd'hui sont
+  `a_faire` (« à venir » pour l'interface). `sautes_semaine` = nombre de `saute_declare` +
+  `saute_non_declare` du lundi à aujourd'hui (information seulement, rien n'est bloqué).
+  `seances_mesurees` : dernière synchro Hevy réussie et code d'erreur (null si jamais tentée).
+- **Carte « Engagements »** de la web app : pour aujourd'hui, chaque engagement vérifiable et son
+  état (✓ vert fait, ✗ orange à faire, gris annulé à l'avance) ; puis la semaine lun → dim en cases
+  pour les jours prévus (fait, annulé à l'avance, sauté sans l'annuler en rouge, à venir) et
+  « N séances sautées cette semaine ». Clé Hevy refusée : avertissement.
 - `appareils[].jusqua` : fin du segment en cours du planning de l'appareil (`planifier(…)[0].fin`).
   **Suppose les faits Todoist constants** : pour MORNING_LOCK ou WORK, c'est une borne, pas une
   heure de sortie. L'interface affiche `sortie` (et ne présente jamais un mode conditionnel

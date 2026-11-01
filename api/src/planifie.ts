@@ -4,6 +4,7 @@ import type { Condition, Config, Contexte } from '../../core/src/types';
 import { CLES_CACHE, type ContexteCharge, chargerContexte, ecrireCache, lireCache } from './contexte';
 import type { Dependances, Liaisons } from './env';
 import { cloturerEchues } from './sessions';
+import { reglagesHevy, synchroniserSeances } from './hevy';
 import { reglagesXiaomi, synchroniserSommeil } from './sommeil';
 import { dateLocale, ms, versInstant } from './temps';
 import type { SuiviDeadline } from './todoist';
@@ -46,6 +47,8 @@ async function pourUtilisateur(env: Liaisons, deps: Dependances, utilisateur: st
   const xiaomi = reglagesXiaomi(env);
   // Le compte Xiaomi appartient à un seul utilisateur : les autres ne sont jamais synchronisés.
   if (xiaomi && deps.xiaomi && xiaomi.utilisateur === utilisateur) await etape('sommeil', () => synchroniserSommeil(env.DB, deps.xiaomi!, xiaomi, maintenant));
+  const hevy = reglagesHevy(env);
+  if (hevy && deps.hevy && hevy.utilisateur === utilisateur) await etape('seances', () => synchroniserSeances(env.DB, deps.hevy!, hevy, maintenant));
   if (jeton) await etape('etiquettes', () => verifierEtiquettes(env.DB, deps, jeton, utilisateur, charge.contexte, maintenant));
   return erreurs;
 }

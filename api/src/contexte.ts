@@ -12,6 +12,7 @@ export const CLES_CACHE = {
   synchroXiaomi: 'synchro_xiaomi',
   /** passToken Xiaomi le plus récent, chiffré (AES-GCM). */
   jetonXiaomi: 'jeton_xiaomi',
+  synchroHevy: 'synchro_hevy',
 } as const;
 
 /** Assez pour recalculer les 7 dernières nuits du statut (jour UTC et jour local peuvent différer d'un). */

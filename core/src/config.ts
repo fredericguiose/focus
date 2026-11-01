@@ -16,7 +16,9 @@ import type {
   Priorite,
   ResultatValidation,
   Routine,
+  TypeMesure,
 } from './types';
+import { TYPES_DE_MESURE } from './types';
 import { estDate, estFuseau, estHeure, JOURS_SEMAINE, minutesDe } from './temps';
 import { lireExpression, minutesDuree, parametresCites, VARIABLES_RESERVEES, variableDe } from './expressions';
 
@@ -170,8 +172,16 @@ const schemaEngagement = z
     reveil: heure.optional(),
     annulable: z.boolean().default(false),
     decalable: z.boolean().default(false),
+    verification: z.strictObject({ mesure: texte }).optional(),
   })
   .superRefine((e, ctx) => {
+    if (e.verification && !(TYPES_DE_MESURE as readonly string[]).includes(e.verification.mesure)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['verification', 'mesure'],
+        message: inconnu('type de mesure inconnu', e.verification.mesure, [...TYPES_DE_MESURE]),
+      });
+    }
     if (e.preparation !== undefined && e.heure === undefined) {
       ctx.addIssue({ code: 'custom', path: ['preparation'], message: 'preparation sans heure : elle se retranche de heure' });
     }
@@ -347,7 +357,14 @@ function normaliser(b: ConfigBrute): Config {
     },
     reveilLibre: b.reveil_libre,
     engagements: surTout(b.engagements, (e): Engagement =>
-      sansIndefinis({ heure: e.heure, preparationMin: e.preparation, reveil: e.reveil, annulable: e.annulable, decalable: e.decalable }),
+      sansIndefinis({
+        heure: e.heure,
+        preparationMin: e.preparation,
+        reveil: e.reveil,
+        annulable: e.annulable,
+        decalable: e.decalable,
+        verification: e.verification && { mesure: e.verification.mesure as TypeMesure },
+      }),
     ),
     apps: surTout(b.apps, (a): App => sansIndefinis({ nom: a.nom, domaines: a.domaines, iphone: a.iphone })),
     groupes: b.groupes,
@@ -643,7 +660,7 @@ const CLES_CONNUES = [
   'prioritaires', 'etiquettes_exclues', 'prix_du_report', 'par_report', 'plafond', 'commentaire_min', 'deadline',
   'reports_max', 'jours_minimum', 'plafond_quotidien', 'attentes_s', 'delai_nouvelle_tache',
   'expiration_question_s', 'intervalle_question', 'pc', 'apres', 'avant', 'decale_par', 'filtre', 'au_plus',
-  'priorites', 'etiquettes_incluses',
+  'priorites', 'etiquettes_incluses', 'verification', 'mesure',
 ];
 
 /** Distance d'édition avec transposition (« WROK » est à 1 de « WORK »). */

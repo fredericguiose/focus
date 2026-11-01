@@ -7,6 +7,7 @@ import { expliquer, sortie } from './explication';
 import { prixException } from './exceptions';
 import { engagementsPrevus, journee, journeeCourante } from './journee';
 import { planifier } from './planning';
+import { verifierEngagements } from './verification';
 
 /** Secondes d'attente du n-ième « continue » (n à partir de 0) ; la dernière valeur se répète. */
 export function attenteContinue(config: Config, n: number): number {
@@ -25,6 +26,7 @@ export const moteur: Moteur = {
   expliquer,
   sortie,
   prixException,
+  verifierEngagements,
   attenteContinue,
 };
 
@@ -42,4 +44,6 @@ export {
   retardsRestants,
   tachesFiltrees,
 } from './conditions';
+export { verifierEngagements } from './verification';
+export { TYPES_DE_MESURE } from './types';
 export type * from './types';

@@ -62,7 +62,7 @@ export function engagementEffectif(config: Config, routine: Routine, id: string)
   if (!base) return undefined;
   const surcharge = routine.engagements?.[id];
   if (!surcharge) return base;
-  if ('sansHeure' in surcharge) return { annulable: base.annulable, decalable: base.decalable };
+  if ('sansHeure' in surcharge) return sansIndefinis({ annulable: base.annulable, decalable: base.decalable, verification: base.verification });
   const horaire = surcharge.heure !== undefined || surcharge.reveil !== undefined;
   const fusion: Engagement = { ...base, ...surcharge };
   if (horaire) {
