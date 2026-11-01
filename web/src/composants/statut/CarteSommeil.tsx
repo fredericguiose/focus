@@ -88,8 +88,16 @@ export function ecartNuitEnMots(ecartMin: number, siesteMin: number): { texte: s
   return { ...base, texte: `${base.texte}, dont ${formaterDuree(siesteMin)} ${rattrapee(siesteMin)} en sieste` };
 }
 
-/** Minutes de sieste de la journée D, posées au-dessus de la nuit D. */
+/** Minutes de sieste de la journée D (champ de l'API, rangé sur la nuit D). */
 const siestesDe = (n: NuitPassee) => n.siestes_min ?? 0;
+
+/** Une sieste rattrape la nuit d'avant (Frédéric, 01/11) : sur la nuit D, la sieste de la journée D + 1. */
+function siesteApresNuit(nuit: string, nuits: NuitPassee[], aujourdhui: string, siestesDuJour: number): number {
+  const lendemain = ajouterJours(nuit, 1);
+  if (lendemain === aujourdhui) return siestesDuJour;
+  const n = nuits.find((x) => x.nuit === lendemain);
+  return n ? siestesDe(n) : 0;
+}
 
 /** « 7 h 12 de nuit + 1 h 05 de sieste », « 7 h 12 dormies », « pas de mesure ». */
 export function detailNuit(minutes: number | null, siestes: number): string {
@@ -98,10 +106,10 @@ export function detailNuit(minutes: number | null, siestes: number): string {
   return `${nuit} + ${formaterDuree(siestes)} de sieste`;
 }
 
-function GraphiqueNuits({ nuits, objectif }: { nuits: NuitPassee[]; objectif: number }) {
+function GraphiqueNuits({ nuits, objectif, aujourdhui, siestesDuJour }: { nuits: NuitPassee[]; objectif: number; aujourdhui: string; siestesDuJour: number }) {
   const donnees = nuits.map((n) => {
     const m = dormi(n);
-    const sieste = siestesDe(n);
+    const sieste = siesteApresNuit(n.nuit, nuits, aujourdhui, siestesDuJour);
     return {
       jour: formaterDateCourte(n.nuit).split(' ')[0] ?? n.nuit,
       date: formaterDateCourte(n.nuit),
@@ -191,9 +199,7 @@ export function CarteSommeil({ statut }: { statut: ReponseStatut }) {
       : `Nuit du ${formaterDateCourte(derniere.nuit)}`
     : null;
   // Sieste de la journée qui suit la dernière nuit (D + 1) : celle d'aujourd'hui pour « Cette nuit ».
-  const lendemain = derniere ? ajouterJours(derniere.nuit, 1) : null;
-  const nuitDuLendemain = nuits.find((n) => n.nuit === lendemain);
-  const siesteApres = lendemain === statut.journee.date ? (statut.siestes_du_jour_min ?? 0) : nuitDuLendemain ? siestesDe(nuitDuLendemain) : 0;
+  const siesteApres = derniere ? siesteApresNuit(derniere.nuit, nuits, statut.journee.date, statut.siestes_du_jour_min ?? 0) : 0;
   const ecart = derniere ? ecartNuitEnMots(dormi(derniere)! - objectif, siesteApres) : null;
   const siestesDuJour = statut.siestes_du_jour_min ?? 0;
   // Les siestes de la période rattrapent la dette des nuits (journées des 7 nuits et aujourd'hui).
@@ -250,7 +256,7 @@ export function CarteSommeil({ statut }: { statut: ReponseStatut }) {
                 ) : null}
               </span>
             </div>
-            <GraphiqueNuits nuits={nuits} objectif={objectif} />
+            <GraphiqueNuits nuits={nuits} objectif={objectif} aujourdhui={statut.journee.date} siestesDuJour={statut.siestes_du_jour_min ?? 0} />
           </section>
         ) : null}
         {tardive ? (

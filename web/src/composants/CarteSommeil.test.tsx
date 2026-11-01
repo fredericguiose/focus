@@ -108,7 +108,7 @@ describe('carte « Sommeil »', () => {
   it('sans sieste : ni « dont … », ni légende « sieste »', async () => {
     const s = await statut();
     const nuits = s.nuits!.map((n) => ({ ...n, siestes_min: 0, siestes: [] }));
-    render(<CarteSommeil statut={{ ...s, nuits, siestes_total_min: 0 }} />);
+    render(<CarteSommeil statut={{ ...s, nuits, siestes_total_min: 0, siestes_du_jour: [], siestes_du_jour_min: 0 }} />);
     expect(screen.getByText(/^5 h 47 de moins au total/).textContent).not.toMatch(/dont/);
     expect(screen.queryByText('sieste')).toBeNull();
   });
@@ -136,11 +136,12 @@ describe('carte « Sommeil »', () => {
     expect(screen.getByText(/Sieste tardive : vous endormir à 18:30 pourrait être plus difficile\./)).toBeTruthy();
   });
 
-  it('graphique : la sieste est un segment vert empilé au-dessus de la nuit', async () => {
+  it('graphique : la sieste est un segment vert empilé sur la nuit d’avant', async () => {
     // jsdom ne mesure rien : on donne une taille au conteneur du graphique.
     const espion = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, top: 0, left: 0, right: 600, bottom: 128, width: 600, height: 128, toJSON: () => ({}) });
     const s = await statut();
-    const { container } = render(<CarteSommeil statut={s} />);
+    // Sans la sieste d'aujourd'hui : il ne reste qu'une sieste passée.
+    const { container } = render(<CarteSommeil statut={{ ...s, siestes_du_jour: [], siestes_du_jour_min: 0 }} />);
     await new Promise((r) => setTimeout(r, 0));
     const rect = (e: Element) => ({ x: Number(e.getAttribute('x')), y: Number(e.getAttribute('y')), h: Number(e.getAttribute('height')) });
     const nuits = [...container.querySelectorAll('.recharts-bar-rectangle path[fill="var(--sommeil-nuit)"]')].map(rect);
@@ -148,7 +149,7 @@ describe('carte « Sommeil »', () => {
     espion.mockRestore();
     expect(nuits).toHaveLength(6);
     expect(siestes).toHaveLength(1);
-    // Même colonne que la nuit de la même journée, posée sur son sommet.
+    // Posée sur le sommet d'une barre de nuit (la nuit d'avant la sieste).
     const nuit = nuits.find((n) => Math.abs(n.x - siestes[0]!.x) < 0.5)!;
     expect(nuit).toBeTruthy();
     expect(siestes[0]!.y + siestes[0]!.h).toBeCloseTo(nuit.y, 0);
