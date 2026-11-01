@@ -30,6 +30,7 @@
   --phase-profond: #104281;
   --phase-eveil: #a8a8a3;
   --sommeil-nuit: #2a78d6;
+  --sommeil-sieste: #1f9d55;
   --border: oklch(0.92 0.004 247);
   --input: oklch(0.92 0.004 247);
   --ring: oklch(0.708 0 0);
@@ -78,6 +79,7 @@
   --phase-profond: #1c5cab;
   --phase-eveil: #6b6b66;
   --sommeil-nuit: #3987e5;
+  --sommeil-sieste: #2fa866;
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);

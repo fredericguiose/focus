@@ -420,8 +420,11 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   ],
   "nuits": [ { "nuit": "YYYY-MM-DD", "dette_min": number, "dette_reelle_min": number | null,
                "endormi_min": number | null, "incomplete": bool,
-               "phases": { "legere", "profonde", "rem", "eveil" } | null } ],
+               "phases": { "legere", "profonde", "rem", "eveil" } | null,
+               "siestes_min": number, "siestes": [ { "debut": "…Z", "fin": "…Z", "minutes": number } ] } ],
   "dette_cumulee_min": number, "dette_cumulee_reelle_min": number | null,
+  "siestes_total_min": number, "siestes_du_jour": [ { "debut", "fin", "minutes" } ], "siestes_du_jour_min": number,
+  "sieste_tardive": { "fin": "…Z", "coucher": "…Z" } | null,
   "objectif_sommeil_min": number,
   "sommeil_mesure": { "derniere_synchro": "…Z" | null, "erreur": string | null } | null,
   "appareils": [ { "nom", "type", "mode", "sessions", "session_possible": bool,
@@ -450,17 +453,38 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
 - **Dette réelle** (sommeil mesuré, §4.4) : `dette_reelle_min` = cible − temps endormi de la nuit
   (somme des sessions de la nuit, siestes exclues ; null sans mesure). Une session appartient à
   la nuit du jour du soir : date locale de son milieu moins 12 h. `phases` : minutes par phase,
-  cumulées sur la nuit. `dette_cumulee_reelle_min` = somme sur les seules nuits mesurées (null si
-  aucune). `sommeil_mesure` : dernière synchro réussie et code d'erreur de la dernière tentative
+  cumulées sur la nuit. `dette_cumulee_reelle_min` = somme sur les seules nuits mesurées, moins
+  `siestes_total_min` (null si aucune nuit mesurée).
+  `sommeil_mesure` : dernière synchro réussie et code d'erreur de la dernière tentative
   (null si jamais tentée). `endormi_min` : minutes dormies de la nuit (null sans mesure) ;
   `incomplete` : une session de la nuit est marquée incomplète par la montre (`is_uncomplete`).
   `objectif_sommeil_min` : `sommeil.cible` de la config.
+- **Siestes** : une session est une sieste si Xiaomi la marque comme telle (`is_nap`), ou si elle
+  tient entièrement dans la journée de veille d'un jour D, entre `lever(D)` et `coucher_applique(D)`
+  du moteur (le cloud Xiaomi renvoie souvent une sieste comme une session ordinaire). Elle
+  appartient alors à la journée D, sinon à une nuit (règle ci-dessus). Une sieste marquée par
+  Xiaomi hors de toute journée connue appartient à la date locale de son milieu. `nuits[].siestes`
+  / `siestes_min` : siestes de la journée D (prises avant la nuit D) ; `siestes_du_jour` /
+  `siestes_du_jour_min` : celles de la journée courante J ; `siestes_total_min` : somme des
+  journées J−7 … J (toutes celles que la carte montre). Une sieste rattrape la dette mais n'entre
+  jamais dans `endormi_min` ni `dette_reelle_min` d'une nuit. `sieste_tardive` : la dernière sieste
+  de J finie moins de 4 h avant `coucher_applique(J)`, avec ce coucher ; null sinon, et null une fois
+  le coucher passé (information seulement, rien n'est bloqué).
 - **Carte « Sommeil »** de la web app : temps dormi de la dernière nuit mesurée (« Cette nuit »
   si c'est J−1, sinon « Nuit du … »), écart à l'objectif en mots (« 29 min de moins que
   l'objectif », « … de plus … », « objectif atteint » à 5 min près), phases léger → REM → profond
   et éveil à part ; puis les 7 nuits en barres (heures dormies, trait de l'objectif, pas de barre
   sans mesure, barre pâle si incomplète) et l'écart total sur les nuits mesurées. Elle ne montre
   plus la dette prévue (`dette_min`, toujours renvoyée) ; le coucher prévu est dans « Ce soir ».
+  Siestes : le chiffre de la dernière nuit reste la nuit seule ; dessous, si la nuit manque
+  l'objectif et que la journée qui la suit a une sieste (`siestes_du_jour` pour « Cette nuit »,
+  sinon `siestes` de la nuit suivante) : « 29 min de moins que l'objectif, dont 20 min rattrapées
+  en sieste », plafonné à l'écart (« …, rattrapées en sieste » si la sieste le couvre). Dans le
+  graphique, la sieste de la journée D est un segment vert empilé au-dessus de la barre de la
+  nuit D (légende « sieste », infobulle « 7 h 12 de nuit + 1 h 05 de sieste »). Écart total =
+  Σ nuits + `siestes_total_min` − objectif × nuits mesurées, dit « 5 h 47 de moins au total, dont
+  1 h rattrapée en siestes » (« dont … » omis sans sieste). `sieste_tardive` : note discrète
+  « Sieste tardive : vous endormir à 21:30 pourrait être plus difficile. »
 - `appareils[].jusqua` : fin du segment en cours du planning de l'appareil (`planifier(…)[0].fin`).
   **Suppose les faits Todoist constants** : pour MORNING_LOCK ou WORK, c'est une borne, pas une
   heure de sortie. L'interface affiche `sortie` (et ne présente jamais un mode conditionnel

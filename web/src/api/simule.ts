@@ -50,6 +50,10 @@ const MESURES_FICTIVES: (null | { legere: number; profonde: number; rem: number;
   { legere: 240, profonde: 85, rem: 95, eveil: 30 },
   { legere: 262, profonde: 92, rem: 104, eveil: 18 },
 ];
+/** Sieste fictive : journée (indice dans les sept nuits), début local et minutes dormies. */
+const SIESTE_FICTIVE = { indice: 3, debut: '15:00', minutes: 60 } as const;
+/** Sieste fictive du jour, visible une fois finie (13:00–13:50, 45 min dormies). */
+const SIESTE_DU_JOUR = { debut: '13:00', duree: 50, minutes: 45 } as const;
 /** Nuit fictive que la montre a marquée incomplète. */
 const INCOMPLETE_FICTIVE = 4;
 // La vraie API pose la question après 25 min (PC) ou 10 min (iPhone) ; 30 s suffisent pour essayer.
@@ -668,16 +672,31 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
         const nuits = DETTES_FICTIVES.map((dette_min, i) => {
           const phases = MESURES_FICTIVES[i] ?? null;
           const endormi = phases ? phases.legere + phases.profonde + phases.rem : null;
+          const nuit = ajouterJours(j.date, i - DETTES_FICTIVES.length);
+          const debutSieste = instantLocal(nuit, SIESTE_FICTIVE.debut, j.fuseau);
+          const siestes =
+            i === SIESTE_FICTIVE.indice
+              ? [{ debut: versInstant(debutSieste), fin: versInstant(debutSieste + (SIESTE_FICTIVE.minutes + 5) * MINUTE), minutes: SIESTE_FICTIVE.minutes }]
+              : [];
           return {
-            nuit: ajouterJours(j.date, i - DETTES_FICTIVES.length),
+            nuit,
             dette_min,
             dette_reelle_min: endormi === null ? null : CIBLE_MIN - endormi,
             endormi_min: endormi,
             phases,
             incomplete: i === INCOMPLETE_FICTIVE,
+            siestes_min: siestes.reduce((total, x) => total + x.minutes, 0),
+            siestes,
           };
         });
         const reelles = nuits.filter((n) => n.dette_reelle_min !== null);
+        const debutDuJour = instantLocal(j.date, SIESTE_DU_JOUR.debut, j.fuseau);
+        const finDuJour = debutDuJour + SIESTE_DU_JOUR.duree * MINUTE;
+        const siestesDuJour = t >= finDuJour ? [{ debut: versInstant(debutDuJour), fin: versInstant(finDuJour), minutes: SIESTE_DU_JOUR.minutes }] : [];
+        const siestesDuJourMin = siestesDuJour.reduce((total, x) => total + x.minutes, 0);
+        const siestesTotal = nuits.reduce((total, n) => total + n.siestes_min, 0) + siestesDuJourMin;
+        const coucherDuJour = Date.parse(j.coucherApplique);
+        const tardive = siestesDuJour.find((x) => Date.parse(x.fin) > coucherDuJour - 4 * 60 * MINUTE);
         const cumulMin = sessions.reduce((total, s) => total + Math.max(0, Math.round((t - Date.parse(s.session.ouverte_le)) / MINUTE)), 0);
         return {
           heure_serveur: versInstant(t),
@@ -692,7 +711,11 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
           sessions_du_jour: { cumul_min: Math.min(cumulMin + 35, PLAFOND_SESSIONS_MIN), plafond_min: PLAFOND_SESSIONS_MIN },
           nuits,
           dette_cumulee_min: nuits.reduce((total, n) => total + n.dette_min, 0),
-          dette_cumulee_reelle_min: reelles.length === 0 ? null : reelles.reduce((total, n) => total + n.dette_reelle_min!, 0),
+          dette_cumulee_reelle_min: reelles.length === 0 ? null : reelles.reduce((total, n) => total + n.dette_reelle_min!, 0) - siestesTotal,
+          siestes_total_min: siestesTotal,
+          siestes_du_jour: siestesDuJour,
+          siestes_du_jour_min: siestesDuJourMin,
+          sieste_tardive: tardive && t < coucherDuJour ? { fin: tardive.fin, coucher: j.coucherApplique } : null,
           sommeil_mesure: { derniere_synchro: versInstant(t - 20 * MINUTE), erreur: null },
           objectif_sommeil_min: CIBLE_MIN,
           phase: phaseA(t),

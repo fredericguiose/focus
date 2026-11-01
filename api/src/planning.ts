@@ -13,7 +13,7 @@ import {
   tachesDuJour,
   type VueSession,
 } from './sessions';
-import { etatSynchro, lireSommeil, rattacherAuxNuits, type SommeilMesure } from './sommeil';
+import { etatSynchro, type JourneeDeVeille, lireSommeil, rattacherAuxNuits, type Sieste, type SommeilMesure, separerSiestes } from './sommeil';
 import { ajouterJours, debutJourLocal, decaler, heureLocale, ms, versInstant } from './temps';
 
 export const HORIZON_H = 36;
@@ -177,21 +177,31 @@ function vueEngagement(e: EngagementPrevu) {
   return { id: e.id, nom: e.nom, reveil: e.reveil, heure: e.heure, annulable: e.annulable, decalable: e.decalable, origine: e.origine };
 }
 
+/** Une sieste qui finit moins de 4 h avant le coucher appliqué rend l'endormissement plus difficile. */
+export const SIESTE_TARDIVE_H = 4;
+
+const somme = (siestes: Sieste[] | undefined) => (siestes ?? []).reduce((t, s) => t + s.minutes, 0);
+
 /**
  * Les nuits terminées avant la journée courante, de la plus ancienne à la plus récente : dette
- * prévue (moteur) et, si le sommeil a été mesuré, dette réelle = cible − temps endormi.
+ * prévue (moteur) et, si le sommeil a été mesuré, dette réelle = cible − temps endormi de la nuit.
+ * Les siestes (§4.6) sont comptées à part, par journée D (`siestes_min` de la nuit D), et celles
+ * de la journée courante dans `aujourdhui`.
  */
 export function dernieresNuits(moteur: Moteur, contexte: Contexte, j: Journee, sommeil: SommeilMesure[] = []) {
-  const jours = [];
+  const jours: (JourneeDeVeille & { nuit: string; dette_min: number })[] = [];
   for (let n = NUITS_DU_STATUT; n >= 1; n--) {
     const nuit = ajouterJours(j.date, -n);
     const jn = moteur.journee(contexte, nuit);
-    jours.push({ nuit, fuseau: jn.fuseau, dette_min: jn.detteNuitMin });
+    jours.push({ nuit, date: nuit, fuseau: jn.fuseau, lever: jn.lever, coucher: jn.coucherApplique, dette_min: jn.detteNuitMin });
   }
-  const mesurees = rattacherAuxNuits(sommeil, jours);
+  const veilles: JourneeDeVeille[] = [...jours, { date: j.date, fuseau: j.fuseau, lever: j.lever, coucher: j.coucherApplique }];
+  const separees = separerSiestes(sommeil, veilles, j.fuseau);
+  const mesurees = rattacherAuxNuits(separees.nuits, jours);
   const cible = contexte.config.sommeil.cibleMin;
-  return jours.map(({ nuit, dette_min }) => {
+  const nuits = jours.map(({ nuit, dette_min }) => {
     const m = mesurees.get(nuit);
+    const siestes = separees.siestes.get(nuit) ?? [];
     return {
       nuit,
       dette_min,
@@ -199,14 +209,29 @@ export function dernieresNuits(moteur: Moteur, contexte: Contexte, j: Journee, s
       endormi_min: m ? m.endormi_min : null,
       phases: m?.phases ?? null,
       incomplete: m?.incomplete ?? false,
+      siestes_min: somme(siestes),
+      siestes,
     };
   });
+  return { nuits, aujourdhui: separees.siestes.get(j.date) ?? [] };
 }
 
-/** Somme des dettes réelles des nuits mesurées ; null si aucune ne l'est. */
-export function detteCumuleeReelle(nuits: { dette_reelle_min: number | null }[]): number | null {
+/**
+ * Dette réelle cumulée : somme des dettes réelles des nuits mesurées, moins les siestes de la
+ * période (elles rattrapent) ; null si aucune nuit n'est mesurée.
+ */
+export function detteCumuleeReelle(nuits: { dette_reelle_min: number | null }[], siestesMin = 0): number | null {
   const mesurees = nuits.filter((n) => n.dette_reelle_min !== null);
-  return mesurees.length === 0 ? null : mesurees.reduce((t, n) => t + n.dette_reelle_min!, 0);
+  return mesurees.length === 0 ? null : mesurees.reduce((t, n) => t + n.dette_reelle_min!, 0) - siestesMin;
+}
+
+/** La dernière sieste du jour finie moins de 4 h avant le coucher appliqué, ou null (et null une fois la nuit commencée). */
+export function siesteTardive(j: Journee, siestes: Sieste[], maintenant: Date): { fin: string; coucher: string } | null {
+  if (maintenant.getTime() >= ms(j.coucherApplique)) return null;
+  const seuil = ms(j.coucherApplique) - SIESTE_TARDIVE_H * 3_600_000;
+  const tardives = siestes.filter((s) => ms(s.fin) > seuil);
+  const derniere = tardives.at(-1);
+  return derniere ? { fin: derniere.fin, coucher: j.coucherApplique } : null;
 }
 
 export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuthentifie) {
@@ -230,7 +255,8 @@ export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuth
   ]);
   const vuLe = new Map(pings.results.map((p) => [p.nom, p.vu_le]));
   const phase = phaseDe(journee, maintenant);
-  const nuits = dernieresNuits(deps.moteur, contexte, journee, sommeil);
+  const { nuits, aujourdhui } = dernieresNuits(deps.moteur, contexte, journee, sommeil);
+  const siestesTotalMin = nuits.reduce((t, n) => t + n.siestes_min, 0) + somme(aujourdhui);
   return {
     heure_serveur: versInstant(maintenant),
     config_version: version,
@@ -240,7 +266,11 @@ export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuth
     engagements_demain: deps.moteur.engagementsPrevus(contexte, ajouterJours(journee.date, 1)).map(vueEngagement),
     nuits,
     dette_cumulee_min: nuits.reduce((total, n) => total + n.dette_min, 0),
-    dette_cumulee_reelle_min: detteCumuleeReelle(nuits),
+    dette_cumulee_reelle_min: detteCumuleeReelle(nuits, siestesTotalMin),
+    siestes_total_min: siestesTotalMin,
+    siestes_du_jour: aujourdhui,
+    siestes_du_jour_min: somme(aujourdhui),
+    sieste_tardive: siesteTardive(journee, aujourdhui, maintenant),
     objectif_sommeil_min: config.sommeil.cibleMin,
     sommeil_mesure: synchro,
     appareils: Object.entries(config.appareils).map(([nom, def]) => {

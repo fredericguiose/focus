@@ -243,6 +243,54 @@ export function nuitDeLaSession(s: { debut: string; fin: string }, fuseau: strin
   return dateLocale(new Date(milieu - 12 * 3_600_000), fuseau);
 }
 
+/** Journée de veille D : du lever de D au coucher appliqué de D (moteur). */
+export interface JourneeDeVeille {
+  date: string;
+  fuseau: string;
+  lever: string;
+  coucher: string;
+}
+
+export interface Sieste {
+  debut: string;
+  fin: string;
+  minutes: number;
+}
+
+/**
+ * Journée de la sieste, ou null si la session est une nuit. Sieste : marquée comme telle par
+ * Xiaomi, ou entièrement comprise entre le lever et le coucher appliqué d'une journée D (Xiaomi
+ * ne marque pas toujours ses siestes). Une sieste marquée hors de toute journée connue appartient
+ * à la date locale de son milieu.
+ */
+export function journeeDeLaSieste(s: { debut: string; fin: string; sieste: boolean }, journees: JourneeDeVeille[], fuseau: string): string | null {
+  const debut = Date.parse(s.debut);
+  const fin = Date.parse(s.fin);
+  const dans = journees.find((j) => debut >= Date.parse(j.lever) && fin <= Date.parse(j.coucher));
+  if (dans) return dans.date;
+  if (!s.sieste) return null;
+  const milieu = (debut + fin) / 2;
+  const contient = journees.find((j) => milieu >= Date.parse(j.lever) && milieu < Date.parse(j.coucher));
+  return contient?.date ?? dateLocale(new Date(milieu), fuseau);
+}
+
+/** Sépare les siestes (par journée, dans l'ordre) des sessions de nuit. */
+export function separerSiestes(sessions: SommeilMesure[], journees: JourneeDeVeille[], fuseau: string) {
+  const nuits: SommeilMesure[] = [];
+  const siestes = new Map<string, Sieste[]>();
+  for (const s of sessions) {
+    const jour = journeeDeLaSieste(s, journees, fuseau);
+    if (jour === null) {
+      nuits.push(s);
+      continue;
+    }
+    const liste = siestes.get(jour) ?? [];
+    liste.push({ debut: s.debut, fin: s.fin, minutes: s.endormi_min });
+    siestes.set(jour, liste);
+  }
+  return { nuits, siestes };
+}
+
 export interface NuitMesuree {
   endormi_min: number;
   phases: PhasesSommeil | null;

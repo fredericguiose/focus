@@ -145,6 +145,16 @@ export interface NuitPassee {
   phases?: PhasesSommeil | null;
   /** La montre a marqué la mesure incomplète. */
   incomplete?: boolean;
+  /** Siestes de la journée D (avant la nuit D), en minutes dormies ; absent d'une API plus ancienne. */
+  siestes_min?: number;
+  siestes?: Sieste[];
+}
+
+/** Une sieste : session de sommeil prise pendant la journée de veille. */
+export interface Sieste {
+  debut: Instant;
+  fin: Instant;
+  minutes: number;
 }
 
 /** Moment de la journée, décidé par l'API. */
@@ -189,6 +199,13 @@ export interface ReponseStatut {
   sommeil_mesure?: { derniere_synchro: Instant | null; erreur: string | null } | null;
   /** Objectif de sommeil de la config (`sommeil.cible`), en minutes. */
   objectif_sommeil_min?: number;
+  /** Minutes de sieste sur la période (journées des 7 nuits et journée en cours). */
+  siestes_total_min?: number;
+  /** Siestes de la journée en cours (après la dernière nuit). */
+  siestes_du_jour?: Sieste[];
+  siestes_du_jour_min?: number;
+  /** Sieste du jour finie moins de 4 h avant le coucher appliqué ; null sinon. */
+  sieste_tardive?: { fin: Instant; coucher: Instant } | null;
   /** Absents d'une API plus ancienne : l'interface n'invente alors rien (actions désactivées). */
   phase?: Phase;
   actions?: ActionsStatut;

@@ -1,11 +1,11 @@
-import { BedDouble, Watch } from 'lucide-react';
+import { BedDouble, Moon, Watch } from 'lucide-react';
 import { Bar, BarChart, Cell, ReferenceLine, XAxis, YAxis } from 'recharts';
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
+import { type ChartConfig, ChartContainer, ChartTooltip } from '@/components/ui/chart';
 import type { NuitPassee, PhasesSommeil, ReponseStatut } from '@/api/contrat';
-import { ajouterJours, formaterDateCourte, formaterDuree } from '@/lib/temps';
+import { ajouterJours, formaterDateCourte, formaterDuree, formaterHeure } from '@/lib/temps';
 import { cn } from '@/lib/utils';
 
 const OBJECTIF_PAR_DEFAUT_MIN = 8 * 60;
@@ -68,19 +68,53 @@ export function BarrePhases({ phases }: { phases: PhasesSommeil }) {
   );
 }
 
+/** « rattrapée » ou « rattrapées », accordé à la durée (« 29 min rattrapées », « 1 h 05 rattrapée »). */
+export function rattrapee(minutes: number): string {
+  const m = Math.round(Math.abs(minutes));
+  const pluriel = m < 60 ? m > 1 : Math.floor(m / 60) > 1;
+  return pluriel ? 'rattrapées' : 'rattrapée';
+}
+
+/**
+ * Écart d'une nuit en mots, avec la sieste de la journée qui suit : « 29 min de moins que
+ * l'objectif, dont 20 min rattrapées en sieste », ou « …, rattrapées en sieste » si la sieste
+ * couvre tout l'écart. Inchangé sans sieste ou sans manque.
+ */
+export function ecartNuitEnMots(ecartMin: number, siesteMin: number): { texte: string; classe: string } {
+  const base = ecartEnMots(ecartMin);
+  if (siesteMin <= 0 || ecartMin >= -TOLERANCE_MIN) return base;
+  const manque = -ecartMin;
+  if (siesteMin >= manque) return { ...base, texte: `${base.texte}, ${rattrapee(manque)} en sieste` };
+  return { ...base, texte: `${base.texte}, dont ${formaterDuree(siesteMin)} ${rattrapee(siesteMin)} en sieste` };
+}
+
+/** Minutes de sieste de la journée D, posées au-dessus de la nuit D. */
+const siestesDe = (n: NuitPassee) => n.siestes_min ?? 0;
+
+/** « 7 h 12 de nuit + 1 h 05 de sieste », « 7 h 12 dormies », « pas de mesure ». */
+export function detailNuit(minutes: number | null, siestes: number): string {
+  if (siestes <= 0) return minutes === null ? 'pas de mesure' : `${formaterDuree(minutes)} dormies`;
+  const nuit = minutes === null ? 'nuit non mesurée' : `${formaterDuree(minutes)} de nuit`;
+  return `${nuit} + ${formaterDuree(siestes)} de sieste`;
+}
+
 function GraphiqueNuits({ nuits, objectif }: { nuits: NuitPassee[]; objectif: number }) {
   const donnees = nuits.map((n) => {
     const m = dormi(n);
+    const sieste = siestesDe(n);
     return {
       jour: formaterDateCourte(n.nuit).split(' ')[0] ?? n.nuit,
       date: formaterDateCourte(n.nuit),
       // 0 plutôt que null : la barre est invisible mais l'infobulle dit « pas de mesure ».
       heures: m === null ? 0 : m / 60,
+      sieste: sieste / 60,
       minutes: m,
+      siesteMin: sieste,
     };
   });
-  const max = Math.max(objectif / 60, ...donnees.map((d) => d.heures)) * 1.08;
-  const sansMesure = donnees.some((d) => d.minutes === null);
+  const max = Math.max(objectif / 60, ...donnees.map((d) => d.heures + d.sieste)) * 1.08;
+  const sansMesure = donnees.some((d) => d.minutes === null && d.siesteMin === 0);
+  const avecSieste = donnees.some((d) => d.siesteMin > 0);
   return (
     <div className="grid gap-1.5">
       <ChartContainer config={config} className="aspect-auto h-32 w-full [&_.recharts-wrapper]:outline-none [&_g]:outline-none">
@@ -89,21 +123,31 @@ function GraphiqueNuits({ nuits, objectif }: { nuits: NuitPassee[]; objectif: nu
           <YAxis hide domain={[0, max]} />
           <ChartTooltip
             cursor={false}
-            content={
-              <ChartTooltipContent
-                hideIndicator
-                labelFormatter={(_, charge) => (charge[0]?.payload as { date?: string } | undefined)?.date ?? ''}
-                formatter={(_valeur, _nom, element) => {
-                  const d = element.payload as (typeof donnees)[number];
-                  if (d.minutes === null) return 'pas de mesure';
-                  return `${formaterDuree(d.minutes)} dormies`;
-                }}
-              />
-            }
+            content={({ active, payload }) => {
+              const d = payload?.[0]?.payload as (typeof donnees)[number] | undefined;
+              if (!active || !d) return null;
+              return (
+                <div className="border-border/50 bg-background grid gap-0.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-xl">
+                  <span className="font-medium">{d.date}</span>
+                  <span className="text-muted-foreground">{detailNuit(d.minutes, d.siesteMin)}</span>
+                </div>
+              );
+            }}
           />
-          <Bar dataKey="heures" radius={4} maxBarSize={28} isAnimationActive={false}>
+          <Bar dataKey="heures" stackId="sommeil" maxBarSize={28} isAnimationActive={false}>
             {donnees.map((d) => (
-              <Cell key={d.date} fill="var(--sommeil-nuit)" />
+              <Cell key={d.date} fill="var(--sommeil-nuit)" radius={(d.siesteMin > 0 ? [0, 0, 4, 4] : 4) as never} />
+            ))}
+          </Bar>
+          <Bar dataKey="sieste" stackId="sommeil" maxBarSize={28} isAnimationActive={false}>
+            {donnees.map((d) => (
+              <Cell
+                key={d.date}
+                fill="var(--sommeil-sieste)"
+                stroke="var(--card)"
+                strokeWidth={d.minutes === null ? 0 : 2}
+                radius={(d.minutes === null ? 4 : [4, 4, 0, 0]) as never}
+              />
             ))}
           </Bar>
           <ReferenceLine y={objectif / 60} stroke="var(--muted-foreground)" strokeDasharray="4 3" strokeWidth={1.5} ifOverflow="extendDomain" />
@@ -113,6 +157,11 @@ function GraphiqueNuits({ nuits, objectif }: { nuits: NuitPassee[]; objectif: nu
         <span className="flex items-center gap-1.5">
           <span className="size-2 rounded-[2px]" style={{ background: 'var(--sommeil-nuit)' }} /> heures dormies
         </span>
+        {avecSieste ? (
+          <span className="flex items-center gap-1.5">
+            <span className="size-2 rounded-[2px]" style={{ background: 'var(--sommeil-sieste)' }} /> sieste
+          </span>
+        ) : null}
         <span className="flex items-center gap-1.5">
           <span className="border-muted-foreground w-3 border-t-[1.5px] border-dashed" /> objectif
         </span>
@@ -121,7 +170,7 @@ function GraphiqueNuits({ nuits, objectif }: { nuits: NuitPassee[]; objectif: nu
       <ul className="sr-only">
         {donnees.map((d) => (
           <li key={d.date}>
-            {d.date} : {d.minutes === null ? 'pas de mesure' : `${formaterDuree(d.minutes)} dormies`}
+            {d.date} : {detailNuit(d.minutes, d.siesteMin)}
           </li>
         ))}
       </ul>
@@ -141,9 +190,19 @@ export function CarteSommeil({ statut }: { statut: ReponseStatut }) {
       ? 'Cette nuit'
       : `Nuit du ${formaterDateCourte(derniere.nuit)}`
     : null;
-  const ecart = derniere ? ecartEnMots(dormi(derniere)! - objectif) : null;
-  const ecartTotal = mesurees.reduce((t, n) => t + dormi(n)! - objectif, 0);
+  // Sieste de la journée qui suit la dernière nuit (D + 1) : celle d'aujourd'hui pour « Cette nuit ».
+  const lendemain = derniere ? ajouterJours(derniere.nuit, 1) : null;
+  const nuitDuLendemain = nuits.find((n) => n.nuit === lendemain);
+  const siesteApres = lendemain === statut.journee.date ? (statut.siestes_du_jour_min ?? 0) : nuitDuLendemain ? siestesDe(nuitDuLendemain) : 0;
+  const ecart = derniere ? ecartNuitEnMots(dormi(derniere)! - objectif, siesteApres) : null;
+  const siestesDuJour = statut.siestes_du_jour_min ?? 0;
+  // Les siestes de la période rattrapent la dette des nuits (journées des 7 nuits et aujourd'hui).
+  const siestesTotal = statut.siestes_total_min ?? nuits.reduce((t, n) => t + siestesDe(n), 0) + siestesDuJour;
+  const nbSiestes = nuits.reduce((t, n) => t + (n.siestes?.length ?? (siestesDe(n) > 0 ? 1 : 0)), 0) + (statut.siestes_du_jour?.length ?? 0);
+  const ecartTotal = mesurees.reduce((t, n) => t + dormi(n)! - objectif, 0) + siestesTotal;
   const total = ecartEnMots(ecartTotal, ' au total');
+  const rattrape = siestesTotal > 0 ? `, dont ${formaterDuree(siestesTotal)} ${rattrapee(siestesTotal)} en sieste${nbSiestes > 1 ? 's' : ''}` : '';
+  const tardive = statut.sieste_tardive ?? null;
 
   return (
     <Card className="gap-4">
@@ -182,6 +241,7 @@ export function CarteSommeil({ statut }: { statut: ReponseStatut }) {
               <span className="text-muted-foreground">{nuits.length} dernières nuits</span>
               <span className={cn('font-medium', total.classe)}>
                 {total.texte}
+                {rattrape}
                 {mesurees.length < nuits.length ? (
                   <span className="text-muted-foreground font-normal">
                     {' '}
@@ -192,6 +252,11 @@ export function CarteSommeil({ statut }: { statut: ReponseStatut }) {
             </div>
             <GraphiqueNuits nuits={nuits} objectif={objectif} />
           </section>
+        ) : null}
+        {tardive ? (
+          <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
+            <Moon className="size-3.5 shrink-0" /> Sieste tardive : vous endormir à {formaterHeure(tardive.coucher, statut.journee.fuseau)} pourrait être plus difficile.
+          </p>
         ) : null}
         {jetonExpire ? (
           <p className="text-avertissement flex items-center gap-1.5 text-xs">

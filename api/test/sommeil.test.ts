@@ -2,7 +2,7 @@ import { env } from 'cloudflare:workers';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { executerTachesPlanifiees } from '../src/planifie';
 import { chiffrer, dechiffrer } from '../src/chiffrement';
-import { nuitDeLaSession, rattacherAuxNuits, type SommeilMesure } from '../src/sommeil';
+import { journeeDeLaSieste, nuitDeLaSession, rattacherAuxNuits, separerSiestes, type SommeilMesure } from '../src/sommeil';
 import { type ClientXiaomi, ErreurXiaomi, type IdentifiantsXiaomi, type SessionSommeil } from '../src/xiaomi';
 import { Horloge, MARDI, client, configExemple, creerJeton, installerConfig } from './aides';
 
@@ -99,6 +99,46 @@ describe('rattachement d\'une session à sa nuit', () => {
     );
     expect(nuits.get('2026-11-01')).toEqual({ endormi_min: 420, phases: { legere: 210, profonde: 105, rem: 105, eveil: 20 }, incomplete: false });
     expect(nuits.has('2026-11-02')).toBe(false);
+  });
+});
+
+describe('siestes : classement nuit / sieste (§4.6)', () => {
+  // Journée de veille du lundi 02/11 (Paris) : lever 06:30, coucher appliqué 22:30.
+  const LUNDI = { date: '2026-11-02', fuseau: PARIS, lever: '2026-11-02T05:30:00Z', coucher: '2026-11-02T21:30:00Z' };
+  const MARDI_V = { date: '2026-11-03', fuseau: PARIS, lever: '2026-11-03T05:30:00Z', coucher: '2026-11-03T20:30:00Z' };
+  const s = (debut: string, fin: string, endormi_min: number, sieste = false): SommeilMesure => ({ debut, fin, endormi_min, sieste, phases: null });
+
+  it('session de fin d\'après-midi sans indicateur Xiaomi : sieste de la journée', () => {
+    expect(journeeDeLaSieste(s('2026-11-02T16:00:00Z', '2026-11-02T17:07:00Z', 62), [LUNDI, MARDI_V], PARIS)).toBe('2026-11-02');
+  });
+
+  it('nuit (commencée avant le coucher ou finie après le lever) : pas une sieste', () => {
+    expect(journeeDeLaSieste(s('2026-11-02T21:00:00Z', '2026-11-03T05:00:00Z', 450), [LUNDI, MARDI_V], PARIS)).toBeNull();
+    expect(journeeDeLaSieste(s('2026-11-02T23:00:00Z', '2026-11-03T06:00:00Z', 400), [LUNDI, MARDI_V], PARIS)).toBeNull();
+    // Commencée avant le lever : reste dans la nuit, même finie après.
+    expect(journeeDeLaSieste(s('2026-11-02T04:00:00Z', '2026-11-02T06:30:00Z', 140), [LUNDI, MARDI_V], PARIS)).toBeNull();
+  });
+
+  it('marquée sieste par Xiaomi : sieste, même hors de la journée de veille', () => {
+    expect(journeeDeLaSieste(s('2026-11-02T21:00:00Z', '2026-11-02T22:00:00Z', 50, true), [LUNDI, MARDI_V], PARIS)).toBe('2026-11-02');
+    expect(journeeDeLaSieste(s('2026-10-20T13:00:00Z', '2026-10-20T13:30:00Z', 25, true), [LUNDI], PARIS)).toBe('2026-10-20');
+  });
+
+  it('sépare siestes et nuits ; la nuit garde son seul sommeil', () => {
+    const { nuits, siestes } = separerSiestes(
+      [
+        s('2026-11-02T13:00:00Z', '2026-11-02T13:40:00Z', 40),
+        s('2026-11-02T16:00:00Z', '2026-11-02T17:07:00Z', 62),
+        s('2026-11-02T21:30:00Z', '2026-11-03T05:00:00Z', 440),
+      ],
+      [LUNDI, MARDI_V],
+      PARIS,
+    );
+    expect(nuits.map((n) => n.endormi_min)).toEqual([440]);
+    expect(siestes.get('2026-11-02')).toEqual([
+      { debut: '2026-11-02T13:00:00Z', fin: '2026-11-02T13:40:00Z', minutes: 40 },
+      { debut: '2026-11-02T16:00:00Z', fin: '2026-11-02T17:07:00Z', minutes: 62 },
+    ]);
   });
 });
 
@@ -313,7 +353,10 @@ describe('GET /v1/statut : dette réelle (§4.6)', () => {
   const horloge = Horloge.a(MARDI.matin);
   const api = client(horloge);
 
-  beforeEach(async () => installerConfig());
+  beforeEach(async () => {
+    horloge.regler(MARDI.matin);
+    await installerConfig();
+  });
 
   const poser = (cle: string, debut: string, fin: string, endormi: number, sieste = false, incomplete = false) =>
     env.DB.prepare(
@@ -345,7 +388,40 @@ describe('GET /v1/statut : dette réelle (§4.6)', () => {
     expect(par['2026-11-02']).toMatchObject({ incomplete: false });
     expect(r.corps.objectif_sommeil_min).toBe(480);
     expect(par['2026-10-30']).toMatchObject({ dette_reelle_min: null, phases: null, dette_min: 0 });
-    expect(r.corps.dette_cumulee_reelle_min).toBe(80);
+    expect(par['2026-11-02']).toMatchObject({ siestes_min: 55, siestes: [{ debut: '2026-11-02T13:00:00Z', fin: '2026-11-02T14:00:00Z', minutes: 55 }] });
+    expect(par['2026-11-01']).toMatchObject({ siestes_min: 0, siestes: [] });
+    expect(r.corps.siestes_total_min).toBe(55);
+    // 60 + 50 − 30 = 80 de dette sur les nuits, moins 55 min rattrapées en sieste.
+    expect(r.corps.dette_cumulee_reelle_min).toBe(25);
     expect(r.corps.dette_cumulee_min).toBe(0);
+  });
+
+  it('sieste sans indicateur Xiaomi (fin d\'après-midi) : comptée à part de la nuit, et dans le total', async () => {
+    await poser('n2', '2026-11-02T21:00:00Z', '2026-11-03T05:00:00Z', 420);
+    await poser('s2', '2026-11-02T16:00:00Z', '2026-11-02T17:07:00Z', 62); // 17:00–18:07 à Paris, sieste: false
+    const r = await api.get('/v1/statut', await creerJeton('interface', 'web'));
+    const n2 = r.corps.nuits.find((n: { nuit: string }) => n.nuit === '2026-11-02');
+    expect(n2).toMatchObject({ endormi_min: 420, dette_reelle_min: 60, siestes_min: 62 });
+    expect(r.corps.siestes_total_min).toBe(62);
+    expect(r.corps.dette_cumulee_reelle_min).toBe(-2);
+    expect(r.corps.siestes_du_jour).toEqual([]);
+    expect(r.corps.sieste_tardive).toBeNull();
+  });
+
+  it('sieste du jour : comptée aujourd\'hui ; tardive si elle finit moins de 4 h avant le coucher', async () => {
+    // Mardi 03/11, coucher appliqué 21:30 (20:30Z).
+    horloge.regler('2026-11-03T18:00:00Z');
+    await poser('t1', '2026-11-03T12:00:00Z', '2026-11-03T12:30:00Z', 25); // finit 8 h avant
+    let r = await api.get('/v1/statut', await creerJeton('interface', 'web'));
+    expect(r.corps.siestes_du_jour_min).toBe(25);
+    expect(r.corps.siestes_total_min).toBe(25);
+    expect(r.corps.sieste_tardive).toBeNull();
+    await poser('t2', '2026-11-03T16:00:00Z', '2026-11-03T17:05:00Z', 60); // finit 3 h 25 avant
+    r = await api.get('/v1/statut', await creerJeton('interface', 'web'));
+    expect(r.corps.siestes_du_jour_min).toBe(85);
+    expect(r.corps.sieste_tardive).toEqual({ fin: '2026-11-03T17:05:00Z', coucher: MARDI.coucher });
+    horloge.regler('2026-11-03T21:00:00Z'); // la nuit a commencé : plus d'avertissement
+    r = await api.get('/v1/statut', await creerJeton('interface', 'web'));
+    expect(r.corps.sieste_tardive).toBeNull();
   });
 });

@@ -80,6 +80,10 @@ export interface StatutFil {
   dette_cumulee_reelle_min?: number | null;
   sommeil_mesure?: ReponseStatut['sommeil_mesure'];
   objectif_sommeil_min?: number;
+  siestes_total_min?: number;
+  siestes_du_jour?: ReponseStatut['siestes_du_jour'];
+  siestes_du_jour_min?: number;
+  sieste_tardive?: ReponseStatut['sieste_tardive'];
   phase?: Phase;
   actions?: ActionsStatut;
   engagements_demain?: EngagementDemain[];
@@ -164,6 +168,10 @@ export function statutDepuisFil(s: StatutFil): ReponseStatut {
     ...(s.dette_cumulee_reelle_min !== undefined ? { dette_cumulee_reelle_min: s.dette_cumulee_reelle_min } : {}),
     ...(s.sommeil_mesure !== undefined ? { sommeil_mesure: s.sommeil_mesure } : {}),
     ...(s.objectif_sommeil_min !== undefined ? { objectif_sommeil_min: s.objectif_sommeil_min } : {}),
+    ...(s.siestes_total_min !== undefined ? { siestes_total_min: s.siestes_total_min } : {}),
+    ...(s.siestes_du_jour ? { siestes_du_jour: s.siestes_du_jour } : {}),
+    ...(s.siestes_du_jour_min !== undefined ? { siestes_du_jour_min: s.siestes_du_jour_min } : {}),
+    ...(s.sieste_tardive !== undefined ? { sieste_tardive: s.sieste_tardive } : {}),
     ...(s.phase ? { phase: s.phase } : {}),
     ...(s.actions ? { actions: s.actions } : {}),
     ...(s.engagements_demain ? { engagements_demain: s.engagements_demain } : {}),

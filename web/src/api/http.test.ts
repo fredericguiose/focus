@@ -134,6 +134,10 @@ describe('format réel de l’API', () => {
       dette_cumulee_reelle_min: 45,
       sommeil_mesure: { derniere_synchro: '2026-11-03T13:00:00Z', erreur: null },
       objectif_sommeil_min: 480,
+      siestes_total_min: 40,
+      siestes_du_jour: [{ debut: '2026-11-03T18:00:00Z', fin: '2026-11-03T18:45:00Z', minutes: 40 }],
+      siestes_du_jour_min: 40,
+      sieste_tardive: { fin: '2026-11-03T18:45:00Z', coucher: '2026-11-04T01:00:00Z' },
     };
     const statut = await creerApiHttp('j', '', vi.fn<typeof fetch>(async () => reponse(200, JSON.stringify(corps)))).statut();
     expect(statut.phase).toBe('journee');
@@ -147,6 +151,8 @@ describe('format réel de l’API', () => {
     expect(statut.nuits?.[0]).toMatchObject({ dette_reelle_min: 45, endormi_min: 435, incomplete: true, phases: { profonde: 90 } });
     expect(statut.objectif_sommeil_min).toBe(480);
     expect(statut.sommeil_mesure?.erreur).toBeNull();
+    expect(statut).toMatchObject({ siestes_total_min: 40, siestes_du_jour_min: 40, sieste_tardive: { coucher: '2026-11-04T01:00:00Z' } });
+    expect(statut.siestes_du_jour).toHaveLength(1);
   });
 
   it('reprend apps_bloquees de /v1/statut sans interroger /v1/blocage', async () => {
