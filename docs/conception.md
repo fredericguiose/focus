@@ -235,6 +235,7 @@ Actions). Chaque jeton appartient à un utilisateur. Création par un script loc
 | POST | `/v1/evenements` | appareil | lot : `{ type: reconnexion \| acces, ... }` |
 | GET | `/v1/statut` | interface | mode par appareil et raison, journée (lever, coucher, ouverture), sessions, dette, dernier ping |
 | GET | `/v1/taches` | interface, appareil | tâches du jour éligibles à une session (`eligible_le` : création + 15 min) |
+| GET | `/v1/blocage?appareil=<nom>&domaine=<d>` | interface, appareil | pour l'extension : `{ bloque, app, mode, raison, sessions: autorisees \| interdites }` (`bloque` tient compte des sessions ouvertes ; un jeton appareil ne lit que son appareil) |
 | POST | `/v1/sessions` | interface, appareil | ouvrir : `{ appareil, tache_id, apps: [id] }` |
 | POST | `/v1/sessions/:id/apps` | interface, appareil | ajouter une app (gratuit) |
 | POST | `/v1/sessions/:id/reponse` | interface, appareil | `{ question_id, reponse: continue \| arrete }` |

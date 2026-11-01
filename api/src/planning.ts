@@ -1,0 +1,195 @@
+// Planning d'un appareil (§4.3), statut pour l'interface, tâches du jour, raison d'un blocage.
+import type { ActionsPc, Config, Contexte, Journee, Segment } from '../../core/src/types';
+import { CLES_CACHE, chargerContexte, lireCache } from './contexte';
+import type { Dependances, JetonAuthentifie } from './env';
+import { ErreurApi, requeteInvalide } from './erreurs';
+import {
+  appareilAutorise,
+  cumulSessionsS,
+  eligibleLe,
+  sessionsOuvertes,
+  tachesDuJour,
+  type VueSession,
+} from './sessions';
+import { decaler, ms, versInstant } from './temps';
+
+export const HORIZON_H = 36;
+export const VERSION_FORMAT_PLANNING = 1;
+
+export interface Planning {
+  version: number;
+  appareil: string;
+  heure_serveur: string;
+  config_version: string;
+  valable_jusqua: string;
+  comptes_de_travail: string[];
+  segments: Segment[];
+  sessions: VueSession[];
+  raison: string;
+}
+
+export function construirePlanning(p: {
+  appareil: string;
+  config: Config;
+  version: string;
+  maintenant: Date;
+  segments: Segment[];
+  sessions: VueSession[];
+  raison: string;
+}): Planning {
+  return {
+    version: VERSION_FORMAT_PLANNING,
+    appareil: p.appareil,
+    heure_serveur: versInstant(p.maintenant),
+    config_version: p.version,
+    // Au-delà, le client lève tout : chaque verrou porte son échéance.
+    valable_jusqua: p.segments.at(-1)?.fin ?? decaler(p.maintenant, HORIZON_H * 3600),
+    comptes_de_travail: p.config.appareils[p.appareil]?.comptesDeTravail ?? [],
+    segments: p.segments.map(({ debut, fin, mode, sessions, actions }) => ({ debut, fin, mode, sessions, actions })),
+    sessions: p.sessions,
+    raison: p.raison,
+  };
+}
+
+function appareilDeLaConfig(contexte: Contexte, appareil: string): void {
+  if (!contexte.config.appareils[appareil]) {
+    throw new ErreurApi(404, 'appareil_inconnu', `L'appareil « ${appareil} » n'existe pas dans la config active.`);
+  }
+}
+
+export async function planningAppareil(deps: Dependances, db: D1Database, jeton: JetonAuthentifie): Promise<Planning> {
+  const maintenant = deps.maintenant();
+  const { contexte, version } = await chargerContexte(db, jeton.utilisateur, maintenant);
+  appareilDeLaConfig(contexte, jeton.nom);
+  const segments = deps.moteur.planifier(contexte, jeton.nom, HORIZON_H);
+  const etat = deps.moteur.etat(contexte, jeton.nom);
+  const sessions = await sessionsOuvertes(db, jeton.utilisateur, contexte, maintenant, jeton.nom);
+  return construirePlanning({ appareil: jeton.nom, config: contexte.config, version, maintenant, segments, sessions, raison: etat.raison });
+}
+
+function vueJournee(j: Journee) {
+  return {
+    date: j.date,
+    routine: j.routine,
+    fuseau: j.fuseau,
+    engagements: j.engagements,
+    lever: j.lever,
+    lever_suivant: j.leverSuivant,
+    coucher_prevu: j.coucherPrevu,
+    coucher_applique: j.coucherApplique,
+    ouverture: j.ouverture,
+    prix_du_report_min: j.prixDuReportMin,
+    dette_nuit_min: j.detteNuitMin,
+    decision_de_nuit_prise: j.decisionDeNuitPrise,
+  };
+}
+
+export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuthentifie) {
+  const maintenant = deps.maintenant();
+  const { contexte, version } = await chargerContexte(db, jeton.utilisateur, maintenant);
+  const { config } = contexte;
+  const journee = deps.moteur.journeeCourante(contexte);
+  const [pings, etiquettes, sessions, cumulS] = await Promise.all([
+    db
+      .prepare(
+        `SELECT nom, MAX(vu_le) AS vu_le FROM appareils
+         WHERE utilisateur = ? AND type_jeton = 'appareil' AND revoque_le IS NULL GROUP BY nom`,
+      )
+      .bind(jeton.utilisateur)
+      .all<{ nom: string; vu_le: string | null }>(),
+    lireCache<{ verifie_le: string; manquantes: string[] }>(db, jeton.utilisateur, CLES_CACHE.etiquettes),
+    sessionsOuvertes(db, jeton.utilisateur, contexte, maintenant),
+    cumulSessionsS(db, jeton.utilisateur, journee, maintenant),
+  ]);
+  const vuLe = new Map(pings.results.map((p) => [p.nom, p.vu_le]));
+  return {
+    heure_serveur: versInstant(maintenant),
+    config_version: version,
+    journee: vueJournee(journee),
+    appareils: Object.entries(config.appareils).map(([nom, def]) => {
+      const etat = deps.moteur.etat(contexte, nom);
+      return {
+        nom,
+        type: def.type,
+        mode: etat.mode,
+        sessions: etat.sessions,
+        raison: etat.raison,
+        actions: etat.actions,
+        dernier_ping: vuLe.get(nom) ?? null,
+      };
+    }),
+    sessions,
+    sessions_du_jour: { cumul_min: Math.floor(cumulS / 60), plafond_min: config.sessions.plafondQuotidienMin },
+    todoist: {
+      dernier_changement: contexte.faits.recupereLe,
+      etiquettes_verifiees_le: etiquettes?.valeur.verifie_le ?? null,
+      etiquettes_manquantes: etiquettes?.valeur.manquantes ?? [],
+    },
+  };
+}
+
+const RANG_PRIORITE = { p1: 1, p2: 2, p3: 3, p4: 4 } as const;
+
+export async function tachesEligibles(deps: Dependances, db: D1Database, jeton: JetonAuthentifie) {
+  const maintenant = deps.maintenant();
+  const { contexte } = await chargerContexte(db, jeton.utilisateur, maintenant);
+  const journee = deps.moteur.journeeCourante(contexte);
+  const taches = tachesDuJour(contexte, journee)
+    .sort((a, b) => RANG_PRIORITE[a.priorite] - RANG_PRIORITE[b.priorite] || a.contenu.localeCompare(b.contenu, 'fr'))
+    .map((t) => {
+      const eligible = eligibleLe(contexte.config, t);
+      return {
+        id: t.id,
+        nom: t.contenu,
+        priorite: t.priorite,
+        etiquettes: t.etiquettes,
+        echeance: t.echeance,
+        eligible_le: eligible,
+        eligible: maintenant.getTime() >= ms(eligible),
+      };
+    });
+  return { journee: journee.date, taches };
+}
+
+/** Pour l'extension (et le téléphone) : pourquoi cette cible est bloquée, et par quelle app. */
+export async function raisonDuBlocage(
+  deps: Dependances,
+  db: D1Database,
+  jeton: JetonAuthentifie,
+  requete: { appareil?: string; domaine?: string; bundle?: string },
+) {
+  const maintenant = deps.maintenant();
+  const { contexte } = await chargerContexte(db, jeton.utilisateur, maintenant);
+  const appareil = requete.appareil ?? (jeton.typeJeton === 'appareil' ? jeton.nom : undefined);
+  if (!appareil) throw requeteInvalide('Paramètre « appareil » manquant.', { champ: 'appareil' });
+  appareilAutorise(jeton, appareil);
+  appareilDeLaConfig(contexte, appareil);
+  const cible = (requete.domaine ?? requete.bundle ?? '').trim().toLowerCase();
+  if (!cible) throw requeteInvalide('Paramètre « domaine » ou « bundle » manquant.');
+
+  const { config } = contexte;
+  const entrees = Object.entries(config.apps);
+  const trouvee = requete.domaine
+    ? (entrees.find(([, a]) => a.domaines.includes(cible)) ??
+      entrees.find(([, a]) => a.domaines.some((d) => cible.endsWith(`.${d}`))))
+    : entrees.find(([, a]) => a.iphone?.toLowerCase() === cible);
+
+  const etat = deps.moteur.etat(contexte, appareil);
+  const sessions = await sessionsOuvertes(db, jeton.utilisateur, contexte, maintenant, appareil);
+  const session = trouvee ? (sessions.find((s) => s.apps.includes(trouvee[0])) ?? null) : null;
+  const pc = 'bloquer_domaines' in etat.actions;
+  const bloqueParLeMode = pc
+    ? (etat.actions as ActionsPc).bloquer_domaines.some((d) => d === cible || (trouvee?.[1].domaines.includes(d) ?? false))
+    : 'bloquer_apps' in etat.actions && trouvee?.[1].iphone !== undefined && etat.actions.bloquer_apps.includes(trouvee[1].iphone);
+  const verrouille = pc && (etat.actions as ActionsPc).verrouiller_session;
+  return {
+    appareil,
+    cible,
+    app: trouvee ? { id: trouvee[0], nom: trouvee[1].nom } : null,
+    bloque: bloqueParLeMode && (verrouille || session === null),
+    mode: etat.mode,
+    raison: etat.raison,
+    sessions: etat.sessions,
+    session,
+  };
+}

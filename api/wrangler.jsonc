@@ -1,0 +1,28 @@
+// Configuration du Worker de l'API Focus. Rien de secret ici : le jeton Todoist est un
+// secret Worker (`wrangler secret put TODOIST_TOKEN`), à poser à la main, jamais dans ce fichier.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "focus-api",
+  "main": "src/index.ts",
+  // Alignée sur l'environnement d'exécution embarqué par l'outil de test, pour que les tests
+  // tournent avec la même date que la production.
+  "compatibility_date": "2026-08-15",
+  "observability": { "enabled": true },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "focus",
+      "database_id": "A-REMPLIR",
+      "migrations_dir": "migrations"
+    }
+  ],
+  // Une seule entrée : la limite gratuite est de 5 tâches planifiées par compte.
+  "triggers": { "crons": ["* * * * *"] },
+  // La web app est servie par le même Worker ; /v1/* passe toujours par le code.
+  "assets": {
+    "directory": "../web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/v1/*"]
+  }
+}

@@ -7,6 +7,8 @@ build/
 # Cloudflare
 .wrangler/
 .dev.vars
+# SQL produit par `npm run jeton:creer` (empreinte d'un jeton)
+jeton-*.sql
 
 # Go
 /clients/pc/bin/

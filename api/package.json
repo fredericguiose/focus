@@ -1,0 +1,31 @@
+{
+  "name": "focus-api",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "API de Focus : Cloudflare Workers + D1, couche HTTP mince autour du moteur.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "wrangler dev --local",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "types": "wrangler types",
+    "migrations:locales": "wrangler d1 migrations apply focus --local",
+    "jeton:creer": "node scripts/creer-jeton.mjs"
+  },
+  "dependencies": {
+    "hono": "4.13.14"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.4.11",
+    "typescript": "7.0.2",
+    "vitest": "4.1.12",
+    "wrangler": "4.156.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "overrides": {
+    "vite": "7.3.7"
+  }
+}
