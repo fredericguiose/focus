@@ -21,6 +21,19 @@ et l'applique, même hors ligne.
 | `web/` | Interface commune à tous les appareils : statut, exceptions, sessions. | React, Vite |
 | `config/` | `exemple.yaml` : une configuration d'exemple, aux horaires fictifs. | YAML |
 
+## Lancer en local
+
+Node ≥ 22, depuis la racine :
+
+```sh
+npm run local                  # dépendances, web app, base locale, jetons, config, API sur :8799
+npm run local:heure -- 18:00   # régler l'horloge locale (ou +3h, reel)
+npm run local:reset            # repartir de zéro
+```
+
+Le jeton `interface` est copié dans le presse-papiers ; le coller dans la web app. Détails et
+essai du client PC : [docs/essai-local.md](docs/essai-local.md).
+
 ## Principes
 
 - **Les clients ne décident rien.** Ils appliquent un planning dont chaque verrou porte son

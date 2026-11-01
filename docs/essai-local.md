@@ -1,5 +1,39 @@
 # Essai d'ensemble en local
 
+## `npm run local` fait tout
+
+Depuis la racine du dépôt (Node ≥ 22) :
+
+```sh
+npm run local                    # prépare tout et lance l'API + la web app sur http://127.0.0.1:8799
+npm run local -- --exemple       # force config/exemple.yaml au lieu de ../focus-config/focus.yaml
+npm run local:heure -- 18:00     # horloge locale : HH:MM (fuseau de la journée), +3h, -90min, reel
+npm run local:reset              # efface la base locale et les jetons locaux (Focus arrêté)
+```
+
+La commande est idempotente : relancée, elle ne refait que ce qui manque ou a changé.
+
+1. `npm ci` dans `core`, `api`, `web` si `node_modules` manque ; construit `web/dist` si les
+   sources sont plus récentes.
+2. Applique les migrations dans la base locale dédiée `api/.wrangler/local`.
+3. Crée, s'ils n'existent pas, un jeton `interface` et un jeton `config` pour l'utilisateur de la
+   config chargée, gardés dans `~/.config/focus/local/` (dossier 700, fichiers 600), et inscrit
+   leur empreinte dans la base locale.
+4. Config : `../focus-config/focus.yaml` s'il existe, sinon `config/exemple.yaml` ; renvoyée à
+   l'API seulement si le fichier a changé (empreinte gardée dans `~/.config/focus/local/`).
+5. Si `~/.config/focus/secrets.env` contient `TODOIST_TOKEN` et que git ignore `api/.dev.vars`,
+   écrit ce fichier en 600 (lecture Todoist réelle) ; sinon lance sans Todoist.
+6. Lance `wrangler dev --local` sur le port 8799 avec `FOCUS_ENVIRONNEMENT=local` (horloge
+   réglable), puis déclenche une première tâche planifiée.
+7. Copie le jeton `interface` dans le presse-papiers (`wl-copy`, sinon l'affiche) et ouvre le
+   navigateur. `--discret` : ni presse-papiers, ni navigateur.
+8. Ctrl-C arrête wrangler et efface `api/.dev.vars`.
+
+La suite détaille les mêmes étapes à la main (base `api/.wrangler/essai`, à part), plus le
+client PC et les sessions de bout en bout.
+
+## À la main
+
 Fait tourner l'API (Worker + D1 en local), la web app, le client PC et, si on le veut, la vraie
 lecture Todoist, sans aucune ressource Cloudflare distante ni effet sur la machine : le client
 écrit dans un fichier hosts de test et ne verrouille rien.
@@ -160,6 +194,8 @@ L'onglet Sessions liste les apps de `apps_bloquees` sans appeler `/v1/blocage`.
 
 ## 10. Changer l'heure (journée, soirée, nuit)
 
+Avec `npm run local` : `npm run local:heure -- 18:00` (ou `+3h`, `-90min`, `reel`).
+
 L'API a une horloge réglable, **en local seulement** : elle n'est prise en compte que si
 `FOCUS_ENVIRONNEMENT=local`. Avec toute autre valeur (ou sans la variable), l'horloge est la vraie,
 `FOCUS_HORLOGE` est ignorée avec un avertissement dans le journal, et `POST /v1/dev/horloge`
@@ -196,7 +232,9 @@ Ne jamais poser `FOCUS_ENVIRONNEMENT` en production.
 
 ## 11. Ranger
 
-Arrêter wrangler et focusd (Ctrl-C), puis :
+Avec `npm run local` : Ctrl-C, puis `npm run local:reset` pour repartir d'une base propre.
+
+À la main, arrêter wrangler et focusd (Ctrl-C), puis :
 
 ```sh
 rm -f api/.dev.vars

@@ -1,0 +1,15 @@
+{
+  "name": "focus",
+  "private": true,
+  "type": "module",
+  "description": "Focus : scripts d'essai local (aucune dépendance à cette racine).",
+  "license": "MIT",
+  "scripts": {
+    "local": "node scripts/local.mjs",
+    "local:heure": "node scripts/local.mjs heure",
+    "local:reset": "node scripts/local.mjs reset"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
