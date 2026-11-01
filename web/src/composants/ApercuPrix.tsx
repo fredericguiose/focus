@@ -3,7 +3,10 @@ import { ArrowRight, CircleCheck, CircleX, ShieldAlert } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { PrixException } from '@/api/contrat';
-import { formaterDette, formaterHeureRelative } from '@/lib/temps';
+import { formaterDuree, formaterHeureRelative } from '@/lib/temps';
+
+/** Minutes de sommeil entre un coucher et un lever (instants ISO). */
+const sommeil = (coucher: string, lever: string) => Math.round((Date.parse(lever) - Date.parse(coucher)) / 60000);
 import { phrase } from '@/lib/texte';
 import { cn } from '@/lib/utils';
 
@@ -84,10 +87,10 @@ export function ApercuPrix({
         <Comparaison terme="Coucher" avant={heure(prix.coucherAvant)} apres={heure(prix.coucherApres)} alerte={!prix.resserre} />
         <Comparaison terme="Lever" avant={heure(prix.leverAvant)} apres={heure(prix.leverApres)} />
         <Comparaison
-          terme="Dette de la nuit"
-          avant={formaterDette(prix.detteAvantMin)}
-          apres={formaterDette(prix.detteApresMin)}
-          alerte={prix.detteApresMin > prix.detteAvantMin}
+          terme="Sommeil prévu"
+          avant={formaterDuree(sommeil(prix.coucherAvant, prix.leverAvant))}
+          apres={formaterDuree(sommeil(prix.coucherApres, prix.leverApres))}
+          alerte={sommeil(prix.coucherApres, prix.leverApres) < sommeil(prix.coucherAvant, prix.leverAvant)}
         />
       </div>
       {prix.admissible ? null : <p className="text-destructive text-sm font-medium">{prix.motifRefus ? `${phrase(prix.motifRefus.replace(/\.$/, ''))}.` : 'Changement refusé.'}</p>}
