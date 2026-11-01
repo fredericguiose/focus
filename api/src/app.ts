@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { gardeAcces, horsHoteApi } from './acces';
 import { TOUS, exigerJeton } from './auth';
 import { invaliderTout } from './cache';
 import { recevoirConfig, versionActive } from './config';
@@ -14,8 +15,12 @@ import { lireCorps } from './validation';
 export function creerApp(deps: Dependances) {
   const app = new Hono<EnvApp>();
   const appareil = exigerJeton(deps, 'appareil');
-  const interfaceSeule = exigerJeton(deps, 'interface');
+  // Route réservée au jeton d'interface : 404 sur l'hôte de l'API (src/acces.ts).
+  const interfaceSeule = [horsHoteApi, exigerJeton(deps, 'interface')] as const;
   const interfaceOuAppareil = exigerJeton(deps, 'interface', 'appareil');
+
+  // Avant tout le reste, fichiers statiques compris : hôte, et JWT Access sur l'hôte web.
+  app.use('*', gardeAcces(deps));
 
   app.get('/v1/planning', appareil, async (c) => {
     const planning = await planningAppareil(deps, c.env.DB, c.get('jeton'));
@@ -31,7 +36,7 @@ export function creerApp(deps: Dependances) {
     c.json(await enregistrerEvenements(deps, c.env.DB, c.get('jeton'), await lireCorps(c))),
   );
 
-  app.get('/v1/statut', interfaceSeule, async (c) => c.json(await statut(deps, c.env.DB, c.get('jeton'))));
+  app.get('/v1/statut', ...interfaceSeule, async (c) => c.json(await statut(deps, c.env.DB, c.get('jeton'))));
 
   app.get('/v1/taches', interfaceOuAppareil, async (c) => c.json(await tachesEligibles(deps, c.env.DB, c.get('jeton'))));
 
@@ -61,11 +66,11 @@ export function creerApp(deps: Dependances) {
     c.json({ session: await fermerSession(deps, c.env.DB, c.get('jeton'), c.req.param('id')) }),
   );
 
-  app.post('/v1/exceptions/prix', interfaceSeule, async (c) =>
+  app.post('/v1/exceptions/prix', ...interfaceSeule, async (c) =>
     c.json(await apercuException(deps, c.env.DB, c.get('jeton'), await lireCorps(c))),
   );
 
-  app.post('/v1/exceptions', interfaceSeule, async (c) =>
+  app.post('/v1/exceptions', ...interfaceSeule, async (c) =>
     c.json(await enregistrerException(deps, c.env.DB, c.get('jeton'), await lireCorps(c)), 201),
   );
 
@@ -80,7 +85,7 @@ export function creerApp(deps: Dependances) {
     if (!deps.horloge?.estLocale()) throw new ErreurApi(404, 'introuvable', "Point d'entrée inconnu.");
     await suite();
   };
-  app.post('/v1/dev/horloge', localSeulement, interfaceSeule, async (c) => {
+  app.post('/v1/dev/horloge', localSeulement, ...interfaceSeule, async (c) => {
     const horloge = deps.horloge!;
     const corps = await lireCorps(c);
     if (!('horloge' in corps)) throw new ErreurApi(400, 'requete_invalide', 'Champ « horloge » manquant.', { champ: 'horloge' });

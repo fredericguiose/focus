@@ -2,7 +2,7 @@
 # Installe ou met à jour le client PC Focus sous Fedora (focusd en service systemd,
 # focus-agent au démarrage de chaque session GNOME). Idempotent : relançable sans risque.
 #
-#   ./installer-linux.sh --api https://focus.exemple.workers.dev --appareil pc_linux
+#   ./installer-linux.sh --api https://api-focus.fredericguiose.com --appareil pc_linux
 #
 # --api et --appareil ne servent qu'à la première installation (création de
 # /etc/focus/client.json). Le jeton d'appareil est demandé s'il n'est pas déjà en place.

@@ -24,7 +24,7 @@ secret dedans. Seuls `api` et `appareil` sont obligatoires :
 
 ```json
 {
-  "api": "https://focus.exemple.workers.dev",
+  "api": "https://api-focus.fredericguiose.com",
   "appareil": "pc_linux",
   "jeton_fichier": "/etc/focus/jeton",
   "etat_dossier": "/var/lib/focus",
@@ -40,7 +40,9 @@ secret dedans. Seuls `api` et `appareil` sont obligatoires :
 | `ecoute_locale` | `127.0.0.1:47600` | idem |
 | `hosts_fichier` (vide = système) | `/etc/hosts` | `%SystemRoot%\System32\drivers\etc\hosts` |
 
-`api` doit être en `https` (seul `http://127.0.0.1` est admis, pour les essais).
+`api` doit être en `https` (seul `http://127.0.0.1` est admis, pour les essais). En production,
+c'est l'hôte des clients, `api-focus.…`, sans Cloudflare Access : l'hôte de la web app
+(`focus.…`) refuse toute requête sans connexion Access (docs/mise-en-ligne.md).
 
 ### Jeton
 
@@ -51,7 +53,7 @@ Une ligne dans `jeton_fichier`, lisible par root / SYSTEM seulement (Linux : `60
 ## Installation Linux (Fedora)
 
 ```sh
-./installer-linux.sh --api https://focus.exemple.workers.dev --appareil pc_linux
+./installer-linux.sh --api https://api-focus.fredericguiose.com --appareil pc_linux
 ```
 
 Le script compile, demande le jeton (s'il n'est pas déjà en place), puis, en une seule
@@ -74,7 +76,7 @@ PowerShell en administrateur, binaires compilés comme ci-dessus :
 ```powershell
 New-Item -ItemType Directory -Force "$env:ProgramFiles\Focus", "$env:ProgramData\Focus" | Out-Null
 Copy-Item focusd.exe, focus-agent.exe "$env:ProgramFiles\Focus\"
-Set-Content -Encoding ascii "$env:ProgramData\Focus\client.json" '{ "api": "https://focus.exemple.workers.dev", "appareil": "pc_windows" }'
+Set-Content -Encoding ascii "$env:ProgramData\Focus\client.json" '{ "api": "https://api-focus.fredericguiose.com", "appareil": "pc_windows" }'
 Set-Content -Encoding ascii -NoNewline "$env:ProgramData\Focus\jeton" (Read-Host "Jeton d'appareil")
 icacls "$env:ProgramData\Focus\jeton" /inheritance:r /grant:r "SYSTEM:F" "Administrators:F"
 & "$env:ProgramFiles\Focus\focusd.exe" install

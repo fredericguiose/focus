@@ -1,7 +1,7 @@
 // Réglages (chrome.storage.local) et client de l'API, partagés par le service worker et les pages.
 
 export interface Reglages {
-  /** Origine de l'API, sans barre finale, ex. "https://focus.exemple.workers.dev". */
+  /** Origine de l'API, sans barre finale, ex. "https://api-focus.fredericguiose.com". */
   api: string;
   jeton: string;
   appareil: string;

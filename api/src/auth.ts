@@ -46,6 +46,13 @@ export function exigerJeton(deps: Dependances, ...autorises: TypeJeton[]): Middl
         `Un jeton « ${NOMS[ligne.type_jeton]} » n'a pas accès à ce point d'entrée (attendu : ${autorises.join(' ou ')}).`,
       );
     }
+    if (ligne.type_jeton === 'interface' && c.get('hote') === 'api') {
+      throw new ErreurApi(
+        403,
+        'jeton_non_autorise',
+        "Le jeton « interface » ne s'utilise que sur l'hôte de la web app (derrière Cloudflare Access).",
+      );
+    }
     const maintenant = deps.maintenant();
     await c.env.DB.prepare(`UPDATE appareils SET vu_le = ? WHERE id = ? AND (vu_le IS NULL OR vu_le < ?)`)
       .bind(versInstant(maintenant), ligne.id, versInstant(maintenant.getTime() - PAS_DU_PING_MS))

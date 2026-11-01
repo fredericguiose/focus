@@ -11,7 +11,12 @@ export default defineConfig({
       miniflare: {
         compatibilityDate: '2026-08-15',
         d1Databases: ['DB'],
-        bindings: { MIGRATIONS: await readD1Migrations(fileURLToPath(new URL('./migrations', import.meta.url))) },
+        // FOCUS_ENVIRONNEMENT=local : un seul hôte, pas d'Access, comme l'instance locale.
+        // test/acces.test.ts règle la production (hôtes, Access) requête par requête.
+        bindings: {
+          MIGRATIONS: await readD1Migrations(fileURLToPath(new URL('./migrations', import.meta.url))),
+          FOCUS_ENVIRONNEMENT: 'local',
+        },
       },
     })),
   ],

@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#171717" />
     <meta name="description" content="Statut, exceptions et sessions de Focus." />
-    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- use-credentials : le manifeste est derrière Cloudflare Access, il doit porter le cookie. -->
+    <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <title>Focus</title>

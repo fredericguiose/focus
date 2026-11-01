@@ -10,6 +10,30 @@
   // tournent avec la même date que la production.
   "compatibility_date": "2026-08-15",
   "observability": { "enabled": true },
+  // Deux hôtes en domaines personnalisés (docs/mise-en-ligne.md) ; Cloudflare crée les
+  // enregistrements DNS au déploiement (aucun CNAME ne doit déjà exister sur ces noms).
+  //   focus.fredericguiose.com     : web app + API de la web app, derrière Cloudflare Access ;
+  //   api-focus.fredericguiose.com : API des clients (PC, extension, iPhone, GitHub Actions),
+  //                                  sans Access, protégée par les jetons.
+  "routes": [
+    { "pattern": "focus.fredericguiose.com", "custom_domain": true },
+    { "pattern": "api-focus.fredericguiose.com", "custom_domain": true }
+  ],
+  // Pas d'adresse *.workers.dev ni d'URL de prévisualisation : elles contourneraient Access.
+  // Le Worker refuse de toute façon tout hôte autre que HOTE_WEB et HOTE_API (src/acces.ts).
+  "workers_dev": false,
+  "preview_urls": false,
+  // Variables non secrètes. HOTE_* : noms d'hôte seuls. ACCES_EQUIPE et ACCES_AUD sont à lire
+  // dans Zero Trust après création de l'application Access ; ACCES_EMAILS (e-mails autorisés,
+  // séparés par des virgules) n'est pas mis ici (dépôt public) : `wrangler secret put ACCES_EMAILS`.
+  // Une variable d'Access manquante ou « A-REMPLIR » : l'hôte web refuse tout (fail closed).
+  // En local, `--var FOCUS_ENVIRONNEMENT:local` (npm run local) les rend sans effet.
+  "vars": {
+    "HOTE_WEB": "focus.fredericguiose.com",
+    "HOTE_API": "api-focus.fredericguiose.com",
+    "ACCES_EQUIPE": "A-REMPLIR",
+    "ACCES_AUD": "A-REMPLIR"
+  },
   "d1_databases": [
     {
       "binding": "DB",
@@ -20,11 +44,13 @@
   ],
   // Une seule entrée : la limite gratuite est de 5 tâches planifiées par compte.
   "triggers": { "crons": ["* * * * *"] },
-  // La web app est servie par le même Worker ; /v1/* passe toujours par le code.
+  // La web app est servie par le même Worker. `run_worker_first: true` : toute requête, fichiers
+  // statiques compris, passe d'abord par le code, qui vérifie l'hôte et le JWT Access avant de
+  // servir le fichier (env.ASSETS.fetch applique le repli single-page-application).
   "assets": {
     "directory": "../web/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/v1/*"]
+    "run_worker_first": true
   }
 }

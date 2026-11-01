@@ -406,9 +406,18 @@ vérifiée (pas de champ `verification`).
 
 ### 4.1 Authentification
 `Authorization: Bearer <jeton>`. Jetons stockés **hachés** (SHA-256) dans `appareils`. Types de
-jeton : `appareil` (un par appareil), `interface` (web app, extension), `config` (GitHub
-Actions). Chaque jeton appartient à un utilisateur. Création par un script local
-(`npm run jeton:creer -- <appareil|interface|config> <nom>`) qui affiche le jeton une fois.
+jeton : `appareil` (un par appareil ; l'extension prend un jeton `appareil` au nom du PC),
+`interface` (web app), `config` (GitHub Actions). Chaque jeton appartient à un utilisateur.
+Création par un script local (`npm run jeton:creer -- <appareil|interface|config> <nom>`) qui
+affiche le jeton une fois.
+
+Production (01/11) : deux hôtes servis par le même Worker. `focus.fredericguiose.com` (web app et
+ses appels, jeton `interface`) est derrière **Cloudflare Access**, et le Worker revérifie le JWT
+Access sur toute requête, fichiers statiques compris ; `api-focus.fredericguiose.com` (clients)
+n'a pas d'Access, refuse le jeton `interface` (403) et n'a ni les routes réservées à l'interface
+ni la web app (404). Tout autre hôte, workers.dev compris, est refusé ; workers.dev est
+désactivé. En local, un seul hôte sert tout. Détails, routes par hôte et mise en service :
+[mise-en-ligne.md](mise-en-ligne.md).
 
 ### 4.2 Points d'entrée v2.0
 | Méthode | Chemin | Jeton | Rôle |
@@ -857,7 +866,8 @@ l'utilisateur, affiche les questions et l'ouverture de session). Ils se parlent 
   (`_linux.go`, `_windows.go`) derrière la même interface. Bibliothèques vérifiées avant ajout.
 
 ## 6. Web app et extension
-- Web app (React + Vite, composants shadcn/ui), servie comme fichiers statiques par le Worker.
+- Web app (React + Vite, composants shadcn/ui), servie comme fichiers statiques par le Worker,
+  derrière Cloudflare Access (§4.1) ; elle appelle l'API en relatif (même origine).
   Écrans v2.0 : statut, exceptions (avec aperçu du prix), décision de nuit, sessions, dernier
   ping. Installable en PWA. Jeton `interface` saisi une fois.
 - Une seule règle de couleurs pour un fait (parcours, carte du mode, tableau des appareils) :
@@ -867,3 +877,4 @@ l'utilisateur, affiche les questions et l'ouverture de session). Ils se parlent 
 - Extension (Manifest V3, Chrome) : **interface seulement**, ne bloque rien. Quand un onglet
   échoue sur un domaine bloqué, elle demande la raison à l'API et affiche une page avec la
   raison et un bouton pour ouvrir une session.
+  Elle appelle l'hôte des clients (`api-focus.…`) avec un jeton `appareil` au nom du PC.

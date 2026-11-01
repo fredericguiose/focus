@@ -18,7 +18,7 @@ import (
 const EcouteParDefaut = "127.0.0.1:47600"
 
 type Config struct {
-	// API : URL de base, ex. https://focus.exemple.workers.dev
+	// API : URL de base, ex. https://api-focus.fredericguiose.com
 	API string `json:"api"`
 	// JetonFichier : fichier contenant le jeton d'appareil (une ligne).
 	JetonFichier string `json:"jeton_fichier"`

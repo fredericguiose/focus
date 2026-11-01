@@ -1,4 +1,5 @@
 import type { Moteur } from '../../core/src/types';
+import type { Hote } from './acces';
 import type { HorlogeLocale } from './horloge';
 import type { ClientHevy } from './hevy';
 import type { ClientTodoist } from './todoist';
@@ -31,6 +32,16 @@ export interface Liaisons {
   FOCUS_ENVIRONNEMENT?: string;
   /** Instant ISO ou décalage (« +3h », « -90min ») ; ignorée hors environnement local. */
   FOCUS_HORLOGE?: string;
+  /** Production : hôte de la web app, derrière Cloudflare Access (ex. focus.example.com). */
+  HOTE_WEB?: string;
+  /** Production : hôte de l'API des clients, sans Access (ex. api-focus.example.com). */
+  HOTE_API?: string;
+  /** Domaine d'équipe Access, ex. https://equipe.cloudflareaccess.com (émetteur des JWT). */
+  ACCES_EQUIPE?: string;
+  /** Tag d'audience (AUD) de l'application Access de la web app. */
+  ACCES_AUD?: string;
+  /** E-mails autorisés sur l'hôte web, séparés par des virgules ou des espaces. */
+  ACCES_EMAILS?: string;
 }
 
 export type TypeJeton = 'appareil' | 'interface' | 'config';
@@ -61,9 +72,11 @@ export interface Dependances {
    * tests l'activent explicitement (ils écrivent souvent en base sans passer par l'API).
    */
   cacheCalculs?: boolean;
+  /** Lecture des certificats Access ; absent : `fetch`. Les tests la simulent. */
+  recupererCertsAcces?: (url: string) => Promise<Response>;
 }
 
 export interface EnvApp {
   Bindings: Liaisons;
-  Variables: { jeton: JetonAuthentifie };
+  Variables: { jeton: JetonAuthentifie; hote: Hote };
 }

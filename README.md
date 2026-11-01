@@ -32,7 +32,8 @@ npm run local:reset            # repartir de zéro
 ```
 
 Le jeton `interface` est copié dans le presse-papiers ; le coller dans la web app. Détails et
-essai du client PC : [docs/essai-local.md](docs/essai-local.md).
+essai du client PC : [docs/essai-local.md](docs/essai-local.md). Mise en ligne (deux hôtes,
+Cloudflare Access) : [docs/mise-en-ligne.md](docs/mise-en-ligne.md).
 
 ## Principes
 

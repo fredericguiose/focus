@@ -20,7 +20,12 @@ npm run build        # tsc vers dist/, puis copie de statique/ (manifest, pages,
 1. `chrome://extensions` → activer **Mode développeur**.
 2. **Charger l'extension non empaquetée** → choisir le dossier `extension/dist/`.
 3. La page d'options s'ouvre : adresse de l'API (HTTPS ; HTTP seulement pour `localhost`),
-   jeton `interface`, nom de l'appareil tel qu'écrit dans la config (ex. `pc_linux`).
+   jeton `appareil` du PC, nom de l'appareil tel qu'écrit dans la config (ex. `pc_linux`).
+   En production, l'adresse est l'hôte des clients, `https://api-focus.fredericguiose.com`, sans
+   Cloudflare Access. Cet hôte refuse le jeton `interface` (réservé à la web app, derrière
+   Access) : l'extension prend un jeton `appareil` au nom du PC
+   (`npm run jeton:creer -- appareil pc_linux`, un jeton distinct de celui de `focusd`), qui ne
+   peut agir que sur cet appareil. En local (`npm run local`), un jeton `interface` marche encore.
    « Enregistrer et vérifier » demande l'accès à l'hôte de l'API puis teste le jeton et l'appareil.
 
 Après une modification : `npm run build`, puis le bouton ↻ de l'extension.
