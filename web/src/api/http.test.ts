@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { CLES_APPAREIL, CLES_JOURNEE, CLES_STATUT } from '../../../api/src/cles-statut';
 import { ErreurFocus } from './erreur';
+import { type StatutFil, statutDepuisFil } from './fil';
 import { creerApiHttp } from './http';
 
 function reponse(statut: number, corps: string) {
@@ -139,8 +141,14 @@ describe('format réel de l’API', () => {
       siestes_du_jour: [{ debut: '2026-11-03T18:00:00Z', fin: '2026-11-03T18:45:00Z', minutes: 40 }],
       siestes_du_jour_min: 40,
       sieste_tardive: { fin: '2026-11-03T18:45:00Z', coucher: '2026-11-04T01:00:00Z' },
-      levers: { jours: [{ date: '2026-11-03', prevu: '2026-11-03T09:30:00Z', prevu_fige: true, mesure: '2026-11-03T09:40:00Z', ecart_min: 10 }], amplitude_min: 0, limite_min: 120 },
-      couchers: { nuits: [{ nuit: '2026-11-02', prevu: '2026-11-03T01:00:00Z', prevu_fige: true, mesure: '2026-11-03T03:00:00Z', ecart_min: 120 }], amplitude_min: 0, limite_min: 120 },
+      levers: { jours: [{ date: '2026-11-03', fuseau: 'Europe/Paris', prevu: '2026-11-03T09:30:00Z', prevu_fige: true, mesure: '2026-11-03T09:40:00Z', ecart_min: 10 }], amplitude_min: 0, limite_min: 120 },
+      couchers: { nuits: [{ nuit: '2026-11-02', fuseau: 'Europe/Paris', prevu: '2026-11-03T01:00:00Z', prevu_fige: true, mesure: '2026-11-03T03:00:00Z', ecart_min: 120 }], amplitude_min: 0, limite_min: 120 },
+      todoist: {
+        dernier_changement: '2026-11-03T20:00:00Z',
+        etiquettes_verifiees_le: '2026-11-03T10:00:00Z',
+        etiquettes_manquantes: ['planning'],
+        etiquettes_manquantes_detail: [{ etiquette: 'planning', usages: ['planning', 'exclusion'], modes: [] }],
+      },
     };
     const statut = await creerApiHttp('j', '', vi.fn<typeof fetch>(async () => reponse(200, JSON.stringify(corps)))).statut();
     expect(statut.phase).toBe('journee');
@@ -160,6 +168,10 @@ describe('format réel de l’API', () => {
     // Oubliés un temps par la conversion : la carte Régularité restait vide avec la vraie API.
     expect(statut.levers?.jours[0]).toMatchObject({ date: '2026-11-03', ecart_min: 10 });
     expect(statut.couchers?.nuits[0]).toMatchObject({ nuit: '2026-11-02', ecart_min: 120 });
+    // Fuseau de chaque jour et de chaque nuit (voyage) : les heures se lisent dans celui-là.
+    expect(statut.levers?.jours[0]?.fuseau).toBe('Europe/Paris');
+    expect(statut.couchers?.nuits[0]?.fuseau).toBe('Europe/Paris');
+    expect(statut.todoist).toEqual(corps.todoist);
   });
 
   it('reprend apps_bloquees de /v1/statut sans interroger /v1/blocage', async () => {
@@ -265,5 +277,82 @@ describe('format réel de l’API', () => {
       { id: 'youtube', nom: 'YouTube', domaines: expect.arrayContaining(['youtube.com', 'www.youtube.com']) as string[] },
     ]);
     expect(String(recuperer.mock.calls[0]?.[0])).toBe('/v1/blocage?appareil=pc_linux&domaine=youtube.com');
+  });
+});
+
+// Leçon du 01/11 : un champ oublié dans `statutDepuisFil` disparaît avec la vraie API, alors que le
+// mode simulé (qui ne passe pas par fil.ts) et ses tests restent verts. Les listes de champs sont
+// celles de l'API (api/src/cles-statut.ts), vérifiées par un test API sur une réponse réelle.
+describe('conversion du statut : aucun champ de l’API perdu', () => {
+  const appareil: Required<StatutFil['appareils'][number]> = {
+    nom: 'pc_linux',
+    type: 'pc_linux',
+    mode: 'WORK',
+    sessions: 'autorisees',
+    session_possible: true,
+    session_motif: 'motif',
+    raison: 'WORK',
+    actions: { bloquer_domaines: [], verrouiller_session: false, fermer_comptes_hors_travail: false },
+    apps_bloquees: [],
+    groupes_bloques: [],
+    dernier_ping: '2026-11-03T20:58:00Z',
+    jusqua: '2026-11-03T23:20:00Z',
+    parcours: [],
+    sortie: { texte: 'x', certaine: false, au_plus_tard: '2026-11-04T01:00:00Z' },
+  };
+  // `Required` : le compilateur exige ici chaque champ déclaré dans StatutFil.
+  const fil: Required<StatutFil> = {
+    heure_serveur: '2026-11-03T21:00:00Z',
+    config_version: 'abc1234',
+    journee: {
+      date: '2026-11-03', routine: 'cours', fuseau: 'America/Cayenne', engagements: [],
+      lever: '2026-11-03T09:00:00Z', lever_suivant: '2026-11-04T09:00:00Z', coucher_prevu: '2026-11-04T01:00:00Z',
+      coucher_applique: '2026-11-04T01:00:00Z', ouverture: '2026-11-03T23:20:00Z', prix_du_report_min: 0,
+      dette_nuit_min: 0, decision_de_nuit_prise: false,
+    },
+    appareils: [appareil],
+    appareil_principal: 'pc_linux',
+    sessions: [],
+    sessions_du_jour: { cumul_min: 0, plafond_min: 180 },
+    nuits: [],
+    dette_cumulee_min: 0,
+    dette_semaine: { debut: '2026-11-02', fin: '2026-11-08', dette_min: 0, rattrape_min: 0, reste_min: 0, nuits_restantes: 6, nuits_mesurees: 1, nuits_total: 1 },
+    bilans_semaines: [],
+    levers: { jours: [], amplitude: null, limite_min: 120 },
+    couchers: { nuits: [], amplitude: null, limite_min: 120 },
+    sommeil_mesure: null,
+    objectif_sommeil_min: 480,
+    siestes_total_min: 0,
+    siestes_du_jour: [],
+    siestes_du_jour_min: 0,
+    sieste_tardive: null,
+    phase: 'journee',
+    actions: { je_vais_dormir: { disponible: true, motif: null }, decaler_coucher: { mode: 'raison', motif: null } },
+    engagements_demain: [],
+    aujourdhui: '2026-11-03',
+    engagements_verifies: [],
+    sautes_semaine: 0,
+    seances_mesurees: null,
+    todoist: { dernier_changement: null, etiquettes_verifiees_le: null, etiquettes_manquantes: [] },
+  };
+  /** Champs renommés par la conversion (nom de l'API → nom de l'interface). */
+  const RENOMMES_APPAREIL: Record<string, string> = { nom: 'appareil', dernier_ping: 'vu_le' };
+  const camel = (k: string) => k.replace(/_(\w)/g, (_, c: string) => c.toUpperCase());
+
+  it('StatutFil déclare chaque champ de premier niveau de l’API, et la conversion le reprend', () => {
+    const converti = statutDepuisFil(fil) as unknown as Record<string, unknown>;
+    // Sans exception à ce jour : tout ajout ici doit être une décision, pas un oubli.
+    const EXCEPTIONS: string[] = [];
+    const absentsDuFil = CLES_STATUT.filter((k) => !(k in fil));
+    const perdus = CLES_STATUT.filter((k) => !EXCEPTIONS.includes(k) && !(k in converti));
+    expect({ absentsDuFil, perdus }).toEqual({ absentsDuFil: [], perdus: [] });
+  });
+
+  it('la journée et chaque appareil gardent tous leurs champs', () => {
+    const converti = statutDepuisFil(fil);
+    const journee = converti.journee as unknown as Record<string, unknown>;
+    expect(CLES_JOURNEE.filter((k) => !(k in fil.journee) || !(camel(k) in journee))).toEqual([]);
+    const a = converti.appareils[0] as unknown as Record<string, unknown>;
+    expect(CLES_APPAREIL.filter((k) => !(k in appareil) || !((RENOMMES_APPAREIL[k] ?? k) in a))).toEqual([]);
   });
 });

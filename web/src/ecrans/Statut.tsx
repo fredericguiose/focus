@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CarteActions } from '@/composants/actions/CarteActions';
+import { AlerteEtiquettes } from '@/composants/statut/AlerteEtiquettes';
 import { RattraperSommeil } from '@/composants/actions/RattraperSommeil';
 import { CarteEngagements } from '@/composants/statut/CarteEngagements';
 import { CarteRegularite } from '@/composants/statut/CarteRegularite';
@@ -25,6 +26,7 @@ export function EcranStatut() {
 
   return (
     <div className="grid gap-4 md:gap-6">
+      <AlerteEtiquettes statut={statut} />
       <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-3">
         <div className="min-w-0 lg:col-span-2 [&>*]:h-full">
           <CarteMode statut={statut} maintenant={maintenant} />

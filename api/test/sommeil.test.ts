@@ -514,8 +514,8 @@ describe('levers mesurés et journal des levers (§3.1)', () => {
     expect(r.corps.levers.jours.map((j: { date: string }) => j.date)).toEqual([
       '2026-10-28', '2026-10-29', '2026-10-30', '2026-10-31', '2026-11-01', '2026-11-02', '2026-11-03',
     ]);
-    expect(par['2026-11-03']).toEqual({ date: '2026-11-03', prevu: '2026-11-03T05:30:00Z', prevu_fige: false, mesure: '2026-11-03T05:00:00Z', ecart_min: -30 });
-    expect(par['2026-11-02']).toEqual({ date: '2026-11-02', prevu: '2026-11-02T04:30:00Z', prevu_fige: false, mesure: '2026-11-02T06:00:00Z', ecart_min: 90 });
+    expect(par['2026-11-03']).toEqual({ date: '2026-11-03', fuseau: 'Europe/Paris', prevu: '2026-11-03T05:30:00Z', prevu_fige: false, mesure: '2026-11-03T05:00:00Z', ecart_min: -30 });
+    expect(par['2026-11-02']).toEqual({ date: '2026-11-02', fuseau: 'Europe/Paris', prevu: '2026-11-02T04:30:00Z', prevu_fige: false, mesure: '2026-11-02T06:00:00Z', ecart_min: 90 });
     expect(par['2026-11-01']).toMatchObject({ mesure: null, ecart_min: null });
     expect(r.corps.levers.amplitude).toEqual({ plus_tot: '2026-11-03T05:00:00Z', plus_tard: '2026-11-02T06:00:00Z', ecart_min: 60, mesures: 2 });
     expect(r.corps.levers.limite_min).toBe(120);
@@ -529,7 +529,7 @@ describe('levers mesurés et journal des levers (§3.1)', () => {
     ).run();
     const r = await api.get('/v1/statut', await creerJeton('interface', 'web'));
     const lundi = r.corps.levers.jours.find((j: { date: string }) => j.date === '2026-11-02');
-    expect(lundi).toEqual({ date: '2026-11-02', prevu: '2026-11-02T04:45:00Z', prevu_fige: true, mesure: '2026-11-02T06:00:00Z', ecart_min: 75 });
+    expect(lundi).toEqual({ date: '2026-11-02', fuseau: 'Europe/Paris', prevu: '2026-11-02T04:45:00Z', prevu_fige: true, mesure: '2026-11-02T06:00:00Z', ecart_min: 75 });
     expect(r.corps.levers.amplitude).toBeNull();
   });
 
@@ -551,6 +551,9 @@ describe('levers mesurés et journal des levers (§3.1)', () => {
     expect(par['2026-11-03']).toMatchObject({ mesure: '2026-11-03T05:00:00Z', ignore: 'decalage_horaire' });
     expect(par['2026-11-01']).not.toHaveProperty('ignore');
     expect(r.corps.levers.amplitude).toBeNull();
+    // Chaque jour dans le fuseau de sa routine : séjour jusqu'au 01/11, retour à Paris le 02/11.
+    expect(par['2026-11-01'].fuseau).toBe('America/Cayenne');
+    expect(par['2026-11-02'].fuseau).toBe('Europe/Paris');
   });
 
   it('couchers : endormissement = début de la nuit principale (siestes et nuits incomplètes exclues), écart au coucher prévu', async () => {
@@ -592,7 +595,7 @@ describe('levers mesurés et journal des levers (§3.1)', () => {
     ).run();
     const r = await api.get('/v1/statut', await creerJeton('interface', 'web'));
     const dimanche = r.corps.couchers.nuits.find((n: { nuit: string }) => n.nuit === '2026-11-01');
-    expect(dimanche).toEqual({ nuit: '2026-11-01', prevu: '2026-11-01T20:45:00Z', prevu_fige: true, mesure: '2026-11-01T21:25:00Z', ecart_min: 40 });
+    expect(dimanche).toEqual({ nuit: '2026-11-01', fuseau: 'Europe/Paris', prevu: '2026-11-01T20:45:00Z', prevu_fige: true, mesure: '2026-11-01T21:25:00Z', ecart_min: 40 });
   });
 
   it('couchers après un séjour dans un autre fuseau : marqués « decalage_horaire », hors de l’amplitude', async () => {
@@ -611,6 +614,9 @@ describe('levers mesurés et journal des levers (§3.1)', () => {
     expect(par['2026-11-01']).toMatchObject({ mesure: '2026-11-01T21:00:00Z', ignore: 'decalage_horaire' });
     expect(par['2026-11-02']).toMatchObject({ mesure: '2026-11-02T21:00:00Z', ignore: 'decalage_horaire' });
     expect(r.corps.couchers.amplitude).toBeNull();
+    // Le soir de la nuit décide : la nuit du 01/11 (dernier soir du séjour) est en heure de Cayenne.
+    expect(par['2026-11-01'].fuseau).toBe('America/Cayenne');
+    expect(par['2026-11-02'].fuseau).toBe('Europe/Paris');
   });
 
   it('sans mesure : journal sans mesure, lever prévu', async () => {

@@ -202,27 +202,67 @@ function Case({ icone: Icone, valeur, mot, classe, titre }: { icone: typeof Moon
   );
 }
 
+/** Ce que le bloc « semaine » affiche : la semaine en cours, ou la dernière semaine close. */
+interface SemaineAffichee {
+  /** « Cette semaine » ou « Semaine du 26 oct. · close ». */
+  titre: string;
+  close: boolean;
+  dette_min: number;
+  rattrape_min: number;
+  /** Reste à rattraper (semaine en cours) ou non rattrapé (semaine close). */
+  reste_min: number;
+  nuits_mesurees: number;
+  nuits_total: number;
+}
+
+/** « 26 oct. » : jour et mois d'une date locale. */
+function jourEtMois(date: string): string {
+  const [a, m, j] = date.split('-').map(Number);
+  return new Intl.DateTimeFormat('fr-FR', { timeZone: 'UTC', day: 'numeric', month: 'short' }).format(new Date(Date.UTC(a ?? 0, (m ?? 1) - 1, j ?? 1)));
+}
+
 /**
- * Semaine en cours (CDC §4, dette hebdomadaire) : « 3 h 10 manquées » moins « 1 h 05 rattrapées »
- * (nuits plus longues et siestes) = « 2 h 05 à rattraper » ; « tout rattrapé » ou « objectif
- * atteint » sinon.
+ * Semaine en cours, ou, tant qu'elle n'a aucune nuit mesurée (le dimanche : une nuit appartient à la
+ * semaine du matin où elle se termine), la semaine qui vient de se clore ; null s'il n'y a rien à
+ * montrer. `precedente` : la semaine à laquelle la comparer.
  */
-function SemaineEnCours({ semaine }: { semaine: DetteSemaine }) {
+export function semaineAAfficher(
+  semaine: DetteSemaine | undefined,
+  bilans: BilanSemaine[] | undefined,
+): { semaine: SemaineAffichee; precedente: BilanSemaine | undefined } | null {
+  if (semaine && semaine.nuits_mesurees > 0) {
+    return { semaine: { ...semaine, titre: 'Cette semaine', close: false }, precedente: bilans?.[0] };
+  }
+  const close = bilans?.[0];
+  if (!close || close.nuits_mesurees === 0) return null;
+  return {
+    semaine: { ...close, reste_min: close.non_rattrape_min, titre: `Semaine du ${jourEtMois(close.debut)} · close`, close: true },
+    precedente: bilans?.[1],
+  };
+}
+
+/**
+ * Semaine (CDC §4, dette hebdomadaire) : « 3 h 10 manquées » moins « 1 h 05 rattrapées » (nuits
+ * plus longues et siestes) = « 2 h 05 à rattraper » (semaine en cours) ou « 2 h 05 non
+ * rattrapées » (semaine close) ; « tout rattrapé » ou « objectif atteint » sinon.
+ */
+function BlocSemaine({ semaine }: { semaine: SemaineAffichee }) {
   const { dette_min: dette, rattrape_min: rattrape, reste_min: reste } = semaine;
   const aRattraper = reste > TOLERANCE_MIN;
   const avecDette = dette > TOLERANCE_MIN;
+  const motReste = semaine.close ? `non ${accorde(reste, 'rattrapée')}` : 'à rattraper';
   const phrase = !avecDette
-    ? 'Cette semaine : objectif atteint.'
-    : `Cette semaine : ${formaterDuree(dette)} ${accorde(dette, 'manquée')}${rattrape > 0 ? `, ${formaterDuree(rattrape)} ${rattrapee(rattrape)} (nuits plus longues et siestes)` : ''}, ${aRattraper ? `${formaterDuree(reste)} à rattraper` : 'tout rattrapé'}.`;
+    ? `${semaine.titre} : objectif atteint.`
+    : `${semaine.titre} : ${formaterDuree(dette)} ${accorde(dette, 'manquée')}${rattrape > 0 ? `, ${formaterDuree(rattrape)} ${rattrapee(rattrape)} (nuits plus longues et siestes)` : ''}, ${aRattraper ? `${formaterDuree(reste)} ${motReste}` : 'tout rattrapé'}.`;
   const resultat = aRattraper ? (
-    <Case icone={TrendingDown} valeur={formaterDuree(reste)} mot="à rattraper" classe="text-avertissement" />
+    <Case icone={TrendingDown} valeur={formaterDuree(reste)} mot={motReste} classe="text-avertissement" />
   ) : (
     <Case icone={CircleCheck} mot={avecDette ? 'tout rattrapé' : 'objectif atteint'} classe="text-succes" />
   );
   return (
-    <section className="grid gap-2" aria-label="Cette semaine">
+    <section className="grid gap-2" aria-label={semaine.titre}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-sm">
-        <span className="text-muted-foreground">Cette semaine</span>
+        <span className="text-muted-foreground">{semaine.titre}</span>
         {semaine.nuits_mesurees < semaine.nuits_total ? (
           <span className="text-muted-foreground text-xs">
             {semaine.nuits_mesurees}/{semaine.nuits_total} mesurées
@@ -256,25 +296,32 @@ function SemaineEnCours({ semaine }: { semaine: DetteSemaine }) {
 /** Manque net moyen par nuit mesurée (négatif : plus que l'objectif). */
 const parNuit = (dette: number, rattrape: number, nuits: number) => (dette - rattrape) / nuits;
 
+type ComptesSemaine = Pick<DetteSemaine, 'dette_min' | 'rattrape_min' | 'nuits_mesurees'>;
+
 /**
- * Tendance face à la semaine dernière (Frédéric, 01/11 : pas de tableau des semaines passées, juste
+ * Tendance face à la semaine d'avant (Frédéric, 01/11 : pas de tableau des semaines passées, juste
  * « plus ou moins » que la dernière). Comparaison par nuit mesurée, pour qu'une semaine en cours
- * incomplète ne paraisse pas meilleure qu'elle ne l'est.
+ * incomplète ne paraisse pas meilleure qu'elle ne l'est. `reference` : « la semaine dernière » (face
+ * à la semaine en cours) ou « la semaine d'avant » (face à une semaine close).
  */
-export function tendanceEnMots(semaine: DetteSemaine, precedente: BilanSemaine): { texte: string; classe: string; sens: -1 | 0 | 1 } | null {
+export function tendanceEnMots(
+  semaine: ComptesSemaine,
+  precedente: ComptesSemaine,
+  reference = 'la semaine dernière',
+): { texte: string; classe: string; sens: -1 | 0 | 1 } | null {
   if (semaine.nuits_mesurees === 0 || precedente.nuits_mesurees === 0) return null;
   const diff = Math.round(
     parNuit(semaine.dette_min, semaine.rattrape_min, semaine.nuits_mesurees) -
       parNuit(precedente.dette_min, precedente.rattrape_min, precedente.nuits_mesurees),
   );
-  if (Math.abs(diff) <= TOLERANCE_MIN) return { texte: 'comme la semaine dernière', classe: 'text-muted-foreground', sens: 0 };
+  if (Math.abs(diff) <= TOLERANCE_MIN) return { texte: `comme ${reference}`, classe: 'text-muted-foreground', sens: 0 };
   return diff > 0
-    ? { texte: `${formaterDuree(diff)} de manque en plus par nuit que la semaine dernière`, classe: 'text-avertissement', sens: 1 }
-    : { texte: `${formaterDuree(diff)} de manque en moins par nuit que la semaine dernière`, classe: 'text-succes', sens: -1 };
+    ? { texte: `${formaterDuree(diff)} de manque en plus par nuit que ${reference}`, classe: 'text-avertissement', sens: 1 }
+    : { texte: `${formaterDuree(diff)} de manque en moins par nuit que ${reference}`, classe: 'text-succes', sens: -1 };
 }
 
-function Tendance({ semaine, precedente }: { semaine: DetteSemaine; precedente: BilanSemaine }) {
-  const t = tendanceEnMots(semaine, precedente);
+function Tendance({ semaine, precedente }: { semaine: SemaineAffichee; precedente: BilanSemaine }) {
+  const t = tendanceEnMots(semaine, precedente, semaine.close ? "la semaine d'avant" : 'la semaine dernière');
   if (!t) return null;
   const Icone = t.sens > 0 ? ArrowUp : t.sens < 0 ? ArrowDown : Equal;
   return (
@@ -299,9 +346,8 @@ export function CarteSommeil({ statut }: { statut: ReponseStatut }) {
   // Sieste de la journée qui suit la dernière nuit (D + 1) : celle d'aujourd'hui pour « Cette nuit ».
   const siesteApres = derniere ? siesteApresNuit(derniere.nuit, nuits, statut.journee.date, statut.siestes_du_jour_min ?? 0) : 0;
   const ecart = derniere ? ecartNuitEnMots(dormi(derniere)! - objectif, siesteApres) : null;
-  const semaine = statut.dette_semaine;
-  // La semaine juste avant (la plus récente des closes) ; sans mesure, pas de comparaison.
-  const precedente = statut.bilans_semaines?.[0];
+  // Semaine en cours, ou la dernière close tant que la nouvelle n'a aucune nuit mesurée.
+  const blocSemaine = semaineAAfficher(statut.dette_semaine, statut.bilans_semaines);
   const tardive = statut.sieste_tardive ?? null;
 
   return (
@@ -335,10 +381,10 @@ export function CarteSommeil({ statut }: { statut: ReponseStatut }) {
             <Watch className="size-4 shrink-0" /> Pas encore de nuit mesurée par la montre.
           </p>
         )}
-        {semaine && semaine.nuits_mesurees > 0 ? (
+        {blocSemaine ? (
           <div className="grid gap-1.5">
-            <SemaineEnCours semaine={semaine} />
-            {precedente ? <Tendance semaine={semaine} precedente={precedente} /> : null}
+            <BlocSemaine semaine={blocSemaine.semaine} />
+            {blocSemaine.precedente ? <Tendance semaine={blocSemaine.semaine} precedente={blocSemaine.precedente} /> : null}
           </div>
         ) : null}
         {mesurees.length > 0 ? (

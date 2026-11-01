@@ -356,6 +356,8 @@ export interface EngagementVerifie {
 export interface LeverJournalise {
   /** Date du lever. */
   date: DateLocale;
+  /** Fuseau de la routine de ce jour : celui dans lequel lire ses heures (voyage). */
+  fuseau: string;
   /** Lever prévu : celui du plan de la veille au soir. */
   prevu: Instant;
   /** Vrai si le prévu a été figé la veille au soir ; faux s'il est recalculé. */
@@ -380,6 +382,8 @@ export interface JournalDesLevers {
 export interface CoucherJournalise {
   /** Date de la nuit (le soir). */
   nuit: DateLocale;
+  /** Fuseau de la routine du soir de la nuit : celui dans lequel lire ses heures (voyage). */
+  fuseau: string;
   /** Coucher prévu de la nuit : celui du plan au coucher (photo de la nuit). */
   prevu: Instant;
   /** Vrai si le prévu a été figé par la photo de la nuit ; faux s'il est recalculé. */

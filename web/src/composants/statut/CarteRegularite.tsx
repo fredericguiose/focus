@@ -19,8 +19,24 @@ interface Mots {
   unite: 'jour' | 'nuit';
 }
 
-type Mesure = { mesure: string | null; ignore?: 'decalage_horaire' };
+type Mesure = { mesure: string | null; ignore?: 'decalage_horaire'; fuseau?: string };
 type Amplitude = RegulariteLevers['amplitude'];
+
+/** « Paris » pour Europe/Paris, « Cayenne » pour America/Cayenne. */
+export function villeDuFuseau(fuseau: string): string {
+  return (fuseau.split('/').at(-1) ?? fuseau).replaceAll('_', ' ');
+}
+
+/**
+ * Heure d'un instant dans le fuseau de sa ligne (celui de la routine de ce jour-là, donné par
+ * l'API) : une nuit passée à Paris se lit en heure de Paris. Suivie de « (Paris) » si ce fuseau
+ * n'est pas celui de la journée courante.
+ */
+function heureDansSonFuseau(instant: string, mesures: Mesure[], fuseau: string): string {
+  const propre = mesures.find((m) => m.mesure === instant)?.fuseau ?? fuseau;
+  const heure = formaterHeure(instant, propre);
+  return propre === fuseau ? heure : `${heure} (${villeDuFuseau(propre)})`;
+}
 
 function resume(amplitude: Amplitude, limiteMin: number, mesures: Mesure[], fuseau: string, mots: Mots): Resume {
   const n = mesures.filter((m) => m.ignore && m.mesure !== null).length;
@@ -28,7 +44,7 @@ function resume(amplitude: Amplitude, limiteMin: number, mesures: Mesure[], fuse
   const exclus = n === 0 ? [] : [`${n} ${mots.unite}${n > 1 ? 's' : ''} exclu${accord}${n > 1 ? 's' : ''}`];
   const resultat = (morceaux: string[], classe: string) => ({ texte: morceaux.join(' · '), morceaux, classe });
   if (!amplitude) return resultat(['pas encore assez de mesures', ...exclus], 'text-muted-foreground');
-  const plage = `de ${formaterHeure(amplitude.plus_tot, fuseau)} à ${formaterHeure(amplitude.plus_tard, fuseau)}`;
+  const plage = `de ${heureDansSonFuseau(amplitude.plus_tot, mesures, fuseau)} à ${heureDansSonFuseau(amplitude.plus_tard, mesures, fuseau)}`;
   const borne = formaterDuree(limiteMin);
   const depasse = amplitude.ecart_min > limiteMin;
   // Un repère n'est pas une règle : au-delà, la couleur le signale, pas une phrase de plus.
@@ -53,8 +69,9 @@ export function resumeCouchers(couchers: RegulariteCouchers, fuseau: string): Re
   return resume(couchers.amplitude, couchers.limite_min, couchers.nuits, fuseau, { borne: 'repère', unite: 'nuit' });
 }
 
-function detail(x: { prevu: string; mesure: string | null; ecart_min: number | null; ignore?: 'decalage_horaire' }, fuseau: string, attendu: boolean): string {
-  const prevu = formaterHeure(x.prevu, fuseau);
+/** `fuseau` : celui de la journée courante, à défaut du fuseau propre à la ligne (API plus ancienne). */
+function detail(x: { prevu: string; mesure: string | null; ecart_min: number | null; ignore?: 'decalage_horaire'; fuseau?: string }, fuseau: string, attendu: boolean): string {
+  const prevu = formaterHeure(x.prevu, x.fuseau ?? fuseau);
   if (x.mesure === null || x.ecart_min === null) return attendu ? `prévu ${prevu}, pas encore mesuré` : `prévu ${prevu}, pas de mesure`;
   if (x.ignore === 'decalage_horaire') return 'décalage horaire, non compté';
   if (Math.abs(x.ecart_min) <= TOLERANCE_MIN) return 'comme prévu';
@@ -75,6 +92,8 @@ interface Ligne {
   cle: string;
   libelle: string;
   mesure: string | null;
+  /** Fuseau dans lequel lire les heures de la ligne (celui de la routine de ce jour-là). */
+  fuseau: string;
   ignore?: 'decalage_horaire';
   detail: string;
 }
@@ -98,9 +117,12 @@ function Journal({ titre, resume: r, lignes, etiquette, fuseau }: { titre: strin
           <li key={l.cle} className="grid grid-cols-[6.5rem_3.25rem_1fr] items-baseline gap-x-2">
             <span className="text-muted-foreground truncate">{l.libelle}</span>
             <span className={cn('font-medium tabular-nums', (l.mesure === null || l.ignore) && 'text-muted-foreground')}>
-              {l.mesure === null ? '–' : formaterHeure(l.mesure, fuseau)}
+              {l.mesure === null ? '–' : formaterHeure(l.mesure, l.fuseau)}
             </span>
-            <span className="text-muted-foreground min-w-0 text-xs">{l.detail}</span>
+            <span className="text-muted-foreground min-w-0 text-xs">
+              {l.detail}
+              {l.fuseau !== fuseau ? <span className="text-muted-foreground/70 whitespace-nowrap"> · heure de {villeDuFuseau(l.fuseau)}</span> : null}
+            </span>
           </li>
         ))}
       </ul>
@@ -126,6 +148,7 @@ export function CarteRegularite({ statut }: { statut: ReponseStatut }) {
           cle: j.date,
           libelle: aujourdhui ? "aujourd'hui" : formaterDateCourte(j.date),
           mesure: j.mesure,
+          fuseau: j.fuseau ?? fuseau,
           ...(j.ignore ? { ignore: j.ignore } : {}),
           detail: detailLever(j, fuseau, aujourdhui),
         };
@@ -142,6 +165,7 @@ export function CarteRegularite({ statut }: { statut: ReponseStatut }) {
         cle: n.nuit,
         libelle: formaterDateCourte(n.nuit),
         mesure: n.mesure,
+        fuseau: n.fuseau ?? fuseau,
         ...(n.ignore ? { ignore: n.ignore } : {}),
         detail: detailCoucher(n, fuseau),
       }))}

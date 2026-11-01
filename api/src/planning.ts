@@ -4,6 +4,7 @@ import { dettesHebdomadaires, lundiDe, SEMAINES_DE_BILAN } from '../../core/src/
 import { JOURS_DU_JOURNAL_DES_LEVERS } from '../../core/src/levers';
 import { dateCourte, JOURS_SEMAINE, jourSemaine } from '../../core/src/temps';
 import { etatSynchroHevy, lireSeances } from './hevy';
+import { usagesDesEtiquettes } from './planifie';
 import { CLES_CACHE, chargerContexte, lireCache } from './contexte';
 import type { Dependances, JetonAuthentifie } from './env';
 import { ErreurApi, requeteInvalide } from './erreurs';
@@ -261,6 +262,7 @@ export function vueCouchers(j: JournalDesCouchers) {
   return {
     nuits: j.nuits.map((x) => ({
       nuit: x.nuit,
+      fuseau: x.fuseau,
       prevu: x.prevu,
       prevu_fige: x.prevuFige,
       mesure: x.mesure,
@@ -279,6 +281,7 @@ export function vueLevers(j: JournalDesLevers) {
   return {
     jours: j.jours.map((x) => ({
       date: x.date,
+      fuseau: x.fuseau,
       prevu: x.prevu,
       prevu_fige: x.prevuFige,
       mesure: x.mesure,
@@ -381,11 +384,23 @@ export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuth
     appareil_principal: appareilPrincipal(config),
     sessions,
     sessions_du_jour: { cumul_min: Math.floor(cumulS / 60), plafond_min: config.sessions.plafondQuotidienMin },
-    todoist: {
-      dernier_changement: contexte.faits.recupereLe,
-      etiquettes_verifiees_le: etiquettes?.valeur.verifie_le ?? null,
-      etiquettes_manquantes: etiquettes?.valeur.manquantes ?? [],
-    },
+    todoist: vueTodoist(config, contexte.faits.recupereLe, etiquettes?.valeur ?? null),
+  };
+}
+
+/**
+ * État Todoist (§4.6) : étiquettes citées par la config et absentes de Todoist, à la dernière
+ * vérification (tâche planifiée). Seules comptent celles que la config cite encore ; `detail` dit à
+ * quoi chacune sert, pour que l'interface explique ce que l'absence casse.
+ */
+export function vueTodoist(config: Config, dernierChangement: string, verif: { verifie_le: string; manquantes: string[] } | null) {
+  const usages = usagesDesEtiquettes(config);
+  const manquantes = (verif?.manquantes ?? []).filter((e) => usages[e] !== undefined);
+  return {
+    dernier_changement: dernierChangement,
+    etiquettes_verifiees_le: verif?.verifie_le ?? null,
+    etiquettes_manquantes: manquantes,
+    etiquettes_manquantes_detail: manquantes.map((e) => ({ etiquette: e, usages: usages[e]!.usages, modes: usages[e]!.modes })),
   };
 }
 

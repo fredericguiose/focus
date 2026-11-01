@@ -1,9 +1,9 @@
 import { env } from 'cloudflare:workers';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Tache } from '../../core/src/types';
-import { executerTachesPlanifiees } from '../src/planifie';
+import { executerTachesPlanifiees, usagesDesEtiquettes } from '../src/planifie';
 import type { ClientTodoist, ResultatFaits } from '../src/todoist';
-import { Horloge, MARDI, client, creerJeton, installerConfig, tache } from './aides';
+import { Horloge, MARDI, client, configExemple, creerJeton, installerConfig, tache } from './aides';
 
 function fauxClient(taches: () => Tache[], etiquettes = ['planning', 'recap']) {
   const appels = { faits: 0, etiquettes: 0 };
@@ -115,6 +115,37 @@ describe('tâche planifiée (§4.4)', () => {
     const web = await creerJeton('interface', 'web');
     const statut = await client(horloge).get('/v1/statut', web);
     expect(statut.corps.todoist.etiquettes_manquantes).toEqual(['recap']);
+    // Le rôle de chaque étiquette manquante, pour que l'interface dise ce que l'absence casse.
+    expect(statut.corps.todoist.etiquettes_manquantes_detail).toEqual([{ etiquette: 'recap', usages: ['recap', 'exclusion'], modes: [] }]);
+  });
+
+  it('étiquettes : revérifiées dans l’heure tant qu’il en manque, et dès que la config en cite d’autres', async () => {
+    faux = fauxClient(() => taches, ['planning']);
+    await lancer();
+    expect(faux.appels.etiquettes).toBe(1);
+    // Étiquette créée dans Todoist : l'alerte s'efface à la vérification suivante, une heure après.
+    faux = fauxClient(() => taches, ['planning', 'recap']);
+    horloge.avancer(30 * 60);
+    await lancer();
+    expect(faux.appels.etiquettes).toBe(0);
+    horloge.avancer(31 * 60);
+    await lancer();
+    expect(faux.appels.etiquettes).toBe(1);
+    expect(JSON.parse((await lire('etiquettes'))!.valeur)).toMatchObject({ manquantes: [] });
+    // Plus rien ne manque : pas de nouvelle vérification le même jour…
+    horloge.avancer(2 * 3600);
+    await lancer();
+    expect(faux.appels.etiquettes).toBe(1);
+    // … sauf si la config cite une nouvelle étiquette.
+    const config = configExemple();
+    await env.DB.prepare(`DELETE FROM config_versions`).run();
+    await installerConfig({ ...config, todoist: { ...config.todoist, etiquettesExclues: [...config.todoist.etiquettesExclues, 'perso'] } }, 'c0ffee2');
+    horloge.avancer(60);
+    await lancer();
+    expect(faux.appels.etiquettes).toBe(2);
+    expect(JSON.parse((await lire('etiquettes'))!.valeur)).toMatchObject({ manquantes: ['perso'] });
+    const statut = await client(horloge).get('/v1/statut', await creerJeton('interface', 'web'));
+    expect(statut.corps.todoist.etiquettes_manquantes_detail).toEqual([{ etiquette: 'perso', usages: ['exclusion'], modes: [] }]);
   });
 
   it('ferme les sessions échues même sans requête de client', async () => {
@@ -133,5 +164,23 @@ describe('tâche planifiée (§4.4)', () => {
     await executerTachesPlanifiees(env, deps);
     expect(faux.appels.faits).toBe(0);
     expect((await env.DB.prepare(`SELECT COUNT(*) AS n FROM nuits`).first<{ n: number }>())?.n).toBe(1);
+  });
+});
+
+describe('rôles des étiquettes citées par la config', () => {
+  it('planning, récap, exclusion globale, filtre de condition (avec ses modes)', () => {
+    const config = configExemple();
+    const [nom, mode] = Object.entries(config.modes)[0]!;
+    const avecFiltre = {
+      ...config,
+      modes: {
+        ...config.modes,
+        [nom]: { ...mode, quand: { tous: [mode.quand, { nombreDeTaches: { filtre: { jour: 'aujourd_hui' as const, etiquettesIncluses: ['deep'], etiquettesExclues: ['recap'] }, auPlus: 0 } }] } },
+      },
+    };
+    const u = usagesDesEtiquettes(avecFiltre);
+    expect(u.planning).toEqual({ usages: ['planning', 'exclusion'], modes: [] });
+    expect(u.recap).toEqual({ usages: ['recap', 'condition', 'exclusion'], modes: [nom] });
+    expect(u.deep).toEqual({ usages: ['condition'], modes: [nom] });
   });
 });

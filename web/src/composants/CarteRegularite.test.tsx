@@ -128,3 +128,40 @@ describe('carte « Régularité » : levers', () => {
     expect(container.textContent).toBe('');
   });
 });
+
+describe('carte « Régularité » : voyage, chaque ligne dans le fuseau de sa routine', () => {
+  const PARIS = 'Europe/Paris';
+  const CAYENNE = 'America/Cayenne';
+  // Nuit du 29/10 à Paris : endormi 23:14 heure de Paris (22:14Z), prévu 22:30 (21:30Z).
+  const aParis = nuit({ nuit: '2026-10-29', fuseau: PARIS, prevu: '2026-10-29T21:30:00Z', mesure: '2026-10-29T22:14:00Z', ecart_min: 44 });
+  // Nuit du 01/11 à Cayenne : endormi 22:40 heure de Cayenne (01:40Z).
+  const aCayenne = nuit({ nuit: '2026-11-01', fuseau: CAYENNE, prevu: '2026-11-02T01:30:00Z', mesure: '2026-11-02T01:40:00Z', ecart_min: 10 });
+
+  it('détail : le prévu dans le fuseau de la ligne, l’écart inchangé', () => {
+    expect(detailCoucher(aParis, CAYENNE)).toBe('44 min plus tard que prévu (22:30)');
+    expect(detailLever(jour({ fuseau: PARIS, prevu: '2026-10-29T05:30:00Z', mesure: null, ecart_min: null }), CAYENNE, false)).toBe('prévu 06:30, pas de mesure');
+    // API plus ancienne, sans fuseau par ligne : celui de la journée.
+    expect(detailCoucher({ ...aParis, fuseau: undefined }, CAYENNE)).toBe('44 min plus tard que prévu (18:30)');
+  });
+
+  it('résumé : chaque borne dans son fuseau, marquée si ce n’est pas celui de la journée', () => {
+    const couchers: RegulariteCouchers = {
+      nuits: [aParis, aCayenne],
+      amplitude: { plus_tot: '2026-11-02T01:40:00Z', plus_tard: '2026-10-29T22:14:00Z', ecart_min: 34, mesures: 2 },
+      limite_min: 120,
+    };
+    expect(resumeCouchers(couchers, CAYENNE).morceaux[0]).toBe('de 22:40 à 23:14 (Paris)');
+  });
+
+  it('carte : endormi 23:14 à Paris affiché 23:14 (pas 19:14), avec « heure de Paris » ; Cayenne sans marque', async () => {
+    const s = await statut();
+    const journee = { ...s.journee, fuseau: CAYENNE };
+    render(<CarteRegularite statut={{ ...s, journee, levers: undefined, couchers: { nuits: [aParis, aCayenne], amplitude: null, limite_min: 120 } }} />);
+    const [paris, cayenne] = screen.getAllByRole('listitem');
+    expect(paris!.textContent).toContain('23:14');
+    expect(paris!.textContent).not.toContain('19:14');
+    expect(paris!.textContent).toContain('heure de Paris');
+    expect(cayenne!.textContent).toContain('22:40');
+    expect(cayenne!.textContent).not.toContain('heure de');
+  });
+});

@@ -29,8 +29,10 @@ export function journalDesLevers(
     const prevu = fige !== undefined ? lireInstant(fige) : leverPrevu(contexte, date);
     const mesure = leverMesure(contexte, date);
     const ignore = mesure === null ? null : mesureIgnoree(contexte.config, date, fuseau);
+    const { routine } = routineDuJour(contexte.config, date);
     jours.push({
       date,
+      fuseau: routine.fuseau,
       prevu: ecrireInstant(prevu),
       prevuFige: fige !== undefined,
       mesure: mesure === null ? null : ecrireInstant(mesure),
@@ -38,7 +40,6 @@ export function journalDesLevers(
       ...(ignore ? { ignore } : {}),
     });
     if (mesure !== null && !ignore) {
-      const { routine } = routineDuJour(contexte.config, date);
       mesures.push({ instant: mesure, minutes: (mesure - instantLocal(date, 0, routine.fuseau)) / MINUTE });
     }
   }
@@ -88,8 +89,10 @@ export function journalDesCouchers(
     const brute = endormissements[nuit];
     const mesure = brute === undefined ? null : lireInstant(brute);
     const ignore = mesure === null ? null : mesureIgnoree(contexte.config, nuit, fuseau);
+    const { routine } = routineDuJour(contexte.config, nuit);
     nuits.push({
       nuit,
+      fuseau: routine.fuseau,
       prevu: ecrireInstant(prevu),
       prevuFige: fige !== undefined,
       mesure: mesure === null ? null : ecrireInstant(mesure),
@@ -97,7 +100,6 @@ export function journalDesCouchers(
       ...(ignore ? { ignore } : {}),
     });
     if (mesure !== null && !ignore) {
-      const { routine } = routineDuJour(contexte.config, nuit);
       mesures.push({ instant: mesure, minutes: (mesure - instantLocal(nuit, PIVOT_DES_NUITS_MIN, routine.fuseau)) / MINUTE });
     }
   }

@@ -362,7 +362,7 @@ describe('mode simulé : journal des levers', () => {
     expect(levers.jours.map((j) => j.date)).toEqual(['2026-10-28', '2026-10-29', '2026-10-30', '2026-10-31', '2026-11-01', '2026-11-02', '2026-11-03']);
     expect(levers.jours[0]).toMatchObject({ mesure: null, ecart_min: null });
     // Mardi : lever prévu 06:30 (travail), mesuré 6 min plus tard.
-    expect(levers.jours[6]).toEqual({ date: '2026-11-03', prevu: '2026-11-03T05:30:00Z', prevu_fige: true, mesure: '2026-11-03T05:36:00Z', ecart_min: 6 });
+    expect(levers.jours[6]).toEqual({ date: '2026-11-03', fuseau: 'Europe/Paris', prevu: '2026-11-03T05:30:00Z', prevu_fige: true, mesure: '2026-11-03T05:36:00Z', ecart_min: 6 });
     for (const j of levers.jours) if (j.mesure) expect((Date.parse(j.mesure) - Date.parse(j.prevu)) / 60_000).toBe(j.ecart_min);
     expect(levers.amplitude?.mesures).toBe(6);
     expect(levers.limite_min).toBe(120);
@@ -374,7 +374,7 @@ describe('mode simulé : journal des levers', () => {
     expect(couchers.nuits[0]).toMatchObject({ mesure: null, ecart_min: null });
     for (const n of couchers.nuits) if (n.mesure) expect((Date.parse(n.mesure) - Date.parse(n.prevu)) / 60_000).toBe(n.ecart_min);
     // Dimanche : prévu 21:30 (Paris), endormi 00:55 le lundi ; du plus tôt (22:40) au plus tard : 2 h 15, pas 21 h 45.
-    expect(couchers.nuits[5]).toEqual({ nuit: '2026-11-01', prevu: '2026-11-01T20:30:00Z', prevu_fige: true, mesure: '2026-11-01T23:55:00Z', ecart_min: 205 });
+    expect(couchers.nuits[5]).toEqual({ nuit: '2026-11-01', fuseau: 'Europe/Paris', prevu: '2026-11-01T20:30:00Z', prevu_fige: true, mesure: '2026-11-01T23:55:00Z', ecart_min: 205 });
     expect(couchers.amplitude).toEqual({ plus_tot: '2026-10-29T21:40:00Z', plus_tard: '2026-11-01T23:55:00Z', ecart_min: 135, mesures: 5 });
     expect(couchers.limite_min).toBe(120);
   });

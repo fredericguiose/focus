@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { CLES_APPAREIL, CLES_JOURNEE, CLES_STATUT } from '../src/cles-statut';
 import { appareilPrincipal } from '../src/planning';
 import { Horloge, MARDI, client, configExemple, creerJeton, installerConfig, poserTaches, tache } from './aides';
 
@@ -16,6 +17,14 @@ describe('GET /v1/statut : phase, actions, engagements de demain, nuits', () => 
     horloge.regler(MARDI.matin);
     await installerConfig();
     web = await creerJeton('interface', 'web');
+  });
+
+  it('renvoie exactement les champs listés dans cles-statut.ts (la web app vérifie qu’elle les reprend tous)', async () => {
+    const r = await api.get('/v1/statut', web);
+    const tries = (x: readonly string[]) => [...x].sort();
+    expect(tries(Object.keys(r.corps))).toEqual(tries(CLES_STATUT));
+    expect(tries(Object.keys(r.corps.journee))).toEqual(tries(CLES_JOURNEE));
+    for (const a of r.corps.appareils) expect(tries(Object.keys(a))).toEqual(tries(CLES_APPAREIL));
   });
 
   it('journée : je_vais_dormir disponible, décalage sur raison', async () => {

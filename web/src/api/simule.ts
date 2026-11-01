@@ -16,6 +16,7 @@ import type {
   EngagementDemain,
   EngagementVerifie,
   EtapeParcours,
+  EtatTodoist,
   Exception,
   Journee,
   Phase,
@@ -30,6 +31,7 @@ import type {
   StatutEngagement,
   TacheSession,
   TypeAppareil,
+  UsageEtiquette,
 } from './contrat';
 import { ErreurFocus } from './erreur';
 
@@ -173,6 +175,8 @@ export interface OptionsSimulation {
    */
   scenario?: 'dette';
   faits?: Partial<FaitsSimules>;
+  /** Étiquettes Todoist à donner pour introuvables (`?etiquettes_manquantes=planning,recap`) : l'alerte s'affiche. */
+  etiquettesManquantes?: string[];
 }
 
 /** Faits Todoist que les conditions des modes lisent (§2.6), figés dans la simulation. */
@@ -771,7 +775,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
       const date = ajouterJours(aujourdhui, i - ECARTS_LEVERS_FICTIFS.length + 1);
       const prevu = lever(date, exceptions);
       const mesure = ecart === null || prevu + ecart * MINUTE > t ? null : prevu + ecart * MINUTE;
-      return { date, prevu: versInstant(prevu), prevu_fige: true, mesure: mesure === null ? null : versInstant(mesure), ecart_min: mesure === null ? null : ecart };
+      return { date, fuseau, prevu: versInstant(prevu), prevu_fige: true, mesure: mesure === null ? null : versInstant(mesure), ecart_min: mesure === null ? null : ecart };
     });
     const mesures = jours
       .filter((j) => j.mesure !== null)
@@ -792,7 +796,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
       const nuit = ajouterJours(aujourdhui, i - ECARTS_COUCHERS_FICTIFS.length);
       const prevu = lever(ajouterJours(nuit, 1), exceptions) - CIBLE_MIN * MINUTE;
       const mesure = ecart === null ? null : prevu + ecart * MINUTE;
-      return { nuit, prevu: versInstant(prevu), prevu_fige: true, mesure: mesure === null ? null : versInstant(mesure), ecart_min: ecart };
+      return { nuit, fuseau, prevu: versInstant(prevu), prevu_fige: true, mesure: mesure === null ? null : versInstant(mesure), ecart_min: ecart };
     });
     // Minutes depuis midi du soir : 23:30 et 00:30 font 1 h, pas 23 h.
     const mesures = nuits
@@ -805,6 +809,18 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
       nuits,
       amplitude: tot && tard && mesures.length >= 2 ? { plus_tot: tot.instant, plus_tard: tard.instant, ecart_min: Math.round(tard.minutes - tot.minutes), mesures: mesures.length } : null,
       limite_min: ECART_LEVER_MAX_MIN,
+    };
+  }
+
+  /** Comme l'API : vérifiées une fois par jour ; rôles déduits de la config simulée (planning, recap exclues). */
+  function etatTodoist(t: number): EtatTodoist {
+    const manquantes = options.etiquettesManquantes ?? [];
+    const usages = (e: string): UsageEtiquette[] => (e === 'planning' ? ['planning', 'exclusion'] : e === 'recap' ? ['recap', 'exclusion'] : ['condition']);
+    return {
+      dernier_changement: versInstant(t - 10 * MINUTE),
+      etiquettes_verifiees_le: versInstant(instantLocal(dateLocale(t, fuseau), '00:01', fuseau)),
+      etiquettes_manquantes: manquantes,
+      etiquettes_manquantes_detail: manquantes.map((etiquette) => ({ etiquette, usages: usages(etiquette), modes: [] })),
     };
   }
 
@@ -887,6 +903,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
           engagements_demain: engagementsDemain(t),
           ...engagementsVerifies(t),
           seances_mesurees: { derniere_synchro: versInstant(t - 35 * MINUTE), erreur: null },
+          todoist: etatTodoist(t),
         };
       }),
 

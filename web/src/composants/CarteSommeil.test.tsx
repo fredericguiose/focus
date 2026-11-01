@@ -66,8 +66,59 @@ describe('carte « Sommeil »', () => {
     expect(section()!.textContent).toContain('objectif atteint');
     expect(section()!.textContent).not.toContain('moins');
     r2.unmount();
-    render(<CarteSommeil statut={{ ...s, dette_semaine: { ...base, dette_min: 0, rattrape_min: 0, reste_min: 0, nuits_mesurees: 0 } }} />);
+    const { container } = render(<CarteSommeil statut={{ ...s, dette_semaine: { ...base, dette_min: 0, rattrape_min: 0, reste_min: 0, nuits_mesurees: 0 }, bilans_semaines: [] }} />);
     expect(section()).toBeNull();
+    expect(container.textContent).not.toMatch(/Semaine du/);
+  });
+
+  describe('dimanche : la semaine en cours n’a encore aucune nuit, la semaine close la remplace', () => {
+    // Dimanche 01/11 : la semaine du 02/11 commence avec la nuit de ce soir.
+    const vide = { debut: '2026-11-02', fin: '2026-11-08', dette_min: 0, rattrape_min: 0, reste_min: 0, nuits_restantes: 7, nuits_mesurees: 0, nuits_total: 0 };
+    const close = { debut: '2026-10-26', fin: '2026-11-01', dette_min: 313, rattrape_min: 120, non_rattrape_min: 193, nuits_mesurees: 6, nuits_total: 7 };
+    const avant = { debut: '2026-10-19', fin: '2026-10-25', dette_min: 140, rattrape_min: 0, non_rattrape_min: 140, nuits_mesurees: 7, nuits_total: 7 };
+
+    it('mêmes cases : manquées moins rattrapées = non rattrapées ; titre daté « close » ; n/total mesurées', async () => {
+      const s = await statut();
+      render(<CarteSommeil statut={{ ...s, dette_semaine: vide, bilans_semaines: [close, avant] }} />);
+      expect(screen.queryByLabelText('Cette semaine')).toBeNull();
+      const section = screen.getByLabelText('Semaine du 26 oct. · close');
+      expect(section.textContent).toContain('Semaine du 26 oct. · close');
+      expect(section.textContent).toContain('6/7 mesurées');
+      expect(section.textContent).toContain('5 h 13 manquées');
+      expect(section.textContent).toContain('2 h rattrapées');
+      expect(section.textContent).toContain('3 h 13non rattrapées');
+      expect(section.textContent).not.toContain('à rattraper');
+      expect(screen.getByText('Semaine du 26 oct. · close : 5 h 13 manquées, 2 h rattrapées (nuits plus longues et siestes), 3 h 13 non rattrapées.')).toBeTruthy();
+      // Tendance : la semaine close (193/6 ≈ 32 min par nuit) face à celle d'avant (20 min par nuit).
+      expect(screen.getByText(/12 min de manque en plus par nuit que la semaine d'avant/)).toBeTruthy();
+    });
+
+    it('tout rattrapé ou objectif atteint, en vert ; sans semaine d’avant : pas de tendance', async () => {
+      const s = await statut();
+      const r = render(<CarteSommeil statut={{ ...s, dette_semaine: vide, bilans_semaines: [{ ...close, rattrape_min: 320, non_rattrape_min: 0 }] }} />);
+      expect(screen.getByLabelText('Semaine du 26 oct. · close').textContent).toContain('tout rattrapé');
+      expect(screen.queryByText(/par nuit que|comme la semaine/)).toBeNull();
+      r.unmount();
+      render(<CarteSommeil statut={{ ...s, dette_semaine: vide, bilans_semaines: [{ ...close, dette_min: 0, rattrape_min: 0, non_rattrape_min: 0, nuits_total: 6 }] }} />);
+      const section = screen.getByLabelText('Semaine du 26 oct. · close');
+      expect(section.textContent).toContain('objectif atteint');
+      expect(section.textContent).not.toContain('mesurées');
+    });
+
+    it('dès qu’une nuit de la nouvelle semaine est mesurée : retour à « Cette semaine », comparée à la semaine close', async () => {
+      const s = await statut();
+      const lundi = { ...vide, dette_min: 30, reste_min: 30, nuits_restantes: 6, nuits_mesurees: 1, nuits_total: 1 };
+      render(<CarteSommeil statut={{ ...s, dette_semaine: lundi, bilans_semaines: [close, avant] }} />);
+      expect(screen.queryByLabelText(/Semaine du/)).toBeNull();
+      expect(screen.getByLabelText('Cette semaine').textContent).toContain('30 min à rattraper');
+      expect(screen.getByText('comme la semaine dernière')).toBeTruthy();
+    });
+
+    it('semaine close sans aucune mesure : rien', async () => {
+      const s = await statut();
+      const { container } = render(<CarteSommeil statut={{ ...s, dette_semaine: vide, bilans_semaines: [{ ...close, nuits_mesurees: 0 }] }} />);
+      expect(container.textContent).not.toMatch(/Semaine du|Cette semaine/);
+    });
   });
 
   it('phases dans l’ordre léger, REM, profond, éveil', async () => {

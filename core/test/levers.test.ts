@@ -191,9 +191,9 @@ describe('journal des levers', () => {
     const c = ctx('2026-11-08T12:00:00Z', { leversMesures });
     const j = journalDesLevers(c, '2026-11-08', { '2026-11-04': '2026-11-04T05:50:00Z' });
     expect(j.jours.map((x) => x.date)).toEqual(['2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05', '2026-11-06', '2026-11-07', '2026-11-08']);
-    expect(j.jours[0]).toEqual({ date: '2026-11-02', prevu: '2026-11-02T04:30:00Z', prevuFige: false, mesure: '2026-11-02T04:32:00Z', ecartMin: 2 });
+    expect(j.jours[0]).toEqual({ date: '2026-11-02', fuseau: 'UTC', prevu: '2026-11-02T04:30:00Z', prevuFige: false, mesure: '2026-11-02T04:32:00Z', ecartMin: 2 });
     expect(j.jours[1]).toMatchObject({ mesure: null, ecartMin: null });
-    expect(j.jours[2]).toEqual({ date: '2026-11-04', prevu: '2026-11-04T05:50:00Z', prevuFige: true, mesure: '2026-11-04T06:10:00Z', ecartMin: 20 });
+    expect(j.jours[2]).toEqual({ date: '2026-11-04', fuseau: 'UTC', prevu: '2026-11-04T05:50:00Z', prevuFige: true, mesure: '2026-11-04T06:10:00Z', ecartMin: 20 });
     expect(j.amplitude).toEqual({ plusTot: '2026-11-02T04:32:00Z', plusTard: '2026-11-04T06:10:00Z', ecartMin: 98, mesures: 3 });
     expect(j.limiteMin).toBe(120);
   });
@@ -216,9 +216,9 @@ describe('journal des couchers (affichage seul)', () => {
     const c = ctx('2026-11-08T12:00:00Z');
     const j = journalDesCouchers(c, '2026-11-08', endormissements, figes);
     expect(j.nuits.map((x) => x.nuit)).toEqual(['2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05', '2026-11-06', '2026-11-07']);
-    expect(j.nuits[0]).toEqual({ nuit: '2026-11-01', prevu: '2026-11-01T20:00:00Z', prevuFige: false, mesure: '2026-11-01T23:30:00Z', ecartMin: 210 });
+    expect(j.nuits[0]).toEqual({ nuit: '2026-11-01', fuseau: 'UTC', prevu: '2026-11-01T20:00:00Z', prevuFige: false, mesure: '2026-11-01T23:30:00Z', ecartMin: 210 });
     expect(j.nuits[1]).toMatchObject({ prevu: '2026-11-02T20:00:00Z', mesure: null, ecartMin: null });
-    expect(j.nuits[2]).toEqual({ nuit: '2026-11-03', prevu: '2026-11-03T21:00:00Z', prevuFige: true, mesure: '2026-11-04T00:30:00Z', ecartMin: 210 });
+    expect(j.nuits[2]).toEqual({ nuit: '2026-11-03', fuseau: 'UTC', prevu: '2026-11-03T21:00:00Z', prevuFige: true, mesure: '2026-11-04T00:30:00Z', ecartMin: 210 });
     expect(j.nuits[3]).toMatchObject({ ecartMin: 10 });
     // Le prévu recalculé est le coucher prévu du moteur, inchangé.
     for (const x of j.nuits.filter((n) => !n.prevuFige)) expect(x.prevu).toBe(journee(c, x.nuit).coucherPrevu);
@@ -361,5 +361,29 @@ describe('décalage horaire : mesures ignorées après un séjour dans un autre 
     ]);
     expect(j.nuits[0]!.mesure).not.toBeNull();
     expect(j.amplitude).toBeNull();
+  });
+
+  it('chaque jour et chaque nuit portent le fuseau de leur routine (à lire dans ce fuseau)', () => {
+    const c = contexte('2026-11-02T12:00:00Z', { config: cfg });
+    // Levers du 27/10 au 02/11 : séjour jusqu'au 30/10 inclus.
+    expect(journalDesLevers(c, '2026-11-02').jours.map((x) => [x.date, x.fuseau])).toEqual([
+      ['2026-10-27', PARIS],
+      ['2026-10-28', PARIS],
+      ['2026-10-29', PARIS],
+      ['2026-10-30', PARIS],
+      ['2026-10-31', CAYENNE],
+      ['2026-11-01', CAYENNE],
+      ['2026-11-02', CAYENNE],
+    ]);
+    // Nuits du 26/10 au 01/11 : celle du 30/10 (soir à Paris) est en heure de Paris.
+    expect(journalDesCouchers(c, '2026-11-02', {}).nuits.map((x) => [x.nuit, x.fuseau])).toEqual([
+      ['2026-10-26', PARIS],
+      ['2026-10-27', PARIS],
+      ['2026-10-28', PARIS],
+      ['2026-10-29', PARIS],
+      ['2026-10-30', PARIS],
+      ['2026-10-31', CAYENNE],
+      ['2026-11-01', CAYENNE],
+    ]);
   });
 });

@@ -94,6 +94,7 @@ export interface StatutFil {
   engagements_verifies?: ReponseStatut['engagements_verifies'];
   sautes_semaine?: number;
   seances_mesurees?: ReponseStatut['seances_mesurees'];
+  todoist?: ReponseStatut['todoist'];
 }
 
 export interface TachesFil {
@@ -190,6 +191,7 @@ export function statutDepuisFil(s: StatutFil): ReponseStatut {
     ...(s.engagements_verifies ? { engagements_verifies: s.engagements_verifies } : {}),
     ...(s.sautes_semaine !== undefined ? { sautes_semaine: s.sautes_semaine } : {}),
     ...(s.seances_mesurees !== undefined ? { seances_mesurees: s.seances_mesurees } : {}),
+    ...(s.todoist ? { todoist: s.todoist } : {}),
   };
 }
 

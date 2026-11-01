@@ -150,24 +150,68 @@ function etiquettesDesConditions(c: Condition, acc: Set<string>): void {
   else etiquettesDesConditions(c.pas, acc);
 }
 
-export function etiquettesDeLaConfig(config: Config): string[] {
-  const acc = new Set([config.todoist.etiquettePlanning, config.todoist.etiquetteRecap, ...config.todoist.etiquettesExclues]);
-  for (const mode of Object.values(config.modes)) etiquettesDesConditions(mode.quand, acc);
-  for (const routine of Object.values(config.routines)) {
-    for (const jour of Object.values(routine.jours)) {
-      for (const conditions of Object.values(jour?.conditionsEnPlus ?? {})) conditions.forEach((c) => etiquettesDesConditions(c, acc));
-    }
-  }
-  return [...acc].sort();
+/**
+ * Rôle d'une étiquette dans la config : étiquette du planning, du récap, exclusion globale
+ * (`todoist.etiquettes_exclues`), ou filtre d'une condition de mode (`modes` : les modes concernés).
+ */
+export type UsageEtiquette = 'planning' | 'recap' | 'exclusion' | 'condition';
+
+export interface UsagesEtiquette {
+  usages: UsageEtiquette[];
+  modes: string[];
 }
 
-/** Une fois par jour local : une étiquette mal orthographiée rendrait une condition toujours vraie. */
+/** Toutes les étiquettes citées par la config, avec leurs rôles (pour dire ce qu'une absence casse). */
+export function usagesDesEtiquettes(config: Config): Record<string, UsagesEtiquette> {
+  const res: Record<string, { usages: Set<UsageEtiquette>; modes: Set<string> }> = {};
+  const noter = (e: string, usage: UsageEtiquette, mode?: string) => {
+    const u = (res[e] ??= { usages: new Set(), modes: new Set() });
+    u.usages.add(usage);
+    if (mode) u.modes.add(mode);
+  };
+  noter(config.todoist.etiquettePlanning, 'planning');
+  noter(config.todoist.etiquetteRecap, 'recap');
+  config.todoist.etiquettesExclues.forEach((e) => noter(e, 'exclusion'));
+  const parMode = (mode: string, c: Condition) => {
+    const acc = new Set<string>();
+    etiquettesDesConditions(c, acc);
+    acc.forEach((e) => noter(e, 'condition', mode));
+  };
+  for (const [nom, mode] of Object.entries(config.modes)) parMode(nom, mode.quand);
+  for (const routine of Object.values(config.routines)) {
+    for (const jour of Object.values(routine.jours)) {
+      for (const [mode, conditions] of Object.entries(jour?.conditionsEnPlus ?? {})) conditions.forEach((c) => parMode(mode, c));
+    }
+  }
+  const ORDRE: UsageEtiquette[] = ['planning', 'recap', 'condition', 'exclusion'];
+  return Object.fromEntries(
+    Object.entries(res).map(([e, u]) => [e, { usages: ORDRE.filter((x) => u.usages.has(x)), modes: [...u.modes].sort() }]),
+  );
+}
+
+export function etiquettesDeLaConfig(config: Config): string[] {
+  return Object.keys(usagesDesEtiquettes(config)).sort();
+}
+
+/** Une étiquette manquante est revérifiée au plus tard au bout d'une heure : l'alerte s'efface vite une fois corrigée. */
+const REVERIFIER_MANQUANTES_MS = 60 * 60 * 1000;
+
+/**
+ * Une fois par jour local : une étiquette mal orthographiée rendrait une condition toujours vraie.
+ * Revérifie aussi dès que la config cite d'autres étiquettes, et toutes les heures tant qu'il en manque.
+ */
 export async function verifierEtiquettes(db: D1Database, deps: Dependances, jeton: string, utilisateur: string, contexte: Contexte, maintenant: Date) {
   const aujourdhui = dateLocale(maintenant, deps.moteur.journeeCourante(contexte).fuseau);
-  const derniere = await lireCache<{ date: string }>(db, utilisateur, CLES_CACHE.etiquettes);
-  if (derniere?.valeur.date === aujourdhui) return;
+  const citees = etiquettesDeLaConfig(contexte.config);
+  const derniere = await lireCache<{ date: string; verifie_le?: string; manquantes?: string[]; citees?: string[] }>(db, utilisateur, CLES_CACHE.etiquettes);
+  if (derniere) {
+    const v = derniere.valeur;
+    const memesCitees = v.citees !== undefined && v.citees.join('\n') === citees.join('\n');
+    const manquantesRecentes = (v.manquantes ?? []).length === 0 || (v.verifie_le !== undefined && maintenant.getTime() - ms(v.verifie_le) < REVERIFIER_MANQUANTES_MS);
+    if (v.date === aujourdhui && memesCitees && manquantesRecentes) return;
+  }
   const existantes = new Set(await deps.todoist(jeton).etiquettesExistantes());
-  const manquantes = etiquettesDeLaConfig(contexte.config).filter((e) => !existantes.has(e));
+  const manquantes = citees.filter((e) => !existantes.has(e));
   if (manquantes.length > 0) console.warn(`Étiquettes Todoist absentes (${utilisateur}) : ${manquantes.join(', ')}`);
-  await ecrireCache(db, utilisateur, CLES_CACHE.etiquettes, { date: aujourdhui, verifie_le: versInstant(maintenant), manquantes }, maintenant);
+  await ecrireCache(db, utilisateur, CLES_CACHE.etiquettes, { date: aujourdhui, verifie_le: versInstant(maintenant), manquantes, citees }, maintenant);
 }

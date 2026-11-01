@@ -17,6 +17,14 @@ function scenarioDemande(): 'dette' | undefined {
   return new URLSearchParams(window.location.search).get('scenario') === 'dette' ? 'dette' : undefined;
 }
 
+/** Mode simulé seulement : `?etiquettes_manquantes=planning,recap` affiche l'alerte des étiquettes Todoist. */
+function etiquettesManquantesDemandees(): string[] | undefined {
+  const valeur = new URLSearchParams(window.location.search).get('etiquettes_manquantes');
+  return valeur ? valeur.split(',').filter(Boolean) : undefined;
+}
+
 export function creerApi(jeton: string): ApiFocus {
-  return API_SIMULEE ? creerApiSimulee({ phase: phaseDemandee(), scenario: scenarioDemande() }) : creerApiHttp(jeton);
+  return API_SIMULEE
+    ? creerApiSimulee({ phase: phaseDemandee(), scenario: scenarioDemande(), etiquettesManquantes: etiquettesManquantesDemandees() })
+    : creerApiHttp(jeton);
 }

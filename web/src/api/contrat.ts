@@ -192,6 +192,8 @@ export interface Sieste {
 /** Lever d'un jour : prévu (plan de la veille au soir) et mesuré par la montre. */
 export interface LeverDuJour {
   date: DateLocale;
+  /** Fuseau de la routine de ce jour, dans lequel lire ses heures (voyage) ; absent d'une API plus ancienne. */
+  fuseau?: string;
   prevu: Instant;
   /** Vrai si le prévu a été figé la veille au soir ; faux s'il est recalculé. */
   prevu_fige: boolean;
@@ -217,6 +219,8 @@ export interface RegulariteLevers {
 export interface CoucherDeLaNuit {
   /** Date du soir. */
   nuit: DateLocale;
+  /** Fuseau de la routine du soir, dans lequel lire ses heures (voyage) ; absent d'une API plus ancienne. */
+  fuseau?: string;
   prevu: Instant;
   /** Vrai si le prévu a été figé par la photo de la nuit ; faux s'il est recalculé. */
   prevu_fige: boolean;
@@ -236,6 +240,20 @@ export interface RegulariteCouchers {
   amplitude: { plus_tot: Instant; plus_tard: Instant; ecart_min: number; mesures: number } | null;
   /** Repère : le même écart maximal que les levers (`sommeil.ecart_lever_max`). */
   limite_min: number;
+}
+
+/** À quoi sert une étiquette citée par la config (api/src/planifie.ts, `usagesDesEtiquettes`). */
+export type UsageEtiquette = 'planning' | 'recap' | 'exclusion' | 'condition';
+
+/** État Todoist : étiquettes citées par la config et introuvables dans Todoist (vérifiées par la tâche planifiée). */
+export interface EtatTodoist {
+  /** Dernière fois que les tâches Todoist ont changé. */
+  dernier_changement: Instant | null;
+  /** Dernière vérification des étiquettes ; null si jamais faite. */
+  etiquettes_verifiees_le: Instant | null;
+  etiquettes_manquantes: string[];
+  /** Rôle de chaque étiquette manquante (absent d'une API plus ancienne). */
+  etiquettes_manquantes_detail?: { etiquette: string; usages: UsageEtiquette[]; modes: string[] }[];
 }
 
 /** Moment de la journée, décidé par l'API. */
@@ -321,6 +339,8 @@ export interface ReponseStatut {
   sautes_semaine?: number;
   /** État de la synchro des séances (Hevy) ; null si jamais tentée. */
   seances_mesurees?: { derniere_synchro: Instant | null; erreur: string | null } | null;
+  /** Étiquettes Todoist manquantes (absent d'une API plus ancienne). */
+  todoist?: EtatTodoist;
 }
 
 export interface TacheSession {
