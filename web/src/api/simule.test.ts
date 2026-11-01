@@ -143,7 +143,26 @@ describe('API simulée : sessions', () => {
     const sim = simulation();
     sim.regler('2026-11-03T21:00:00Z');
     const e = await erreurDe(sim.api.ouvrirSession({ appareil: 'pc_linux', tache_id: 't1', apps: ['youtube'] }));
-    expect(e.erreur).toBe('sessions_interdites');
+    expect(e.erreur).toBe('session_impossible');
+  });
+
+  it('session possible ou motif, par appareil ; pc_windows (aucun compte de travail) jamais', async () => {
+    const sim = simulation();
+    const possibilites = async () =>
+      Object.fromEntries((await sim.api.statut()).appareils.map((a) => [a.appareil, [a.session_possible, a.session_motif]]));
+    expect(await possibilites()).toEqual({
+      pc_linux: [true, null],
+      pc_windows: [false, 'aucun compte de travail sur ce PC'],
+      iphone: [true, null],
+    });
+    const e = await erreurDe(sim.api.ouvrirSession({ appareil: 'pc_windows', tache_id: 't1', apps: ['youtube'] }));
+    expect(e.erreur).toBe('session_impossible');
+    sim.regler('2026-11-03T21:00:00Z');
+    expect(await possibilites()).toEqual({
+      pc_linux: [false, "sessions interdites : NIGHT_LOCK jusqu'à 05:30"],
+      pc_windows: [false, 'aucun compte de travail sur ce PC'],
+      iphone: [false, "sessions interdites : NIGHT_LOCK jusqu'à 05:30"],
+    });
   });
 
   it('applique l’attente progressive puis ferme la session sans réponse', async () => {

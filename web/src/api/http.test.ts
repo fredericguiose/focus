@@ -68,6 +68,10 @@ describe('format réel de l’API', () => {
           actions: { bloquer_domaines: ['youtube.com'], verrouiller_session: false, fermer_comptes_hors_travail: true },
           dernier_ping: '2026-11-03T20:58:00Z',
         },
+        {
+          nom: 'pc_windows', type: 'pc_windows', mode: 'WORK', sessions: 'autorisees', raison: 'WORK',
+          session_possible: false, session_motif: 'aucun compte de travail sur ce PC', dernier_ping: null,
+        },
       ],
       sessions: [
         { id: 's1', tache: { id: '1', nom: 'DM' }, appareil: 'pc_linux', apps: ['youtube'], domaines: ['youtube.com'], ouverte_le: '2026-11-03T20:00:00Z', fermee_le: null, question: null },
@@ -79,6 +83,7 @@ describe('format réel de l’API', () => {
     expect(statut.journee.coucherApplique).toBe('2026-11-04T01:00:00Z');
     expect(statut.journee.prixDuReportMin).toBe(20);
     expect(statut.appareils[0]).toMatchObject({ appareil: 'pc_linux', vu_le: '2026-11-03T20:58:00Z' });
+    expect(statut.appareils[1]).toMatchObject({ session_possible: false, session_motif: 'aucun compte de travail sur ce PC' });
     expect(statut.sessions.map((s) => s.id)).toEqual(['s1']);
     expect(statut.sessions_du_jour).toEqual({ cumul_min: 30, plafond_min: 180 });
   });
@@ -108,6 +113,8 @@ describe('format réel de l’API', () => {
     expect(statut.actions?.decaler_coucher.mode).toBe('libre');
     expect(statut.engagements_demain?.[0]).toMatchObject({ id: 'salle', annulable: true, decalable: false });
     expect(statut.appareils[0]?.jusqua).toBe('2026-11-03T23:20:00Z');
+    // API sans session_possible : repli sur `sessions`.
+    expect(statut.appareils[0]).toMatchObject({ session_possible: true, session_motif: null });
     expect(statut.dette_cumulee_min).toBe(30);
   });
 
@@ -188,6 +195,8 @@ describe('format réel de l’API', () => {
       mode: 'WORK',
       raison: '',
       sessions: 'autorisees',
+      session_possible: true,
+      session_motif: null,
       vu_le: null,
       actions: { bloquer_domaines: Object.keys(apps), verrouiller_session: false, fermer_comptes_hors_travail: true },
     });

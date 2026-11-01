@@ -13,6 +13,11 @@ export function libelleAppareil(a: Pick<StatutAppareil, 'appareil' | 'type'>): s
   return lisible.charAt(0).toUpperCase() + lisible.slice(1);
 }
 
+/** « PC Windows : aucun compte de travail sur ce PC », pour chaque appareil sans session possible. */
+export function motifsSansSession(appareils: StatutAppareil[]): string[] {
+  return appareils.filter((a) => !a.session_possible).map((a) => `${libelleAppareil(a)} : ${a.session_motif ?? 'session impossible'}`);
+}
+
 export type EtatPing = 'recent' | 'retard' | 'absent';
 
 // Un PC interroge l'API chaque minute, mais l'API n'enregistre le ping que toutes les 5 min :

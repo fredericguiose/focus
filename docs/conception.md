@@ -291,8 +291,15 @@ nuit (table `nuits`, pour l'historique). Une fois par jour : vérifier que les �
 config existent dans Todoist.
 
 ### 4.5 Sessions
-- Ouverture refusée si le mode en vigueur sur l'appareil a `sessions: interdites`, si la tâche
-  est terminée ou créée il y a moins de 15 min, ou si le plafond quotidien (3 h, toutes
+- **Session possible** sur un appareil seulement si (1) le mode en vigueur sur l'appareil a
+  `sessions: autorisees`, (2) ce mode bloque au moins une app sur l'appareil (domaines pour un
+  PC, identifiants pour l'iPhone) et (3) pour un PC, l'appareil a au moins un compte de travail.
+  Sinon, motif dans cet ordre : « aucun compte de travail sur ce PC », « sessions interdites :
+  <mode> jusqu'à HH:MM » (fin du segment en cours, heure locale), « rien n'est bloqué en ce
+  moment ». Ex. : `pc_windows` (aucun compte de travail) n'a jamais de session possible.
+- Ouverture et ajout d'une app à une session refusés (409 `session_impossible`, avec `appareil`,
+  `mode`, `motif`) si la session n'est pas possible sur l'appareil. Ouverture refusée aussi si
+  la tâche est terminée ou créée il y a moins de 15 min, ou si le plafond quotidien (3 h, toutes
   sessions de la journée) est atteint.
 - Questions : la première à ouverture + intervalle (25 min PC, 10 min iPhone, réglable) ; puis
   après chaque « continue », + intervalle. `expire_a` = `posee_a` + 60 s (+ `attente_s`).
@@ -320,7 +327,8 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   ],
   "nuits": [ { "nuit": "YYYY-MM-DD", "dette_min": number } ],
   "dette_cumulee_min": number,
-  "appareils": [ { "nom", "type", "mode", "sessions", "raison", "actions", "apps_bloquees",
+  "appareils": [ { "nom", "type", "mode", "sessions", "session_possible": bool,
+                   "session_motif": string | null, "raison", "actions", "apps_bloquees",
                    "dernier_ping", "jusqua": "…Z" } ],
   "sessions": [ … ], "sessions_du_jour": { "cumul_min", "plafond_min" }, "todoist": { … }
 }
@@ -338,6 +346,9 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   `journee(D).detteNuitMin` recalculée par le moteur avec la config active et les exceptions
   enregistrées ; `dette_cumulee_min` = leur somme.
 - `appareils[].jusqua` : fin du segment en cours du planning de l'appareil (`planifier(…)[0].fin`).
+- `appareils[].session_possible` / `session_motif` : la règle de §4.5 ; `session_motif` est null
+  quand la session est possible. La web app ne propose à l'ouverture que les appareils où elle
+  l'est et, s'il n'y en a aucun, affiche le motif de chacun.
 
 ## 5. Client PC (Go)
 

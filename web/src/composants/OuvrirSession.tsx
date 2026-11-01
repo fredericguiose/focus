@@ -16,9 +16,8 @@ import { type ErreurFocus, versErreurFocus } from '@/api/erreur';
 import { useAppsBloquees } from '@/hooks/useAppsBloquees';
 import { useCompteARebours } from '@/hooks/useCompteARebours';
 import { useFocus, useHeureServeur, useStatut } from '@/hooks/useFocus';
-import { libelleAppareil } from '@/lib/appareils';
+import { libelleAppareil, motifsSansSession } from '@/lib/appareils';
 import { ATTENTE_OUVERTURE_S, tacheEligible } from '@/lib/attente';
-import { infoMode } from '@/lib/modes';
 import { formaterHeure } from '@/lib/temps';
 import { cn } from '@/lib/utils';
 import { ErreurAffichee } from './ErreurAffichee';
@@ -40,7 +39,8 @@ export function OuvrirSession({ surTermine }: { surTermine?: () => void }) {
   const maintenant = useHeureServeur();
   const fuseau = statut.journee.fuseau;
 
-  const [appareil, setAppareil] = useState(() => (statut.appareils.find((a) => a.sessions === 'autorisees') ?? statut.appareils[0])?.appareil ?? '');
+  const possibles = statut.appareils.filter((a) => a.session_possible);
+  const [appareil, setAppareil] = useState(() => possibles[0]?.appareil ?? '');
   const [taches, setTaches] = useState<TacheSession[] | null>(null);
   const [tacheId, setTacheId] = useState<string>('');
   const [apps, setApps] = useState<string[]>([]);
@@ -59,8 +59,8 @@ export function OuvrirSession({ surTermine }: { surTermine?: () => void }) {
     void chargerTaches();
   }, [chargerTaches]);
 
-  const etat = statut.appareils.find((a) => a.appareil === appareil);
-  const autorisees = etat?.sessions === 'autorisees';
+  const etat = possibles.find((a) => a.appareil === appareil);
+  const autorisees = etat !== undefined;
   const { apps: appsBloquees, erreur: erreurApps } = useAppsBloquees(autorisees ? etat : undefined);
   const tache = taches?.find((t) => t.id === tacheId);
   const pret = autorisees && tache !== undefined && tacheEligible(tache, maintenant) && apps.length > 0;
@@ -90,31 +90,38 @@ export function OuvrirSession({ surTermine }: { surTermine?: () => void }) {
       <fieldset disabled={occupe} className="grid gap-6 disabled:opacity-70">
         <div className="grid gap-2">
           <Label htmlFor="session-appareil">Appareil</Label>
-          <Select
-            value={appareil}
-            onValueChange={(v) => {
-              setAppareil(v);
-              setApps([]);
-            }}
-            disabled={occupe}
-          >
-            <SelectTrigger id="session-appareil" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {statut.appareils.map((a) => (
-                <SelectItem key={a.appareil} value={a.appareil}>
-                  {libelleAppareil(a)}
-                  {a.sessions === 'interdites' ? <span className="text-muted-foreground"> · sessions interdites</span> : null}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {etat && !autorisees ? (
-            <p className="text-destructive flex items-center gap-1.5 text-xs">
-              <Lock className="size-3.5" /> Sessions interdites en ce moment ({infoMode(etat.mode).libelle.toLowerCase()}).
-            </p>
-          ) : null}
+          {possibles.length === 0 ? (
+            <div className="text-destructive grid gap-1 text-xs">
+              <p className="flex items-center gap-1.5">
+                <Lock className="size-3.5" /> Aucun appareil ne permet une session en ce moment.
+              </p>
+              <ul className="list-disc pl-5">
+                {motifsSansSession(statut.appareils).map((m) => (
+                  <li key={m}>{m}</li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <Select
+              value={appareil}
+              onValueChange={(v) => {
+                setAppareil(v);
+                setApps([]);
+              }}
+              disabled={occupe}
+            >
+              <SelectTrigger id="session-appareil" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {possibles.map((a) => (
+                  <SelectItem key={a.appareil} value={a.appareil}>
+                    {libelleAppareil(a)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </div>
 
         <Section titre="Tâche du jour">
@@ -162,7 +169,7 @@ export function OuvrirSession({ surTermine }: { surTermine?: () => void }) {
 
         <Section titre="Apps à débloquer">
           {!autorisees ? (
-            <p className="text-muted-foreground text-sm">Sessions interdites sur cet appareil en ce moment.</p>
+            <p className="text-muted-foreground text-sm">Aucun appareil ne permet une session en ce moment.</p>
           ) : appsBloquees === null ? (
             erreurApps ? null : <Skeleton className="h-20" />
           ) : appsBloquees.length === 0 ? (

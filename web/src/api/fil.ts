@@ -57,6 +57,8 @@ export interface StatutFil {
     type: TypeAppareil;
     mode: string;
     sessions: 'autorisees' | 'interdites';
+    session_possible?: boolean;
+    session_motif?: string | null;
     raison: string;
     actions?: ActionsPc | ActionsIphone;
     apps_bloquees?: AppBloquee[];
@@ -132,6 +134,8 @@ export function statutDepuisFil(s: StatutFil): ReponseStatut {
         mode: a.mode,
         raison: a.raison,
         sessions: a.sessions,
+        session_possible: a.session_possible ?? a.sessions === 'autorisees',
+        session_motif: a.session_motif ?? null,
         vu_le: a.dernier_ping,
         ...(a.jusqua !== undefined ? { jusqua: a.jusqua } : {}),
         ...(a.actions ? { actions: a.actions } : {}),

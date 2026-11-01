@@ -12,19 +12,26 @@ import { Indicateur } from '@/composants/statut/Indicateur';
 import { OuvrirSession } from '@/composants/OuvrirSession';
 import type { ReponseStatut } from '@/api/contrat';
 import { useHeureServeur, useStatut } from '@/hooks/useFocus';
+import { motifsSansSession } from '@/lib/appareils';
 import { infoMode, raisonLisible } from '@/lib/modes';
 import { formaterDuree, formaterHeureRelative } from '@/lib/temps';
 
-/** Pourquoi aucune session ne peut s'ouvrir, d'après le mode en vigueur (null si une le peut). */
-export function motifSessionsInterdites(statut: ReponseStatut, maintenant: number): { titre: string; detail: string | null } | null {
-  if (statut.appareils.some((a) => a.sessions === 'autorisees')) return null;
+/** Pourquoi aucune session ne peut s'ouvrir (null si un appareil le peut), avec le motif de chaque appareil. */
+export function motifSessionsInterdites(
+  statut: ReponseStatut,
+  maintenant: number,
+): { titre: string; detail: string | null; motifs: string[] } | null {
+  if (statut.appareils.some((a) => a.session_possible)) return null;
+  const motifs = motifsSansSession(statut.appareils);
   const principal = statut.appareils[0];
   const jusqua = principal?.jusqua ? ` — jusqu'à ${formaterHeureRelative(principal.jusqua, statut.journee.fuseau, maintenant)}` : '';
   if (statut.phase === 'nuit' || principal?.mode === 'NIGHT_LOCK') {
-    return { titre: `Sessions interdites pendant la nuit${jusqua}`, detail: 'Aucune app ne peut être débloquée avant le lever.' };
+    return { titre: `Sessions interdites pendant la nuit${jusqua}`, detail: 'Aucune app ne peut être débloquée avant le lever.', motifs };
   }
-  const mode = principal ? infoMode(principal.mode).libelle : 'mode en cours';
-  return { titre: `Sessions interdites : ${mode}${jusqua}`, detail: principal ? raisonLisible(principal.raison) : null };
+  if (principal?.sessions === 'interdites') {
+    return { titre: `Sessions interdites : ${infoMode(principal.mode).libelle}${jusqua}`, detail: raisonLisible(principal.raison), motifs };
+  }
+  return { titre: 'Aucune session possible en ce moment', detail: null, motifs };
 }
 
 export function EcranSessions() {
@@ -52,7 +59,14 @@ export function EcranSessions() {
         <Alert className="border-mode-nuit/40">
           <Lock />
           <AlertTitle className="line-clamp-none">{interdites.titre}</AlertTitle>
-          {interdites.detail ? <AlertDescription>{interdites.detail}</AlertDescription> : null}
+          <AlertDescription>
+            {interdites.detail ? <p>{interdites.detail}</p> : null}
+            <ul className="list-disc pl-4">
+              {interdites.motifs.map((m) => (
+                <li key={m}>{m}</li>
+              ))}
+            </ul>
+          </AlertDescription>
         </Alert>
       ) : null}
 

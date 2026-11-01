@@ -107,6 +107,14 @@ describe('ouverture de session', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  it('ne propose que les appareils où une session est possible (pas pc_windows)', async () => {
+    await preparer();
+    const declencheur = screen.getByRole('combobox', { name: 'Appareil' });
+    fireEvent.keyDown(declencheur, { key: 'Enter' });
+    await vider();
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['PC Linux', 'iPhone']);
+  });
+
   it('« Annuler » pendant l’attente n’envoie rien', async () => {
     const { ouvrir } = await preparer();
     choisir();
@@ -126,5 +134,16 @@ describe('sessions la nuit', () => {
     // Lever du mercredi 05:30 à Paris : fin du mode NIGHT_LOCK donnée par l'API (`jusqua`).
     expect(screen.getByText("Sessions interdites pendant la nuit — jusqu'à mer. 05:30")).toBeTruthy();
     expect(screen.getAllByRole<HTMLButtonElement>('button', { name: /Ouvrir une session/ }).every((b) => b.disabled)).toBe(true);
+  });
+});
+
+describe('soirée libre', () => {
+  it('aucun appareil possible : bouton grisé et motif de chaque appareil', async () => {
+    vi.setSystemTime(new Date('2026-11-03T20:15:00Z'));
+    await rendreAvecFocus(<EcranSessions />, creerApiSimulee({ fuseau: 'Europe/Paris' }));
+    expect(screen.getByText('Aucune session possible en ce moment')).toBeTruthy();
+    expect(screen.getByText("PC Linux : rien n'est bloqué en ce moment")).toBeTruthy();
+    expect(screen.getByText('PC Windows : aucun compte de travail sur ce PC')).toBeTruthy();
+    expect(screen.getAllByRole<HTMLButtonElement>('button', { name: /Ouvrir une session/, hidden: true }).every((b) => b.disabled)).toBe(true);
   });
 });

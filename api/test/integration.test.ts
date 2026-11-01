@@ -74,7 +74,7 @@ describe('intégration : vrai moteur + exemple.yaml', () => {
     expect(planning.statut).toBe(200);
     expect(planning.corps.segments[0]).toMatchObject({ mode: 'MORNING_LOCK', sessions: 'interdites' });
     expect((await appeler('POST', '/v1/sessions', web, { appareil: 'pc_linux', tache_id: 'd', apps: ['chatgpt'] })).corps.erreur).toBe(
-      'sessions_interdites',
+      'session_impossible',
     );
     const statut = await appeler('GET', '/v1/statut', web);
     const iphone = statut.corps.appareils.find((a: { nom: string }) => a.nom === 'iphone');

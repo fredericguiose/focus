@@ -4,7 +4,7 @@ import type { Config, Contexte, Instant, Journee, Moteur, Tache } from '../../co
 import { chargerContexte, nouvelIdentifiant } from './contexte';
 import type { Dependances, JetonAuthentifie } from './env';
 import { ErreurApi, requeteInvalide } from './erreurs';
-import { decaler, ms, versInstant } from './temps';
+import { decaler, heureLocale, ms, versInstant } from './temps';
 import { type Corps, listeDeTextes, texte } from './validation';
 
 type MotifFin = 'fermee' | 'arretee' | 'sans_reponse' | 'tache_terminee';
@@ -211,6 +211,38 @@ export function eligibleLe(config: Config, tache: Tache): Instant {
   return decaler(tache.creeeLe, config.sessions.delaiNouvelleTacheMin * 60);
 }
 
+export interface PossibiliteSession {
+  session_possible: boolean;
+  session_motif: string | null;
+}
+
+/** Règle §4.5 : sessions autorisées, au moins une app bloquée, et (PC) un compte de travail. */
+export function possibiliteSession(moteur: Moteur, contexte: Contexte, appareil: string, etat = moteur.etat(contexte, appareil)): PossibiliteSession {
+  const def = contexte.config.appareils[appareil];
+  const refus = (motif: string) => ({ session_possible: false, session_motif: motif });
+  if (def && def.type !== 'iphone' && def.comptesDeTravail.length === 0) return refus('aucun compte de travail sur ce PC');
+  if (etat.sessions === 'interdites') {
+    const fin = moteur.planifier(contexte, appareil)[0]?.fin;
+    const jusqua = fin ? ` jusqu'à ${heureLocale(new Date(fin), etat.journee.fuseau)}` : '';
+    return refus(`sessions interdites : ${etat.mode}${jusqua}`);
+  }
+  const bloquees = 'bloquer_domaines' in etat.actions ? etat.actions.bloquer_domaines : etat.actions.bloquer_apps;
+  if (bloquees.length === 0) return refus("rien n'est bloqué en ce moment");
+  return { session_possible: true, session_motif: null };
+}
+
+function exigerSessionPossible(moteur: Moteur, contexte: Contexte, appareil: string): void {
+  const etat = moteur.etat(contexte, appareil);
+  const { session_possible, session_motif } = possibiliteSession(moteur, contexte, appareil, etat);
+  if (!session_possible) {
+    throw new ErreurApi(409, 'session_impossible', `Session impossible sur ${appareil} : ${session_motif}.`, {
+      appareil,
+      mode: etat.mode,
+      motif: session_motif,
+    });
+  }
+}
+
 // ─── Points d'entrée ─────────────────────────────────────────────────────────
 
 async function preparer(deps: Dependances, db: D1Database, jeton: JetonAuthentifie) {
@@ -228,10 +260,7 @@ export async function ouvrirSession(deps: Dependances, db: D1Database, jeton: Je
   const apps = listeDeTextes(corps, 'apps', { min: 1 });
   verifierApps(config, apps);
 
-  const etat = deps.moteur.etat(contexte, appareil);
-  if (etat.sessions === 'interdites') {
-    throw new ErreurApi(409, 'sessions_interdites', `Le mode en vigueur (${etat.mode}) interdit les sessions.`, { mode: etat.mode });
-  }
+  exigerSessionPossible(deps.moteur, contexte, appareil);
   const deja = ouvertes.find((s) => s.session.appareil === appareil);
   if (deja) {
     throw new ErreurApi(409, 'session_deja_ouverte', 'Une session est déjà ouverte sur cet appareil : y ajouter l\'app.', {
@@ -357,6 +386,7 @@ export async function ajouterApps(deps: Dependances, db: D1Database, jeton: Jeto
   verifierApps(contexte.config, nouvelles);
   const s = await sessionDuJeton(db, jeton, id);
   if (s.session.fermee_le) throw new ErreurApi(409, 'session_fermee', 'Cette session est fermée.', { motif_fin: s.session.motif_fin });
+  exigerSessionPossible(deps.moteur, contexte, s.session.appareil);
   const apps = [...new Set([...(JSON.parse(s.session.apps) as string[]), ...nouvelles])];
   await db.prepare(`UPDATE sessions SET apps = ? WHERE id = ? AND fermee_le IS NULL`).bind(JSON.stringify(apps), s.session.id).run();
   return vueSession(contexte.config, { ...s, session: { ...s.session, apps: JSON.stringify(apps) } });

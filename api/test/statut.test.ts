@@ -59,6 +59,27 @@ describe('GET /v1/statut : phase, actions, engagements de demain, nuits', () => 
     });
   });
 
+  it('appareils : session possible ou motif (§4.5)', async () => {
+    const possibilites = async () =>
+      Object.fromEntries(
+        (await api.get('/v1/statut', web)).corps.appareils.map((a: { nom: string; session_possible: boolean; session_motif: string | null }) => [
+          a.nom,
+          [a.session_possible, a.session_motif],
+        ]),
+      );
+    expect(await possibilites()).toEqual({
+      pc_linux: [true, null],
+      pc_windows: [false, 'aucun compte de travail sur ce PC'],
+      iphone: [true, null],
+    });
+    horloge.regler('2026-11-03T21:00:00Z');
+    expect(await possibilites()).toEqual({
+      pc_linux: [false, "sessions interdites : NIGHT_LOCK jusqu'à 05:30"],
+      pc_windows: [false, 'aucun compte de travail sur ce PC'],
+      iphone: [false, "sessions interdites : NIGHT_LOCK jusqu'à 05:30"],
+    });
+  });
+
   it('engagements de demain : routine et exceptions appliquées', async () => {
     expect((await api.get('/v1/statut', web)).corps.engagements_demain).toEqual([
       { id: 'sport', nom: 'Sport', reveil: '2026-11-04T04:30:00Z', heure: '2026-11-04T05:00:00Z', annulable: true, decalable: true, origine: 'routine' },

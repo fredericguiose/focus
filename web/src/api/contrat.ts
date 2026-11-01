@@ -39,6 +39,9 @@ export interface StatutAppareil {
   /** Phrase lisible : pourquoi ce mode. */
   raison: string;
   sessions: 'autorisees' | 'interdites';
+  /** Une session peut-elle s'ouvrir ici maintenant (§4.5) ; sinon `session_motif` dit pourquoi. */
+  session_possible: boolean;
+  session_motif: string | null;
   /** Fin du mode en cours, donnée par l'API : sert au compte à rebours (jamais déduite). */
   jusqua?: Instant | null;
   /** Dernier appel authentifié de l'appareil (`dernier_ping`, précision 5 min), null s'il n'a jamais appelé. */

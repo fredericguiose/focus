@@ -4,7 +4,7 @@
 // règles visibles par l'interface (§3.4 exceptions, §4.5 sessions) sont reproduites, simplifiées.
 import type { DateLocale, HeureLocale } from '../../../core/src/types';
 import { PHRASE_NUIT, RAISON_MIN, longueurRaison } from '@/lib/decisionNuit';
-import { ajouterJours, dateLocale, formaterDuree, heureLocale, instantLocal, jourDeSemaine, versInstant } from '@/lib/temps';
+import { ajouterJours, dateLocale, formaterDuree, formaterHeure, heureLocale, instantLocal, jourDeSemaine, versInstant } from '@/lib/temps';
 import type {
   ActionsStatut,
   ApiFocus,
@@ -311,6 +311,20 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
   }
 
   function etatAppareil(appareil: string, type: TypeAppareil, t: number): StatutAppareil {
+    const etat = etatSansPossibilite(appareil, type, t);
+    const motif =
+      type === 'pc_windows'
+        ? 'aucun compte de travail sur ce PC'
+        : etat.sessions === 'interdites'
+          ? `sessions interdites : ${etat.mode}${etat.jusqua ? ` jusqu'à ${formaterHeure(etat.jusqua, fuseau)}` : ''}`
+          : (etat.apps_bloquees ?? []).length === 0
+            ? "rien n'est bloqué en ce moment"
+            : null;
+    return { ...etat, session_possible: motif === null, session_motif: motif };
+  }
+
+  // Comme dans l'exemple de config : pc_windows n'a aucun compte de travail.
+  function etatSansPossibilite(appareil: string, type: TypeAppareil, t: number): Omit<StatutAppareil, 'session_possible' | 'session_motif'> {
     const date = dateCourante(t);
     const coucher = coucherApplique(date, exceptions);
     if (t >= coucher) {
@@ -350,6 +364,12 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
       vu_le: vuLe(appareil, t),
       apps_bloquees: appsPour(type, BLOQUEES_WORK),
     };
+  }
+
+  function exigerSessionPossible(appareil: StatutAppareil) {
+    if (!appareil.session_possible) {
+      throw new ErreurFocus('session_impossible', `Session impossible : ${appareil.session_motif}.`, 409);
+    }
   }
 
   function trouverAppareil(appareil: string, t: number): StatutAppareil {
@@ -534,9 +554,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
         const t = maintenant();
         avancer(t);
         const appareil = trouverAppareil(corps.appareil, t);
-        if (appareil.sessions === 'interdites') {
-          throw new ErreurFocus('sessions_interdites', `Sessions interdites en ce moment (${appareil.mode}).`, 409);
-        }
+        exigerSessionPossible(appareil);
         const tache = taches.find((x) => x.id === corps.tache_id);
         if (!tache) throw new ErreurFocus('tache_inconnue', 'Tâche introuvable ou déjà terminée.', 404);
         const eligibleLe = tache.creeeLe + DELAI_NOUVELLE_TACHE_MIN * MINUTE;
@@ -572,6 +590,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
         avancer(t);
         const s = trouverSession(sessionId);
         const appareil = trouverAppareil(s.session.appareil, t);
+        exigerSessionPossible(appareil);
         if (!(appareil.apps_bloquees ?? []).some((a) => a.id === app)) {
           throw new ErreurFocus('app_invalide', "Cette app n'est pas bloquée sur cet appareil.", 400);
         }

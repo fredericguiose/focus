@@ -54,7 +54,30 @@ describe('sessions (§4.5)', () => {
     horloge.regler('2026-11-03T21:00:00Z');
     const r = await api.post('/v1/sessions', web, OUVERTURE);
     expect(r.statut).toBe(409);
-    expect(r.corps).toMatchObject({ erreur: 'sessions_interdites', mode: 'NIGHT_LOCK' });
+    expect(r.corps).toMatchObject({
+      erreur: 'session_impossible',
+      mode: 'NIGHT_LOCK',
+      motif: "sessions interdites : NIGHT_LOCK jusqu'à 05:30",
+    });
+  });
+
+  it('refuse sur un PC sans compte de travail, quel que soit le mode', async () => {
+    const r = await api.post('/v1/sessions', web, { ...OUVERTURE, appareil: 'pc_windows' });
+    expect(r.statut).toBe(409);
+    expect(r.corps).toMatchObject({ erreur: 'session_impossible', motif: 'aucun compte de travail sur ce PC' });
+  });
+
+  it('refuse quand rien n\'est bloqué (soirée libre) ; ajouter une app aussi', async () => {
+    horloge.regler('2026-11-03T18:20:00Z');
+    const s = await ouvrir();
+    await poserTaches([tache({ id: '1', contenu: 'DM de maths', priorite: 'p3' })]);
+    horloge.regler('2026-11-03T18:35:00Z');
+    const r = await api.post(`/v1/sessions/${s.id}/apps`, web, { app: 'gemini' });
+    expect(r.statut).toBe(409);
+    expect(r.corps).toMatchObject({ erreur: 'session_impossible', mode: 'EVENING_FREE', motif: "rien n'est bloqué en ce moment" });
+    await api.post(`/v1/sessions/${s.id}/fermer`, web);
+    const iphone = await api.post('/v1/sessions', web, { ...OUVERTURE, appareil: 'iphone' });
+    expect(iphone.corps).toMatchObject({ erreur: 'session_impossible', motif: "rien n'est bloqué en ce moment" });
   });
 
   it('refuse une tâche terminée, trop récente ou inconnue', async () => {
