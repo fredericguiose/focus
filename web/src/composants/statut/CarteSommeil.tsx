@@ -1,4 +1,4 @@
-import { BedDouble, Moon, Watch } from 'lucide-react';
+import { BedDouble, CircleCheck, Moon, Sun, TrendingDown, TrendingUp, Watch } from 'lucide-react';
 import { Bar, BarChart, Cell, ReferenceLine, XAxis, YAxis } from 'recharts';
 
 import { Badge } from '@/components/ui/badge';
@@ -208,6 +208,9 @@ export function CarteSommeil({ statut }: { statut: ReponseStatut }) {
   const ecartTotal = mesurees.reduce((t, n) => t + dormi(n)! - objectif, 0) + siestesTotal;
   const total = ecartEnMots(ecartTotal, ' au total');
   const rattrape = siestesTotal > 0 ? `, dont ${formaterDuree(siestesTotal)} ${rattrapee(siestesTotal)} en sieste${nbSiestes > 1 ? 's' : ''}` : '';
+  const IconeTotal = Math.abs(ecartTotal) <= TOLERANCE_MIN ? CircleCheck : ecartTotal < 0 ? TrendingDown : TrendingUp;
+  const libelleTotal =
+    Math.abs(ecartTotal) <= TOLERANCE_MIN ? 'objectif atteint' : `${formaterDuree(ecartTotal)} ${ecartTotal < 0 ? 'manquantes' : 'en plus'}`;
   const tardive = statut.sieste_tardive ?? null;
 
   return (
@@ -245,16 +248,27 @@ export function CarteSommeil({ statut }: { statut: ReponseStatut }) {
           <section className="grid gap-2" aria-label={`${nuits.length} dernières nuits`}>
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-sm">
               <span className="text-muted-foreground">{nuits.length} dernières nuits</span>
-              <span className={cn('font-medium', total.classe)}>
-                {total.texte}
-                {rattrape}
-                {mesurees.length < nuits.length ? (
-                  <span className="text-muted-foreground font-normal">
-                    {' '}
-                    ({mesurees.length} {mesurees.length > 1 ? 'nuits mesurées' : 'nuit mesurée'})
-                  </span>
-                ) : null}
+              {mesurees.length < nuits.length ? (
+                <span className="text-muted-foreground text-xs">
+                  {mesurees.length}/{nuits.length} mesurées
+                </span>
+              ) : null}
+            </div>
+            {/* Phrase complète pour les lecteurs d'écran ; à l'écran, deux pastilles courtes. */}
+            <p className="sr-only">
+              {total.texte}
+              {rattrape}
+            </p>
+            <div className="flex flex-wrap items-center gap-2 text-sm" aria-hidden>
+              <span className={cn('bg-muted/60 flex items-center gap-1.5 rounded-md px-2 py-1 font-medium tabular-nums', total.classe)} title="Écart à l'objectif sur les nuits mesurées, siestes comprises">
+                <IconeTotal className="size-4 shrink-0" /> {libelleTotal}
               </span>
+              {siestesTotal > 0 ? (
+                <span className="bg-muted/60 flex items-center gap-1.5 rounded-md px-2 py-1 font-medium tabular-nums" title="Siestes comptées dans le total">
+                  <Sun className="size-4 shrink-0" style={{ color: 'var(--sommeil-sieste)' }} /> {formaterDuree(siestesTotal)}
+                  <span className="text-muted-foreground font-normal">de sieste</span>
+                </span>
+              ) : null}
             </div>
             <GraphiqueNuits nuits={nuits} objectif={objectif} aujourdhui={statut.journee.date} siestesDuJour={statut.siestes_du_jour_min ?? 0} />
           </section>

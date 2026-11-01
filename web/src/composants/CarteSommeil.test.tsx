@@ -31,7 +31,10 @@ describe('carte « Sommeil »', () => {
     expect(screen.getByText('7 dernières nuits')).toBeTruthy();
     // 450 + 385 + 465 + 355 + 420 + 458 = 2533 min de nuit + 60 + 45 min de sieste, pour 6 × 480 = 2880.
     expect(screen.getByText(/^4 h 02 de moins au total, dont 1 h 45 rattrapée en siestes/)).toBeTruthy();
-    expect(screen.getByText('(6 nuits mesurées)')).toBeTruthy();
+    // À l'écran : deux pastilles courtes.
+    expect(screen.getByText(/4 h 02 manquantes/)).toBeTruthy();
+    expect(screen.getByText('de sieste')).toBeTruthy();
+    expect(screen.getByText('6/7 mesurées')).toBeTruthy();
     expect(screen.queryByText(/incompl/)).toBeNull();
     expect(screen.getByText(/pas de mesure$/, { selector: 'li' })).toBeTruthy();
     const texte = container.textContent ?? '';
@@ -110,6 +113,7 @@ describe('carte « Sommeil »', () => {
     const nuits = s.nuits!.map((n) => ({ ...n, siestes_min: 0, siestes: [] }));
     render(<CarteSommeil statut={{ ...s, nuits, siestes_total_min: 0, siestes_du_jour: [], siestes_du_jour_min: 0 }} />);
     expect(screen.getByText(/^5 h 47 de moins au total/).textContent).not.toMatch(/dont/);
+    expect(screen.queryByText('de sieste')).toBeNull();
     expect(screen.queryByText('sieste')).toBeNull();
   });
 
