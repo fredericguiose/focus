@@ -68,7 +68,7 @@ const A_FAIRE: Partial<Record<ConditionParcours['type'], string>> = {
   retard: 'Retards à rattraper',
 };
 
-/** Le fait qui manque, court ; la précision (« en retard depuis le 8 oct. ») reste en détail. Null pour « par défaut ». */
+/** Le fait qui manque, court ; la précision (« pas de planning fait depuis le 8 oct. ») reste en détail. Null pour « par défaut ». */
 export function phraseManque(c: ConditionParcours): Omit<Manque, 'etat'> | null {
   if (c.type === 'toujours') return null;
   const detail = c.detail && c.detail !== 'à faire' ? c.detail : null;

@@ -131,10 +131,11 @@ describe('expliquer et sortie (§3.7)', () => {
     const planning = (echeance: string) => tache({ etiquettes: ['planning'], echeance, priorite: 'p4' });
     const recap = (echeance: string) => tache({ etiquettes: ['recap'], echeance, priorite: 'p4' });
     expect(detail(ctx([planning('2026-11-02')]), 'MORNING_LOCK')).toBe('à faire');
-    expect(detail(ctx([planning('2026-11-02'), planning('2026-10-08'), planning('2026-10-20')]), 'MORNING_LOCK')).toBe('en retard depuis le 8 oct.');
+    expect(detail(ctx([planning('2026-11-02'), planning('2026-10-08'), planning('2026-10-20')]), 'MORNING_LOCK')).toBe('pas de planning fait depuis le 8 oct.');
+    expect(detail(ctx([planning('2026-11-01')]), 'MORNING_LOCK')).toBe('pas de planning fait hier');
     // Récap d'hier (tolérance 1) : celui d'hier est « à faire », un plus ancien est en retard.
     expect(detail(ctx([recap('2026-11-01')]), 'EVENING_FREE', 2)).toBe('à faire');
-    expect(detail(ctx([recap('2026-11-01'), recap('2026-10-08')]), 'EVENING_FREE', 2)).toBe('en retard depuis le 8 oct.');
+    expect(detail(ctx([recap('2026-11-01'), recap('2026-10-08')]), 'EVENING_FREE', 2)).toBe('pas de récap fait depuis le 8 oct.');
   });
 
   it('appareil inconnu : refusé', () => {

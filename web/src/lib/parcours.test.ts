@@ -58,7 +58,7 @@ describe('parcours de la journée', () => {
 
   it('phrases de ce qui manque : date du retard pour planning et récap, heure sans doublon', () => {
     const c = (type: ConditionParcours['type'], libelle: string, detail: string | null) => ({ type, libelle, vraie: false, detail, a: null });
-    expect(phraseManque(c('planning', 'Planning du matin', 'en retard depuis le 8 oct.'))).toEqual({ texte: 'Planning à faire', detail: 'en retard depuis le 8 oct.' });
+    expect(phraseManque(c('planning', 'Planning du matin', 'pas de planning fait depuis le 8 oct.'))).toEqual({ texte: 'Planning à faire', detail: 'pas de planning fait depuis le 8 oct.' });
     expect(phraseManque(c('recap', "Récap d'hier", 'à faire'))).toEqual({ texte: 'Récap à faire', detail: null });
     expect(phraseManque(c('heure', 'Ouverture à 16:00', '+20 min de report'))).toEqual({ texte: 'Ouverture à 16:00', detail: '+20 min de report' });
     expect(phraseManque(c('toujours', 'Par défaut', null))).toBeNull();

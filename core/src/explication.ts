@@ -99,10 +99,11 @@ function plusAncienne(taches: Tache[]): DateLocale | null {
   return taches.reduce<DateLocale | null>((min, t) => (t.echeance !== null && (min === null || t.echeance < min) ? t.echeance : min), null);
 }
 
-/** Planning et récap : jamais un compte, la date de la plus ancienne échéance non faite. */
-function detailEcheance(taches: Tache[], attendue: DateLocale): string {
+/** Planning et récap : la date depuis laquelle il manque, dite comme on la dirait (01/11, Frédéric). */
+function detailEcheance(taches: Tache[], attendue: DateLocale, quoi: 'planning' | 'récap'): string {
   const d = plusAncienne(taches);
-  return d === null || d >= attendue ? 'à faire' : `en retard depuis le ${dateCourte(d)}`;
+  if (d === null || d >= attendue) return 'à faire';
+  return d === ajouterJours(attendue, -1) ? `pas de ${quoi} fait hier` : `pas de ${quoi} fait depuis le ${dateCourte(d)}`;
 }
 
 /** « 3 tâches restantes dont 2 en retard » (formulation choisie par Frédéric, 01/11). */
@@ -178,7 +179,7 @@ function feuille(condition: Condition, env: Environnement, nie: boolean): Feuill
       fait: 'Planning du matin',
       present: 'le planning du matin est fait',
       futur: 'le planning du matin sera fait',
-      detail: detailEcheance(restant, jour),
+      detail: detailEcheance(restant, jour, 'planning'),
     }, nie);
   }
   if (condition === 'recap_fait') {
@@ -188,7 +189,7 @@ function feuille(condition: Condition, env: Environnement, nie: boolean): Feuill
       fait: majuscule(r),
       present: `le ${r} est fait`,
       futur: `le ${r} sera fait`,
-      detail: detailEcheance(restant, ajouterJours(jour, -config.todoist.recapToleranceJours)),
+      detail: detailEcheance(restant, ajouterJours(jour, -config.todoist.recapToleranceJours), 'récap'),
     }, nie);
   }
   if (condition === 'prioritaires_faites') {
