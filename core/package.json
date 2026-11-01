@@ -1,0 +1,28 @@
+{
+  "name": "@focus/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Moteur de règles de Focus : pur, sans entrée/sortie, testé seul.",
+  "license": "MIT",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
+    "valider": "tsx src/cli-valider.ts"
+  },
+  "dependencies": {
+    "yaml": "2.9.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vitest": "5.0.5"
+  }
+}
