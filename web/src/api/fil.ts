@@ -42,6 +42,7 @@ export interface SessionFil {
   fermee_le?: string | null;
   motif_fin?: string | null;
   question: Question | null;
+  prochaine_question_a?: string | null;
 }
 
 export interface StatutFil {
@@ -60,6 +61,8 @@ export interface StatutFil {
   }[];
   sessions: SessionFil[];
   sessions_du_jour?: { cumul_min: number; plafond_min: number };
+  nuits?: { nuit: string; dette_min: number }[];
+  dette_cumulee_min?: number;
 }
 
 export interface TachesFil {
@@ -106,6 +109,7 @@ function sessionDepuisFil(s: SessionFil): SessionOuverte {
     domaines: s.domaines ?? [],
     ouverte_le: s.ouverte_le,
     question: s.question,
+    ...(s.prochaine_question_a !== undefined ? { prochaine_question_a: s.prochaine_question_a } : {}),
   };
 }
 
@@ -128,6 +132,8 @@ export function statutDepuisFil(s: StatutFil): ReponseStatut {
     ),
     sessions: s.sessions.filter((x) => !x.fermee_le).map(sessionDepuisFil),
     ...(s.sessions_du_jour ? { sessions_du_jour: s.sessions_du_jour } : {}),
+    ...(s.nuits ? { nuits: s.nuits } : {}),
+    ...(s.dette_cumulee_min !== undefined ? { dette_cumulee_min: s.dette_cumulee_min } : {}),
   };
 }
 

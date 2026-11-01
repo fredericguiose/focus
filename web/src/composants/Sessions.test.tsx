@@ -15,12 +15,14 @@ beforeEach(() => {
 const bouton = (nom: string | RegExp) => screen.getByRole<HTMLButtonElement>('button', { name: nom });
 
 describe('question de session', () => {
-  it('« Je continue » attend attente_s ; « J’arrête » est immédiat', async () => {
+  it('s’ouvre d’elle-même ; « Je continue » attend attente_s ; « J’arrête » est immédiat', async () => {
     await rendreAvecFocus(<EcranSessions />, creerApiSimulee({ fuseau: 'Europe/Paris' }));
+    expect(screen.getByRole('dialog', { name: 'Toujours sur « Exercices de probabilités » ?' })).toBeTruthy();
 
     expect(bouton(/Je continue/).disabled).toBe(true);
     expect(bouton(/Je continue/).textContent).toBe('Je continue (4 s)');
     expect(bouton("J'arrête").disabled).toBe(false);
+    expect(screen.getByRole('progressbar', { name: 'Attente avant de continuer' })).toBeTruthy();
 
     await avancer(3_000);
     expect(bouton(/Je continue/).textContent).toBe('Je continue (1 s)');
@@ -32,6 +34,7 @@ describe('question de session', () => {
     fireEvent.click(bouton(/Je continue/));
     await vider();
     expect(screen.queryByRole('button', { name: /Je continue/ })).toBeNull();
+    expect(screen.getByText(/Prochaine question dans/)).toBeTruthy();
   });
 
   it('« J’arrête » ferme la session sans attendre', async () => {
@@ -40,6 +43,16 @@ describe('question de session', () => {
     await vider();
     expect(screen.getByText('Aucune session ouverte.')).toBeTruthy();
   });
+
+  it('se referme sans répondre et se rouvre par « Répondre »', async () => {
+    await rendreAvecFocus(<EcranSessions />, creerApiSimulee({ fuseau: 'Europe/Paris' }));
+    fireEvent.click(bouton('Fermer'));
+    await vider();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(bouton('Répondre'));
+    await vider();
+    expect(screen.getByRole('dialog')).toBeTruthy();
+  });
 });
 
 describe('ouverture de session', () => {
@@ -47,40 +60,56 @@ describe('ouverture de session', () => {
     const api = creerApiSimulee({ fuseau: 'Europe/Paris' });
     const ouvrir = vi.spyOn(api, 'ouvrirSession');
     await rendreAvecFocus(<EcranSessions />, api);
+    // La question de la session de démonstration s'ouvre d'elle-même : on la laisse de côté.
+    fireEvent.click(bouton('Fermer'));
+    await vider();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Ouvrir une session' })[0]!);
+    await vider();
     return { ouvrir };
   }
 
+  const choisir = () => {
+    fireEvent.click(screen.getByRole('radio', { name: /Exercices de probabilités/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'YouTube' }));
+  };
+
   it('grise les tâches non éligibles avec leur heure d’éligibilité', async () => {
     await preparer();
-    const recente = screen.getByRole<HTMLInputElement>('radio', { name: /Relire le chapitre 4/ });
+    const recente = screen.getByRole<HTMLButtonElement>('radio', { name: /Relire le chapitre 4/ });
     expect(recente.disabled).toBe(true);
-    expect(screen.getByText('éligible à 15:10')).toBeTruthy();
-    expect(screen.getByRole<HTMLInputElement>('radio', { name: /Exercices de probabilités/ }).disabled).toBe(false);
+    expect(screen.getByText('dès 15:10')).toBeTruthy();
+    expect(screen.getByRole<HTMLButtonElement>('radio', { name: /Exercices de probabilités/ }).disabled).toBe(false);
   });
 
-  it('n’envoie qu’après 10 s', async () => {
+  it('n’envoie qu’après un compte à rebours de 10 s', async () => {
     const { ouvrir } = await preparer();
     expect(bouton('Ouvrir la session').disabled).toBe(true);
 
-    fireEvent.click(screen.getByRole('radio', { name: /Exercices de probabilités/ }));
-    fireEvent.click(screen.getByRole('checkbox', { name: 'YouTube' }));
+    choisir();
     fireEvent.click(bouton('Ouvrir la session'));
     expect(screen.getByText('Envoi dans 10 s…')).toBeTruthy();
+    const barre = () => screen.getByRole('progressbar', { name: 'Compte à rebours' });
+    expect(barre().getAttribute('aria-valuenow')).toBe('0');
 
-    await avancer(9_000);
+    await avancer(4_000);
+    expect(screen.getByText('Envoi dans 6 s…')).toBeTruthy();
+    expect(barre().getAttribute('aria-valuenow')).toBe('40');
+
+    await avancer(5_000);
     expect(screen.getByText('Envoi dans 1 s…')).toBeTruthy();
     expect(ouvrir).not.toHaveBeenCalled();
 
     await avancer(1_000);
     expect(ouvrir).toHaveBeenCalledTimes(1);
     expect(ouvrir).toHaveBeenCalledWith({ appareil: 'pc_linux', tache_id: 't1', apps: ['youtube'] });
-    expect(screen.getByRole('status').textContent).toContain('Session ouverte');
+    await avancer(50);
+    expect(screen.getByText('Session ouverte')).toBeTruthy();
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('« Annuler » pendant l’attente n’envoie rien', async () => {
     const { ouvrir } = await preparer();
-    fireEvent.click(screen.getByRole('radio', { name: /Exercices de probabilités/ }));
-    fireEvent.click(screen.getByRole('checkbox', { name: 'YouTube' }));
+    choisir();
     fireEvent.click(bouton('Ouvrir la session'));
     await avancer(5_000);
     fireEvent.click(bouton('Annuler'));

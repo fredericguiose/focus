@@ -119,3 +119,18 @@ export function ilYA(instant: Instant | null, maintenantMs: number): string {
   if (heures < 48) return `il y a ${heures} h`;
   return `il y a ${Math.floor(heures / 24)} j`;
 }
+
+/** « dans 1 h 10 », « dans 5 min », « dans moins d'une minute » ; « il y a … » si l'écart est négatif. */
+export function formaterEcart(ecartMs: number): string {
+  const minutes = Math.floor(Math.abs(ecartMs) / MINUTE);
+  if (minutes < 1) return ecartMs >= 0 ? "dans moins d'une minute" : "à l'instant";
+  return ecartMs >= 0 ? `dans ${formaterDuree(minutes)}` : `il y a ${formaterDuree(minutes)}`;
+}
+
+/** « mar. 4 nov. » */
+export function formaterDateCourte(date: DateLocale): string {
+  const [a, m, j] = date.split('-').map(Number);
+  return new Intl.DateTimeFormat('fr-FR', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' }).format(
+    new Date(Date.UTC(a ?? 0, (m ?? 1) - 1, j ?? 1)),
+  );
+}

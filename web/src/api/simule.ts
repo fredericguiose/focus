@@ -31,6 +31,9 @@ const PRIX_DU_REPORT_MIN = 20;
 const ATTENTES_S = [0, 3, 5, 10, 15, 20];
 const EXPIRATION_QUESTION_S = 60;
 const DELAI_NOUVELLE_TACHE_MIN = 15;
+const PLAFOND_SESSIONS_MIN = 180;
+/** Dettes fictives des sept dernières nuits, en minutes (négatif = avance). */
+const DETTES_FICTIVES = [35, -10, 50, 0, 75, 20, -25];
 // La vraie API pose la question après 25 min (PC) ou 10 min (iPhone) ; 30 s suffisent pour essayer.
 const INTERVALLE_QUESTION_SIMULE_S = 30;
 
@@ -387,12 +390,21 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
       servir((): ReponseStatut => {
         const t = maintenant();
         avancer(t);
+        const j = journee(t);
+        const nuits = DETTES_FICTIVES.map((dette_min, i) => ({ nuit: ajouterJours(j.date, i - DETTES_FICTIVES.length), dette_min }));
+        const cumulMin = sessions.reduce((total, s) => total + Math.max(0, Math.round((t - Date.parse(s.session.ouverte_le)) / MINUTE)), 0);
         return {
           heure_serveur: versInstant(t),
           config_version: 'simulee',
-          journee: journee(t),
+          journee: j,
           appareils: APPAREILS.map((a) => etatAppareil(a.appareil, a.type, t)),
-          sessions: sessions.map((s) => s.session),
+          sessions: sessions.map((s) => ({
+            ...s.session,
+            prochaine_question_a: s.prochaineQuestion === null ? null : versInstant(s.prochaineQuestion),
+          })),
+          sessions_du_jour: { cumul_min: Math.min(cumulMin + 35, PLAFOND_SESSIONS_MIN), plafond_min: PLAFOND_SESSIONS_MIN },
+          nuits,
+          dette_cumulee_min: nuits.reduce((total, n) => total + n.dette_min, 0),
         };
       }),
 

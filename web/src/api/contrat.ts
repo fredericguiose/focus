@@ -66,6 +66,14 @@ export interface SessionOuverte {
   domaines: string[];
   ouverte_le: Instant;
   question: Question | null;
+  /** Prochaine question prévue, si l'API la donne (champ optionnel, pas encore renvoyé par l'API réelle). */
+  prochaine_question_a?: Instant | null;
+}
+
+/** Bilan d'une nuit passée : dette positive = moins dormi que la cible. */
+export interface NuitPassee {
+  nuit: string;
+  dette_min: number;
 }
 
 /** GET /v1/statut */
@@ -77,6 +85,10 @@ export interface ReponseStatut {
   sessions: SessionOuverte[];
   /** Cumul des sessions de la journée et plafond quotidien. */
   sessions_du_jour?: { cumul_min: number; plafond_min: number };
+  /** Dernières nuits, de la plus ancienne à la plus récente (optionnel : pas encore renvoyé par l'API réelle). */
+  nuits?: NuitPassee[];
+  /** Dette de sommeil cumulée sur ces nuits (optionnel, idem). */
+  dette_cumulee_min?: number;
 }
 
 export interface TacheSession {

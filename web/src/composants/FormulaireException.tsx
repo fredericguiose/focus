@@ -1,27 +1,33 @@
+import { Loader2, ShieldAlert } from 'lucide-react';
 import { useState } from 'react';
+import { toast } from 'sonner';
 
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import type { DemandeException, Journee, PrixException } from '@/api/contrat';
-import { ErreurFocus, versErreurFocus } from '@/api/erreur';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import type { DemandeException, Journee } from '@/api/contrat';
+import { type ErreurFocus, versErreurFocus } from '@/api/erreur';
+import { useApercuPrix } from '@/hooks/useApercuPrix';
 import { useFocus, useHeureServeur, useStatut } from '@/hooks/useFocus';
 import { validerFriction } from '@/lib/decisionNuit';
 import { ajouterJours, formaterHeure, versInstant } from '@/lib/temps';
 import { ApercuPrix } from './ApercuPrix';
-import { ErreurAffichee, Succes } from './ErreurAffichee';
-import { Champ, Selecteur } from './formulaire';
+import { ChoixDate } from './ChoixDate';
+import { ErreurAffichee } from './ErreurAffichee';
+import { Champ } from './formulaire';
 import { FrictionNuit } from './FrictionNuit';
 
 export type TypeException = DemandeException['type'];
 
 export const LIBELLES_EXCEPTION: Record<TypeException, string> = {
-  ajoute: 'Ajouter un engagement',
-  retire: 'Retirer un engagement',
-  decale: 'Décaler un engagement',
-  coucher: 'Décaler le coucher',
   avancer_coucher: 'Je vais dormir',
+  coucher: 'Décaler le coucher',
+  retire: 'Sauter un engagement',
+  decale: 'Décaler un engagement',
+  ajoute: 'Ajouter un engagement',
 };
-const TYPES = Object.keys(LIBELLES_EXCEPTION) as TypeException[];
 
 export interface Champs {
   type: TypeException;
@@ -82,36 +88,46 @@ export function construireDemande(c: Champs, maintenantMs: number): { demande: D
   }
 }
 
-function ChampsDuType({
-  champs,
-  modifier,
-  journee,
-  maintenantMs,
-}: {
-  champs: Champs;
-  modifier: (patch: Partial<Champs>) => void;
-  journee: Journee;
-  maintenantMs: number;
-}) {
+/** Identité de la demande pour l'aperçu : l'instant de « Je vais dormir » n'en fait pas partie. */
+function cleDemande(c: Champs): string | null {
+  const r = construireDemande(c, 0);
+  return 'manque' in r ? null : JSON.stringify(r.demande);
+}
+
+function ChampHeure({ id, libelle, valeur, surChangement, aide }: { id: string; libelle: string; valeur: string; surChangement: (v: string) => void; aide?: string }) {
+  return (
+    <Champ id={id} libelle={libelle} aide={aide}>
+      <Input id={id} type="time" value={valeur} onChange={(e) => surChangement(e.target.value)} className="tabular-nums" />
+    </Champ>
+  );
+}
+
+function ChampsDuType({ champs, modifier, journee, maintenantMs }: { champs: Champs; modifier: (patch: Partial<Champs>) => void; journee: Journee; maintenantMs: number }) {
   const date = (
     <Champ id="exception-date" libelle="Jour de l'engagement">
-      <Input id="exception-date" type="date" value={champs.date} onChange={(e) => modifier({ date: e.target.value })} />
+      <ChoixDate id="exception-date" valeur={champs.date} surChoix={(date) => modifier({ date })} />
     </Champ>
   );
   const engagement = (
-    <Champ id="exception-engagement" libelle="Engagement" aide="Identifiant de la config, ex. : sport.">
-      <Input
-        id="exception-engagement"
-        list="engagements-connus"
-        value={champs.engagement}
-        onChange={(e) => modifier({ engagement: e.target.value })}
-        autoCapitalize="none"
-      />
-      <datalist id="engagements-connus">
-        {journee.engagements.map((e) => (
-          <option key={e} value={e} />
-        ))}
-      </datalist>
+    <Champ
+      id="exception-engagement"
+      libelle="Engagement"
+      aide={
+        journee.engagements.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span>Aujourd'hui :</span>
+            {journee.engagements.map((e) => (
+              <Badge key={e} asChild variant={champs.engagement === e ? 'default' : 'outline'}>
+                <button type="button" onClick={() => modifier({ engagement: e })}>
+                  {e}
+                </button>
+              </Badge>
+            ))}
+          </div>
+        ) : undefined
+      }
+    >
+      <Input id="exception-engagement" value={champs.engagement} onChange={(e) => modifier({ engagement: e.target.value })} autoCapitalize="none" placeholder="ex. sport" />
     </Champ>
   );
 
@@ -119,29 +135,19 @@ function ChampsDuType({
     case 'ajoute':
       return (
         <>
-          {date}
-          <Champ id="exception-libelle" libelle="Libellé">
-            <Input id="exception-libelle" value={champs.libelle} onChange={(e) => modifier({ libelle: e.target.value })} />
-          </Champ>
-          <div role="radiogroup" aria-label="Forme de l'engagement" className="flex flex-wrap gap-4 text-sm">
-            {(['heure', 'reveil'] as const).map((forme) => (
-              <label key={forme} className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="forme-ajout"
-                  className="accent-primary size-4"
-                  checked={champs.formeAjout === forme}
-                  onChange={() => modifier({ formeAjout: forme })}
-                />
-                {forme === 'heure' ? 'Heure + préparation' : 'Heure de réveil'}
-              </label>
-            ))}
+          <div className="grid gap-4 sm:grid-cols-2">
+            {date}
+            <Champ id="exception-libelle" libelle="Libellé">
+              <Input id="exception-libelle" value={champs.libelle} onChange={(e) => modifier({ libelle: e.target.value })} placeholder="ex. Dentiste" />
+            </Champ>
           </div>
-          {champs.formeAjout === 'heure' ? (
-            <div className="grid grid-cols-2 gap-4">
-              <Champ id="exception-heure" libelle="Heure">
-                <Input id="exception-heure" type="time" value={champs.heure} onChange={(e) => modifier({ heure: e.target.value })} />
-              </Champ>
+          <Tabs value={champs.formeAjout} onValueChange={(v) => (v === 'heure' || v === 'reveil' ? modifier({ formeAjout: v }) : undefined)} className="gap-4">
+            <TabsList className="w-full" aria-label="Forme de l'engagement">
+              <TabsTrigger value="heure">Heure + préparation</TabsTrigger>
+              <TabsTrigger value="reveil">Heure de réveil</TabsTrigger>
+            </TabsList>
+            <TabsContent value="heure" className="grid grid-cols-2 gap-4">
+              <ChampHeure id="exception-heure" libelle="Heure" valeur={champs.heure} surChangement={(heure) => modifier({ heure })} />
               <Champ id="exception-preparation" libelle="Préparation (min)">
                 <Input
                   id="exception-preparation"
@@ -153,12 +159,11 @@ function ChampsDuType({
                   onChange={(e) => modifier({ preparation: e.target.value })}
                 />
               </Champ>
-            </div>
-          ) : (
-            <Champ id="exception-reveil" libelle="Réveil">
-              <Input id="exception-reveil" type="time" value={champs.reveil} onChange={(e) => modifier({ reveil: e.target.value })} />
-            </Champ>
-          )}
+            </TabsContent>
+            <TabsContent value="reveil">
+              <ChampHeure id="exception-reveil" libelle="Réveil" valeur={champs.reveil} surChangement={(reveil) => modifier({ reveil })} />
+            </TabsContent>
+          </Tabs>
         </>
       );
     case 'retire':
@@ -173,96 +178,80 @@ function ChampsDuType({
         <>
           {date}
           {engagement}
-          <Champ id="exception-heure" libelle="Nouvelle heure">
-            <Input id="exception-heure" type="time" value={champs.heure} onChange={(e) => modifier({ heure: e.target.value })} />
-          </Champ>
+          <ChampHeure id="exception-heure" libelle="Nouvelle heure" valeur={champs.heure} surChangement={(heure) => modifier({ heure })} />
         </>
       );
     case 'coucher':
       return (
-        <>
+        <div className="grid grid-cols-2 gap-4">
           <Champ id="exception-nuit" libelle="Nuit du">
-            <Input id="exception-nuit" type="date" value={champs.nuit} onChange={(e) => modifier({ nuit: e.target.value })} />
+            <ChoixDate id="exception-nuit" valeur={champs.nuit} surChoix={(nuit) => modifier({ nuit })} />
           </Champ>
-          <Champ id="exception-heure" libelle="Nouvelle heure de coucher" aide="Une heure après minuit compte pour la nuit commencée la veille.">
-            <Input id="exception-heure" type="time" value={champs.heure} onChange={(e) => modifier({ heure: e.target.value })} />
-          </Champ>
-        </>
+          <ChampHeure id="exception-heure" libelle="Nouvelle heure" valeur={champs.heure} surChangement={(heure) => modifier({ heure })} />
+        </div>
       );
     case 'avancer_coucher':
       return (
-        <p className="text-sm">
-          Le coucher passe à maintenant ({formaterHeure(versInstant(maintenantMs), journee.fuseau)}) : la nuit commence tout de suite.
-          Toujours permis.
-        </p>
+        <div className="bg-mode-nuit/10 border-mode-nuit/30 grid gap-1 rounded-xl border p-4">
+          <span className="text-muted-foreground text-sm">Le coucher passe à maintenant</span>
+          <span className="text-mode-nuit text-3xl font-semibold tabular-nums">{formaterHeure(versInstant(maintenantMs), journee.fuseau)}</span>
+          <span className="text-muted-foreground text-sm">La nuit commence tout de suite. Toujours permis.</span>
+        </div>
       );
   }
 }
 
-export function FormulaireException({ typeImpose, decisionDeNuit = false }: { typeImpose?: TypeException; decisionDeNuit?: boolean }) {
+export function FormulaireException({
+  type,
+  decisionDeNuit = false,
+  libelleValider = "Valider l'exception",
+  surTermine,
+}: {
+  type: TypeException;
+  decisionDeNuit?: boolean;
+  libelleValider?: string;
+  surTermine?: () => void;
+}) {
   const { api, rafraichir } = useFocus();
   const { journee } = useStatut();
   const maintenant = useHeureServeur();
-  const [champs, setChamps] = useState(() => champsInitiaux(journee, typeImpose ?? 'coucher'));
-  const [prix, setPrix] = useState<PrixException | null>(null);
+  const [champs, setChamps] = useState(() => champsInitiaux(journee, type));
   const [raison, setRaison] = useState('');
   const [phrase, setPhrase] = useState('');
   const [enCours, setEnCours] = useState(false);
   const [erreur, setErreur] = useState<ErreurFocus | null>(null);
-  const [succes, setSucces] = useState<string | null>(null);
 
+  const apercu = useApercuPrix(cleDemande(champs), () => {
+    const r = construireDemande(champs, maintenant);
+    return 'demande' in r ? r.demande : null;
+  });
+  const prix = apercu.prix;
   const frictionExigee = decisionDeNuit || prix?.friction === 'raison_phrase';
   const friction = validerFriction(raison, phrase);
   const verrouille = decisionDeNuit && journee.decisionDeNuitPrise;
-  const peutValider = prix !== null && prix.admissible && (!frictionExigee || friction.valide) && !enCours && !verrouille;
+  const peutValider = prix !== null && prix.admissible && (!frictionExigee || friction.valide) && !enCours && !verrouille && !apercu.calcul;
 
   function modifier(patch: Partial<Champs>) {
     setChamps((c) => ({ ...c, ...patch }));
-    setPrix(null);
     setErreur(null);
-    setSucces(null);
-  }
-
-  function demandeSaisie(): DemandeException | null {
-    const r = construireDemande(champs, maintenant);
-    if ('manque' in r) {
-      setErreur(new ErreurFocus('saisie_incomplete', r.manque));
-      return null;
-    }
-    return r.demande;
-  }
-
-  const frictionFournie = () => (frictionExigee && friction.valide ? { raison: raison.trim(), phrase } : undefined);
-
-  async function voirPrix() {
-    const demande = demandeSaisie();
-    if (!demande) return;
-    setEnCours(true);
-    setErreur(null);
-    setSucces(null);
-    try {
-      setPrix(await api.prixException({ demande, friction: frictionFournie() }));
-    } catch (e) {
-      setPrix(null);
-      setErreur(versErreurFocus(e));
-    } finally {
-      setEnCours(false);
-    }
   }
 
   async function valider() {
-    const demande = demandeSaisie();
-    if (!demande) return;
+    const r = construireDemande(champs, maintenant);
+    if ('manque' in r) return;
     setEnCours(true);
     setErreur(null);
     try {
-      await api.enregistrerException({ demande, friction: frictionFournie() });
-      setSucces('Exception enregistrée.');
-      setPrix(null);
+      await api.enregistrerException({
+        demande: r.demande,
+        friction: frictionExigee && friction.valide ? { raison: raison.trim(), phrase } : undefined,
+      });
+      toast.success('Exception enregistrée', { description: LIBELLES_EXCEPTION[champs.type] });
       setRaison('');
       setPhrase('');
       setChamps(champsInitiaux(journee, champs.type));
       await rafraichir();
+      surTermine?.();
     } catch (e) {
       setErreur(versErreurFocus(e));
     } finally {
@@ -271,48 +260,38 @@ export function FormulaireException({ typeImpose, decisionDeNuit = false }: { ty
   }
 
   return (
-    <div className="grid gap-4">
-      <form
-        className="grid gap-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void voirPrix();
-        }}
-      >
-        <fieldset disabled={verrouille || enCours} className="grid gap-4">
-          {typeImpose ? null : (
-            <Champ id="exception-type" libelle="Exception">
-              <Selecteur id="exception-type" value={champs.type} onChange={(e) => modifier({ type: e.target.value as TypeException })}>
-                {TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {LIBELLES_EXCEPTION[t]}
-                  </option>
-                ))}
-              </Selecteur>
-            </Champ>
-          )}
-          <ChampsDuType champs={champs} modifier={modifier} journee={journee} maintenantMs={maintenant} />
-        </fieldset>
-        <Button type="submit" variant="outline" disabled={verrouille || enCours}>
-          {prix ? 'Recalculer le prix' : 'Voir le prix'}
-        </Button>
-      </form>
+    <form
+      className="grid gap-5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (peutValider) void valider();
+      }}
+    >
+      <fieldset disabled={verrouille || enCours} className="grid gap-4">
+        <ChampsDuType champs={champs} modifier={modifier} journee={journee} maintenantMs={maintenant} />
+      </fieldset>
 
-      {prix ? <ApercuPrix prix={prix} fuseau={journee.fuseau} maintenantMs={maintenant} /> : null}
+      <ApercuPrix prix={prix} calcul={apercu.calcul} fuseau={journee.fuseau} maintenantMs={maintenant} />
+      <ErreurAffichee erreur={apercu.erreur} />
 
       {frictionExigee ? (
-        <FrictionNuit raison={raison} phrase={phrase} onRaison={setRaison} onPhrase={setPhrase} desactive={verrouille || enCours} />
-      ) : null}
-
-      <Button type="button" onClick={() => void valider()} disabled={!peutValider}>
-        Valider l'exception
-      </Button>
-      {prix === null && !verrouille ? (
-        <p className="text-muted-foreground text-xs">Le bouton s'active une fois le prix affiché et accepté.</p>
+        <>
+          {decisionDeNuit ? null : (
+            <Alert className="border-avertissement/40 text-avertissement">
+              <ShieldAlert />
+              <AlertTitle>Décision de nuit exigée</AlertTitle>
+              <AlertDescription>La soirée est ouverte : desserrer demande une raison et la phrase exacte, une fois par nuit.</AlertDescription>
+            </Alert>
+          )}
+          <FrictionNuit raison={raison} phrase={phrase} onRaison={setRaison} onPhrase={setPhrase} desactive={verrouille || enCours} />
+        </>
       ) : null}
 
       <ErreurAffichee erreur={erreur} />
-      <Succes message={succes} />
-    </div>
+      <Button type="submit" size="lg" disabled={!peutValider}>
+        {enCours ? <Loader2 className="animate-spin" /> : null}
+        {libelleValider}
+      </Button>
+    </form>
   );
 }
