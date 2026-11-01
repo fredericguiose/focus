@@ -196,7 +196,7 @@ function cleChiffrement() {
   return readFileSync(f, 'utf8').trim();
 }
 
-/** Propriétaire d'un compte (Xiaomi, Hevy) : <PREFIXE>_UTILISATEUR de secrets.env, sinon l'utilisateur de la config privée. */
+/** Propriétaire d'un compte (Todoist, Xiaomi, Hevy) : <PREFIXE>_UTILISATEUR de secrets.env, sinon l'utilisateur de la config privée. */
 function proprietaire(remplie, prefixe) {
   const ligne = remplie(`${prefixe}_UTILISATEUR`);
   if (ligne) return ligne.slice(ligne.indexOf('=') + 1).trim();
@@ -208,7 +208,11 @@ function proprietaire(remplie, prefixe) {
 function secrets() {
   const lignes = existsSync(SECRETS) ? readFileSync(SECRETS, 'utf8').split('\n') : [];
   const remplie = (nom) => lignes.find((l) => new RegExp(`^${nom}=\\S`).test(l));
-  const todoist = remplie('TODOIST_TOKEN');
+  const jetonTodoist = remplie('TODOIST_TOKEN');
+  // Le jeton Todoist ne sert qu'à son propriétaire (TODOIST_UTILISATEUR), comme Xiaomi et Hevy.
+  const proprioTodoist = jetonTodoist ? proprietaire(remplie, 'TODOIST') : null;
+  if (jetonTodoist && !proprioTodoist) info('Sans Todoist : propriétaire du compte inconnu (TODOIST_UTILISATEUR ou config privée).');
+  const todoist = jetonTodoist && proprioTodoist ? `${jetonTodoist}\nTODOIST_UTILISATEUR=${proprioTodoist}` : null;
   let xiaomi = remplie('XIAOMI_USER_ID') && remplie('XIAOMI_PASS_TOKEN') ? ['XIAOMI_USER_ID', 'XIAOMI_PASS_TOKEN', 'XIAOMI_REGION', 'XIAOMI_DEPUIS'].map(remplie).filter(Boolean) : [];
   const proprioXiaomi = xiaomi.length > 0 ? proprietaire(remplie, 'XIAOMI') : null;
   if (xiaomi.length > 0 && !proprioXiaomi) {
@@ -220,7 +224,7 @@ function secrets() {
   const hevy = cleHevy && proprioHevy ? [cleHevy, `HEVY_UTILISATEUR=${proprioHevy}`] : [];
   if (!cleHevy) info('Sans séances Hevy (pas de HEVY_API_KEY dans ~/.config/focus/secrets.env).');
   else if (!proprioHevy) info('Sans séances Hevy : propriétaire du compte inconnu (HEVY_UTILISATEUR ou config privée).');
-  if (!todoist) info('Sans Todoist (pas de TODOIST_TOKEN dans ~/.config/focus/secrets.env).');
+  if (!jetonTodoist) info('Sans Todoist (pas de TODOIST_TOKEN dans ~/.config/focus/secrets.env).');
   if (xiaomi.length === 0 && !remplie('XIAOMI_USER_ID')) info('Sans sommeil Xiaomi (XIAOMI_USER_ID et XIAOMI_PASS_TOKEN vides dans ~/.config/focus/secrets.env).');
   const a = [todoist, ...xiaomi, ...hevy].filter(Boolean);
   if (a.length === 0) return false;
@@ -228,7 +232,7 @@ function secrets() {
   if (ignore.status !== 0) return info('Secrets non copiés : api/.dev.vars n\'est pas ignoré par git.'), false;
   writeFileSync(DEV_VARS, `${a.join('\n')}\n`, { mode: 0o600 });
   chmodSync(DEV_VARS, 0o600);
-  if (todoist) info('Todoist : lecture réelle (jeton dans api/.dev.vars, effacé à l\'arrêt).');
+  if (todoist) info(`Todoist : lecture réelle pour « ${proprioTodoist} » seulement (jeton dans api/.dev.vars, effacé à l'arrêt).`);
   if (xiaomi.length > 0) info(`Sommeil Xiaomi : lecture réelle pour « ${proprioXiaomi} » seulement, une fois par heure (secrets dans api/.dev.vars, effacés à l'arrêt).`);
   if (hevy.length > 0) info(`Séances Hevy : lecture réelle pour « ${proprioHevy} » seulement, une fois par heure (clé dans api/.dev.vars, effacée à l'arrêt).`);
   return true;

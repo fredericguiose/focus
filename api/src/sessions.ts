@@ -1,13 +1,14 @@
 // Sessions de travail (conception §4.5). Rien de calculable n'est stocké : le plafond du jour
 // et le rang des « continue » sont recalculés depuis les tables à chaque demande.
 import type { Config, Contexte, Instant, Journee, Moteur, Tache } from '../../core/src/types';
+import { instructionsInvalider } from './cache';
 import { chargerContexte, nouvelIdentifiant } from './contexte';
 import type { Dependances, JetonAuthentifie } from './env';
 import { ErreurApi, requeteInvalide } from './erreurs';
 import { decaler, heureLocale, ms, versInstant } from './temps';
 import { type Corps, listeDeTextes, texte } from './validation';
 
-type MotifFin = 'fermee' | 'arretee' | 'sans_reponse' | 'tache_terminee';
+type MotifFin = 'fermee' | 'arretee' | 'sans_reponse' | 'tache_terminee' | 'mode_interdit' | 'plafond_atteint';
 
 interface LigneSession {
   id: string;
@@ -46,6 +47,12 @@ export interface VueSession {
   fermee_le: string | null;
   motif_fin: MotifFin | null;
   question: { id: string; posee_a: string; attente_s: number; expire_a: string } | null;
+  /**
+   * Session ouverte : l'instant où elle sera fermée quoi qu'on réponde (plafond quotidien atteint,
+   * ou début d'un mode qui interdit les sessions sur son appareil), dans l'horizon du planning ;
+   * null si rien ne la ferme d'ici là. Le client cesse de libérer ses apps à cet instant.
+   */
+  fin_au_plus_tard: string | null;
 }
 
 const COLONNES_SESSION = `s.id, s.type, s.tache_id, s.tache_nom, s.appareil, s.apps, s.ouverte_le, s.fermee_le, s.motif_fin`;
@@ -79,38 +86,93 @@ function instructionsFermeture(db: D1Database, s: SessionChargee, fin: Instant, 
   return instructions;
 }
 
+/** Horizon dans lequel on cherche le prochain mode qui interdit les sessions (celui du planning). */
+const HORIZON_FIN_H = 36;
+
+/** Secondes de session de travail entre `debut` et `maintenant`, sur les lignes données. */
+function cumulDepuis(lignes: Pick<LigneSession, 'type' | 'ouverte_le' | 'fermee_le'>[], debut: number, maintenant: number): number {
+  const total = lignes.reduce((somme, s) => {
+    if (s.type !== 'travail') return somme;
+    const fin = Math.min(s.fermee_le ? ms(s.fermee_le) : maintenant, maintenant);
+    return somme + Math.max(0, fin - Math.max(ms(s.ouverte_le), debut));
+  }, 0);
+  return Math.floor(total / 1000);
+}
+
+/** Premier instant ≥ `depuis` où le mode de l'appareil interdit les sessions, selon le planning calculé à `depuis`. */
+function debutInterdiction(moteur: Moteur, contexte: Contexte, appareil: string, depuis: number, horizonH: number): number | null {
+  if (!contexte.config.appareils[appareil]) return depuis;
+  const segments = moteur.planifier({ ...contexte, maintenant: versInstant(depuis) }, appareil, Math.max(horizonH, 1 / 60));
+  const interdit = segments.find((g) => g.sessions === 'interdites');
+  return interdit ? Math.max(ms(interdit.debut), depuis) : null;
+}
+
+export interface Fermetures {
+  /** Sessions encore ouvertes. */
+  restantes: SessionChargee[];
+  /** Fin au plus tard de chaque session restante (id → instant ou null). */
+  fins: Map<string, string | null>;
+}
+
 /**
- * Ferme les sessions dont la question a expiré sans réponse, ou dont la tâche est terminée.
- * Appelée par la tâche planifiée et avant chaque lecture : le résultat ne dépend pas de qui
- * passe en premier. Renvoie les sessions encore ouvertes.
+ * Ferme les sessions dont la question a expiré sans réponse, dont la tâche est terminée, dont
+ * l'appareil est passé dans un mode qui interdit les sessions (nuit, matin verrouillé), ou qui
+ * ont atteint le plafond quotidien. Appelée par la tâche planifiée et avant chaque lecture : le
+ * résultat ne dépend pas de qui passe en premier. Renvoie les sessions encore ouvertes et, pour
+ * chacune, l'instant où elle sera fermée quoi qu'il arrive (`fin_au_plus_tard`).
  */
-export async function cloturerEchues(db: D1Database, utilisateur: string, maintenant: Date, taches: Tache[]): Promise<SessionChargee[]> {
-  const ouvertes = await chargerSessions(db, utilisateur, 's.fermee_le IS NULL', []);
-  const terminees = new Map(taches.filter((t) => t.terminee).map((t) => [t.id, t]));
+export async function cloturerEchues(db: D1Database, moteur: Moteur, contexte: Contexte, utilisateur: string, maintenant: Date): Promise<Fermetures> {
+  const t = maintenant.getTime();
+  const journee = moteur.journeeCourante(contexte);
+  const lever = ms(journee.lever);
+  const lues = await chargerSessions(db, utilisateur, 's.fermee_le IS NULL OR s.fermee_le > ?', [journee.lever]);
+  const ouvertes = lues.filter((s) => s.session.fermee_le === null);
+  const terminees = new Map(contexte.faits.taches.filter((x) => x.terminee).map((x) => [x.id, x]));
+  const plafondS = contexte.config.sessions.plafondQuotidienMin * 60;
+  // Plafond : le cumul du jour avance d'autant de secondes par seconde qu'il y a de sessions de travail ouvertes.
+  const enCours = ouvertes.filter((s) => s.session.type === 'travail' && ms(s.session.ouverte_le) <= t);
+  const resteS = plafondS - cumulDepuis(lues.map((x) => x.session), lever, t);
+  const plafondA = enCours.length === 0 ? null : t + (resteS * 1000) / enCours.length;
+
   const instructions: D1PreparedStatement[] = [];
   const restantes: SessionChargee[] = [];
+  const fins = new Map<string, string | null>();
   for (const s of ouvertes) {
-    const fins: { fin: number; motif: MotifFin }[] = [];
-    if (s.question && maintenant.getTime() >= ms(s.question.expire_a)) {
-      fins.push({ fin: ms(s.question.expire_a), motif: 'sans_reponse' });
+    const ouverture = ms(s.session.ouverte_le);
+    const candidates: { fin: number; motif: MotifFin }[] = [];
+    if (s.question && t >= ms(s.question.expire_a)) {
+      candidates.push({ fin: ms(s.question.expire_a), motif: 'sans_reponse' });
     }
     const tache = s.session.tache_id ? terminees.get(s.session.tache_id) : undefined;
     if (tache) {
-      const termineeLe = tache.termineeLe ? Math.min(ms(tache.termineeLe), maintenant.getTime()) : maintenant.getTime();
-      fins.push({ fin: Math.max(termineeLe, ms(s.session.ouverte_le)), motif: 'tache_terminee' });
+      const termineeLe = tache.termineeLe ? Math.min(ms(tache.termineeLe), t) : t;
+      candidates.push({ fin: Math.max(termineeLe, ouverture), motif: 'tache_terminee' });
     }
-    if (fins.length === 0) {
+    const travail = s.session.type === 'travail' && ouverture <= t;
+    if (travail && plafondA !== null && plafondA <= t) candidates.push({ fin: Math.max(plafondA, ouverture), motif: 'plafond_atteint' });
+    // Mode qui interdit les sessions maintenant : la session finit au début de l'interdiction.
+    const interditMaintenant = !contexte.config.appareils[s.session.appareil] || moteur.etat(contexte, s.session.appareil).sessions === 'interdites';
+    if (interditMaintenant) {
+      const depuis = Math.min(ouverture, t);
+      const debut = debutInterdiction(moteur, contexte, s.session.appareil, depuis, (t - depuis) / 3_600_000 + 1 / 60);
+      candidates.push({ fin: Math.min(debut ?? t, t), motif: 'mode_interdit' });
+    }
+    if (candidates.length === 0) {
       restantes.push(s);
+      const prochaine = debutInterdiction(moteur, contexte, s.session.appareil, t, HORIZON_FIN_H);
+      const finPlafond = travail && plafondA !== null ? plafondA : null;
+      const fin = [prochaine, finPlafond].filter((x): x is number => x !== null);
+      fins.set(s.session.id, fin.length > 0 ? versInstant(Math.ceil(Math.min(...fin) / 1000) * 1000) : null);
       continue;
     }
-    const premiere = fins.reduce((a, b) => (b.fin < a.fin ? b : a));
-    instructions.push(...instructionsFermeture(db, s, versInstant(premiere.fin), premiere.motif));
+    const premiere = candidates.reduce((a, b) => (b.fin < a.fin ? b : a));
+    instructions.push(...instructionsFermeture(db, s, versInstant(Math.floor(premiere.fin / 1000) * 1000), premiere.motif));
   }
-  if (instructions.length > 0) await db.batch(instructions);
-  return restantes;
+  if (instructions.length > 0) await db.batch([...instructions, ...instructionsInvalider(db, utilisateur)]);
+  return { restantes, fins };
 }
 
-export function vueSession(config: Config, s: SessionChargee): VueSession {
+export function vueSession(config: Config, s: SessionChargee, finAuPlusTard: string | null = null): VueSession {
   const apps = JSON.parse(s.session.apps) as string[];
   const iphone = config.appareils[s.session.appareil]?.type === 'iphone';
   const catalogue = apps.map((id) => config.apps[id]).filter((a) => a !== undefined);
@@ -127,6 +189,7 @@ export function vueSession(config: Config, s: SessionChargee): VueSession {
     fermee_le: s.session.fermee_le,
     motif_fin: s.session.motif_fin,
     question: s.question && !s.session.fermee_le ? { ...s.question } : null,
+    fin_au_plus_tard: s.session.fermee_le ? null : finAuPlusTard,
   };
 }
 
@@ -268,8 +331,8 @@ function exigerSessionPossible(moteur: Moteur, contexte: Contexte, appareil: str
 async function preparer(deps: Dependances, db: D1Database, jeton: JetonAuthentifie) {
   const maintenant = deps.maintenant();
   const { contexte, version } = await chargerContexte(db, jeton.utilisateur, maintenant);
-  const ouvertes = await cloturerEchues(db, jeton.utilisateur, maintenant, contexte.faits.taches);
-  return { maintenant, contexte, version, ouvertes };
+  const { restantes: ouvertes, fins } = await cloturerEchues(db, deps.moteur, contexte, jeton.utilisateur, maintenant);
+  return { maintenant, contexte, version, ouvertes, fins };
 }
 
 export async function ouvrirSession(deps: Dependances, db: D1Database, jeton: JetonAuthentifie, corps: Corps) {
@@ -330,13 +393,19 @@ export async function ouvrirSession(deps: Dependances, db: D1Database, jeton: Je
         )
         .bind(session.id, jeton.utilisateur, session.type, session.tache_id, session.tache_nom, appareil, session.apps, session.ouverte_le, version),
       insererQuestion(db, jeton.utilisateur, session.id, question),
+      ...instructionsInvalider(db, jeton.utilisateur),
     ]);
   } catch (e) {
     // Deux ouvertures simultanées : l'index unique tranche.
     if (String(e).includes('UNIQUE')) throw new ErreurApi(409, 'session_deja_ouverte', 'Une session vient d\'être ouverte sur cet appareil.');
     throw e;
   }
-  return vueSession(config, { session, question });
+  // Fin au plus tard : le plafond (le cumul avance d'autant plus vite qu'il y a de sessions ouvertes) ou le prochain mode interdit.
+  const enCours = ouvertes.filter((x) => x.session.type === 'travail').length + 1;
+  const plafondA = maintenant.getTime() + ((config.sessions.plafondQuotidienMin * 60 - cumulS) * 1000) / enCours;
+  const interdit = debutInterdiction(deps.moteur, contexte, appareil, maintenant.getTime(), HORIZON_FIN_H);
+  const fin = Math.min(plafondA, interdit ?? Infinity);
+  return vueSession(config, { session, question }, versInstant(Math.ceil(fin / 1000) * 1000));
 }
 
 async function sessionDuJeton(db: D1Database, jeton: JetonAuthentifie, id: string): Promise<SessionChargee> {
@@ -352,10 +421,14 @@ export async function repondreQuestion(deps: Dependances, db: D1Database, jeton:
   if (reponse !== 'continue' && reponse !== 'arrete') {
     throw requeteInvalide('Champ « reponse » : « continue » ou « arrete » attendu.', { champ: 'reponse' });
   }
-  const { maintenant, contexte } = await preparer(deps, db, jeton);
+  const { maintenant, contexte, fins } = await preparer(deps, db, jeton);
   const { config } = contexte;
   const s = await sessionDuJeton(db, jeton, id);
   if (s.session.fermee_le) {
+    if (s.session.motif_fin === 'mode_interdit' || s.session.motif_fin === 'plafond_atteint') {
+      const motif = s.session.motif_fin === 'mode_interdit' ? 'le mode en vigueur interdit les sessions' : 'plafond quotidien de sessions atteint';
+      throw new ErreurApi(409, 'session_fermee', `Cette session est fermée : ${motif}.`, { motif_fin: s.session.motif_fin });
+    }
     if (s.session.motif_fin === 'sans_reponse') {
       throw new ErreurApi(409, 'question_expiree', "Pas de réponse avant l'échéance : la session est fermée.");
     }
@@ -374,6 +447,7 @@ export async function repondreQuestion(deps: Dependances, db: D1Database, jeton:
     await db.batch([
       db.prepare(`UPDATE questions SET reponse = 'arrete', repondue_le = ? WHERE id = ? AND reponse IS NULL`).bind(instant, q.id),
       ...instructionsFermeture(db, { ...s, question: null }, instant, 'arretee'),
+      ...instructionsInvalider(db, jeton.utilisateur),
     ]);
     return vueSession(config, { session: { ...s.session, fermee_le: instant, motif_fin: 'arretee' }, question: null });
   }
@@ -387,28 +461,41 @@ export async function repondreQuestion(deps: Dependances, db: D1Database, jeton:
       disponible_a: disponible,
     });
   }
+  // Garde-fou : la fermeture ci-dessus a déjà fermé une session dont le mode interdit les sessions.
+  if (!config.appareils[s.session.appareil] || deps.moteur.etat(contexte, s.session.appareil).sessions === 'interdites') {
+    throw new ErreurApi(409, 'session_fermee', 'Cette session est fermée : le mode en vigueur interdit les sessions.', { motif_fin: 'mode_interdit' });
+  }
   const journee = deps.moteur.journeeCourante(contexte);
   const rang = s.session.tache_id ? (await compterContinues(db, jeton.utilisateur, s.session.tache_id, journee)) + 1 : 0;
-  const enregistre = await db
-    .prepare(`UPDATE questions SET reponse = 'continue', repondue_le = ? WHERE id = ? AND reponse IS NULL`)
-    .bind(instant, q.id)
-    .run();
-  if ((enregistre.meta.changes ?? 0) === 0) throw new ErreurApi(409, 'deja_repondue', 'Cette question a déjà reçu une réponse.');
   const suivante = nouvelleQuestion(deps.moteur, config, s.session.appareil, maintenant, rang);
-  await insererQuestion(db, jeton.utilisateur, s.session.id, suivante).run();
-  return vueSession(config, { session: s.session, question: suivante });
+  const [enregistre] = await db.batch([
+    db.prepare(`UPDATE questions SET reponse = 'continue', repondue_le = ? WHERE id = ? AND reponse IS NULL`).bind(instant, q.id),
+    // La question suivante n'est créée que si la réponse vient d'être enregistrée (deux « continue » simultanés).
+    db
+      .prepare(
+        `INSERT INTO questions (id, utilisateur, session_id, posee_a, attente_s, expire_a)
+         SELECT ?, ?, ?, ?, ?, ? WHERE changes() > 0`,
+      )
+      .bind(suivante.id, jeton.utilisateur, s.session.id, suivante.posee_a, suivante.attente_s, suivante.expire_a),
+    ...instructionsInvalider(db, jeton.utilisateur),
+  ]);
+  if ((enregistre!.meta.changes ?? 0) === 0) throw new ErreurApi(409, 'deja_repondue', 'Cette question a déjà reçu une réponse.');
+  return vueSession(config, { session: s.session, question: suivante }, fins.get(s.session.id) ?? null);
 }
 
 export async function ajouterApps(deps: Dependances, db: D1Database, jeton: JetonAuthentifie, id: string, corps: Corps) {
   const demandes = corps.app !== undefined ? [texte(corps, 'app', 100)] : listeDeTextes(corps, 'apps', { min: 1 });
-  const { contexte } = await preparer(deps, db, jeton);
+  const { contexte, fins } = await preparer(deps, db, jeton);
   const nouvelles = deplierApps(contexte.config, demandes);
   const s = await sessionDuJeton(db, jeton, id);
   if (s.session.fermee_le) throw new ErreurApi(409, 'session_fermee', 'Cette session est fermée.', { motif_fin: s.session.motif_fin });
   exigerSessionPossible(deps.moteur, contexte, s.session.appareil);
   const apps = [...new Set([...(JSON.parse(s.session.apps) as string[]), ...nouvelles])];
-  await db.prepare(`UPDATE sessions SET apps = ? WHERE id = ? AND fermee_le IS NULL`).bind(JSON.stringify(apps), s.session.id).run();
-  return vueSession(contexte.config, { ...s, session: { ...s.session, apps: JSON.stringify(apps) } });
+  await db.batch([
+    db.prepare(`UPDATE sessions SET apps = ? WHERE id = ? AND fermee_le IS NULL`).bind(JSON.stringify(apps), s.session.id),
+    ...instructionsInvalider(db, jeton.utilisateur),
+  ]);
+  return vueSession(contexte.config, { ...s, session: { ...s.session, apps: JSON.stringify(apps) } }, fins.get(s.session.id) ?? null);
 }
 
 export async function fermerSession(deps: Dependances, db: D1Database, jeton: JetonAuthentifie, id: string) {
@@ -416,12 +503,14 @@ export async function fermerSession(deps: Dependances, db: D1Database, jeton: Je
   const s = await sessionDuJeton(db, jeton, id);
   if (s.session.fermee_le) return vueSession(contexte.config, s);
   const instant = versInstant(maintenant);
-  await db.batch(instructionsFermeture(db, s, instant, 'fermee'));
+  await db.batch([...instructionsFermeture(db, s, instant, 'fermee'), ...instructionsInvalider(db, jeton.utilisateur)]);
   return vueSession(contexte.config, { session: { ...s.session, fermee_le: instant, motif_fin: 'fermee' }, question: null });
 }
 
 /** Sessions encore ouvertes, après fermeture des échues ; filtrées par appareil si demandé. */
-export async function sessionsOuvertes(db: D1Database, utilisateur: string, contexte: Contexte, maintenant: Date, appareil?: string) {
-  const ouvertes = await cloturerEchues(db, utilisateur, maintenant, contexte.faits.taches);
-  return ouvertes.filter((s) => !appareil || s.session.appareil === appareil).map((s) => vueSession(contexte.config, s));
+export async function sessionsOuvertes(db: D1Database, moteur: Moteur, utilisateur: string, contexte: Contexte, maintenant: Date, appareil?: string) {
+  const { restantes, fins } = await cloturerEchues(db, moteur, contexte, utilisateur, maintenant);
+  return restantes
+    .filter((s) => !appareil || s.session.appareil === appareil)
+    .map((s) => vueSession(contexte.config, s, fins.get(s.session.id) ?? null));
 }

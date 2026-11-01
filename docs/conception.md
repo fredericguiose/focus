@@ -178,11 +178,21 @@ prix_du_report:
 ⚠ Dans l'API Todoist, `priority: 4` = P1 et `priority: 1` = P4. Le moteur ne connaît que
 `p1…p4` ; l'adaptateur Todoist convertit.
 
+### 2.9 Cadences de synchronisation (facultatif)
+```yaml
+synchro: { todoist: "2min", xiaomi: "15min", hevy: "1h" }   # valeurs par défaut
+```
+Planchers : 1 min (Todoist), **10 min (Xiaomi, API non officielle)**, 10 min (Hevy) ; 24 h au
+plus. Une seule source lourde par minute (§4.4).
+
 ## 3. Le moteur
 
 ### 3.1 Journée
-- **Lever(D)** pour un jour local D = le lever **mesuré** de D s'il existe (fin de la nuit
-  principale D−1 mesurée par la montre, §4.4), sinon le **lever prévu** de D.
+- **Lever(D)** pour un jour local D = le **lever prévu** de D, toujours (CDC §4, 01/11 : « la
+  montre ne raccourcit jamais la nuit en cours »). Un réveil mesuré plus tôt (nuit coupée à 01:00,
+  montre mal lue) ne finit pas la nuit, n'avance pas le début de la journée et ne déverrouille
+  rien. Le lever **mesuré** de D (fin de la nuit principale D−1, §4.4, §4.6) ne sert qu'aux jours
+  suivants (régularité, étape 3), à la dette réelle et aux journaux.
 - **Lever prévu(D)** :
   1. engagements du jour D = ceux de la routine de D pour ce jour de semaine, plus les
      exceptions `ajoute`, moins `retire`, avec `decale` appliqué (un engagement sans heure
@@ -222,7 +232,8 @@ prix_du_report:
 - **Coucher prévu(D)** = lever calculé(D+1) (étapes 1-4, sans la mesure de D+1) − cible −
   endormissement (routine de D+1 pour le lever).
 - **Coucher appliqué(D)** = coucher prévu, modifié par les exceptions de la nuit D (§3.4).
-- **Journée courante d'un instant t** = le jour D tel que lever(D) ≤ t < lever(D+1).
+- **Journée courante d'un instant t** = le jour D tel que lever(D) ≤ t < lever(D+1) (levers
+  prévus : la mesure n'y entre jamais).
   `$lever` = lever(D), `$coucher` = coucher appliqué(D). (Une nuit appartient au jour du soir.)
 - **Ouverture(D)** = le paramètre `ouverture` d'EVENING_FREE résolu pour D, plus le prix du
   report du jour (plafonné) ; sans EVENING_FREE dans la routine : ouverture = coucher. Toujours
@@ -262,17 +273,35 @@ défaut vrai), `retire` (date, engagement), `decale` (date, engagement, nouvelle
 engagement sans heure, `preparation` facultative, défaut celle de la config, sinon 30 min),
 `coucher` (nuit, nouvelle heure de coucher), `avancer_coucher` (nuit, heure = maintenant :
 « je vais dormir »). Retirer ou décaler un engagement absent ce jour-là est refusé.
-- **Resserrer** (coucher plus tôt, engagement ajouté ou avancé, heure donnée à un engagement sans
-  heure) : toujours permis, sans friction, à toute heure.
+- **Resserrer ou desserrer se juge sur l'effet** (revue du 01/11). Chaque nuit touchée est
+  comparée avant / après : de la nuit courante à la nuit de l'exception + 7 (fenêtre de
+  régularité des levers : retirer un engagement de jeudi peut reculer le lever de demain, donc le
+  coucher de ce soir ; au-delà de 60 nuits, seules la semaine qui suit maintenant et celle autour
+  de l'exception). Une nuit est **desserrée** si son coucher appliqué recule, ou si elle a
+  commencé (maintenant ≥ coucher) et que son lever avance (la nuit en cours finirait plus tôt).
+  Une exception est un **resserrement** si elle ne desserre aucune nuit et n'est pas par nature
+  un renoncement (retirer, ou repousser, un engagement obligatoire : raison toujours exigée).
+- **Refus nets** (sans friction possible) : réveil d'un engagement ajouté ou décalé avant
+  `lever_plancher` (ou la veille au soir : « 00:00 + 600 min » donnait un lever à 14:00 la veille
+  et finissait la nuit en cours) ; un lever à venir qui deviendrait un instant passé (« le lever du
+  3 nov. passerait à 04:35, déjà passé ») ; `preparation` hors de 0 à 240 min.
+- **Resserrer** (coucher plus tôt, engagement ajouté ou avancé le soir, heure donnée à un
+  engagement sans heure, sans effet sur la nuit en cours) : toujours permis, sans friction.
 - **Engagement facultatif** retiré ou repoussé : libre (friction `aucune`, pas de décision de
   nuit consommée), avant comme après l'ouverture ; refusé seulement si le sommeil prévu passe sous
   `minimum` (avant l'ouverture) ou `plancher_nuit` (après).
-- **Desserrer** (coucher plus tard, engagement obligatoire retiré ou repoussé) — pour la nuit D :
+- **Desserrer** (coucher plus tard, engagement obligatoire retiré ou repoussé, nuit en cours
+  raccourcie) — la friction est celle de la **première nuit desserrée** D (la plus chère ; à
+  défaut d'effet, la nuit de l'exception), le plafond de sommeil s'applique à chaque nuit
+  desserrée :
   | Moment de la demande | Friction | Plafond de sommeil | Limite |
   |---|---|---|---|
   | avant ouverture(D) | `raison` ≥ 50 caractères (sans phrase) | sommeil prévu ≥ `minimum` | aucune |
   | après ouverture(D), avant lever(D+1) | `raison` ≥ 50 caractères + `phrase` exacte `JE NE PEUX PAS DECALER` | sommeil ≥ `plancher_nuit` | **1 fois** par nuit |
 
+  La décision de nuit est comptée pour la nuit D qu'elle desserre (`nuitDecision` du prix,
+  colonne `exceptions.nuit_decision`), pas forcément celle de l'exception. Une seule par nuit,
+  garantie aussi par la base (§4.2).
   Pas de desserrage sans raison (décision du 01/11, remplace « sans friction avant
   l'ouverture » du 24/10). La raison est enregistrée avec l'exception. Raison trop courte :
   refus « raison d'au moins 50 caractères exigée (N fournis) » (préfixé « décision de nuit : »
@@ -287,7 +316,8 @@ engagement sans heure, `preparation` facultative, défaut celle de la config, si
 - `prixException(contexte, demande, friction?)` renvoie : admissible ou non (et pourquoi),
   friction exigée (`aucune` | `raison` | `raison_phrase`), `frictionManquante` si seule la
   friction manque (tout le reste est admissible), coucher avant/après, lever avant/après, dette
-  de la nuit avant/après. L'API l'expose en `friction_manquante` : l'interface demande l'aperçu
+  de la nuit avant/après (nuit de l'exception), `nuitDecision` (décision de nuit acceptée : la
+  nuit consommée ; API : `nuit_decision`). L'API l'expose en `friction_manquante` : l'interface demande l'aperçu
   sans la raison et n'affiche pas ce cas comme un refus.
 - Plusieurs exceptions de la même nuit s'appliquent dans l'ordre de création.
 
@@ -384,7 +414,7 @@ Actions). Chaque jeton appartient à un utilisateur. Création par un script loc
 | Méthode | Chemin | Jeton | Rôle |
 |---|---|---|---|
 | GET | `/v1/planning` | appareil | planning de l'appareil (§4.3) ; vaut ping (met à jour `vu_le`) |
-| POST | `/v1/accuses` | appareil | `{ action, pose_le }` : verrou posé |
+| POST | `/v1/accuses` | appareil | `{ action, pose_le }` : verrou posé ; `pose_le` à plus de 2 jours de l'heure du serveur : 400 |
 | POST | `/v1/evenements` | appareil | lot : `{ type: reconnexion \| acces, ... }` |
 | GET | `/v1/statut` | interface | mode par appareil et raison, journée (lever, coucher, ouverture), phase, actions possibles, engagements de demain, dette des 7 dernières nuits, régularité des couchers et des levers, sessions, dernier ping (§4.6) |
 | GET | `/v1/taches` | interface, appareil | tâches du jour éligibles à une session (`eligible_le` : création + 15 min) |
@@ -400,6 +430,12 @@ Actions). Chaque jeton appartient à un utilisateur. Création par un script loc
 | POST | `/v1/dev/horloge` | interface | **local seulement** (`FOCUS_ENVIRONNEMENT=local`, sinon 404) : `{ horloge: "+3h" \| instant \| null }` règle l'horloge de l'API (docs/essai-local.md) |
 
 Erreurs : `{ erreur: code, message }` en français, codes HTTP usuels.
+
+Décision de nuit (revue du 01/11) : une seule par nuit, garantie par la base — index unique
+partiel `exceptions (utilisateur, nuit_decision) WHERE pendant_nuit = 1 AND annulee_le IS NULL`
+(migration 0003). `jour` ne convenait pas : c'est la date de l'engagement pour
+`ajoute`/`retire`/`decale`, et la nuit consommée peut être celle de ce soir. Deux décisions
+simultanées : la seconde reçoit 422 `exception_refusee` (« décision de nuit déjà prise… »).
 
 ### 4.3 Format du planning (PC)
 ```json
@@ -419,7 +455,8 @@ Erreurs : `{ erreur: code, message }` en français, codes HTTP usuels.
   "sessions": [
     { "id": "s_01", "tache": { "id": "123", "nom": "DM de maths" }, "apps": ["chatgpt"],
       "domaines": ["chatgpt.com"], "ouverte_le": "…Z",
-      "question": { "id": "q_07", "posee_a": "…Z", "attente_s": 3, "expire_a": "…Z" } }
+      "question": { "id": "q_07", "posee_a": "…Z", "attente_s": 3, "expire_a": "…Z" },
+      "fin_au_plus_tard": "…Z" | null }
   ],
   "raison": "WORK — tâches prioritaires restantes : 2"
 }
@@ -429,17 +466,39 @@ Règles côté client :
 - Segment en vigueur = celui qui contient l'instant. Au-delà de `valable_jusqua` : tout est
   levé (chaque verrou porte son échéance).
 - Domaines bloqués = segment − domaines des sessions valides. Une session est valide tant que
-  `question.expire_a` n'est pas passé, ou après un « continue » accepté. Pendant un segment avec
-  `verrouiller_session: true`, les sessions ne comptent pas.
+  `question.expire_a` n'est pas passé, ou après un « continue » accepté, et **jamais** à partir de
+  `fin_au_plus_tard` (plafond quotidien atteint, ou début du premier mode qui interdit les
+  sessions sur l'appareil, dans l'horizon ; null si rien ne la ferme d'ici là), même après un
+  « continue ». Pendant un segment avec `verrouiller_session: true` **ou** `sessions:
+  "interdites"`, les sessions ne comptent pas (le client applique ces fins lui-même, planning en
+  cache compris ; l'API ne renvoie plus de session ouverte quand le mode les interdit).
 
 ### 4.4 Tâches planifiées (une seule entrée cron `* * * * *`)
-Chaque minute : rafraîchir les faits Todoist en cache (réécrits seulement s'ils changent).
+**Cadences** (revue du 01/11, plan gratuit de Workers : 10 ms de CPU et 50 sous-requêtes par
+invocation, **D1 compris**, un `db.batch` comptant pour une) : réglables dans le YAML, bloc
+facultatif `synchro: { todoist: "2min", xiaomi: "15min", hevy: "1h" }` (valeurs par défaut ;
+planchers 1 min, **10 min pour Xiaomi** — API non officielle — et 10 min pour Hevy ; 24 h au plus ;
+`cadencesDeSynchro`, défauts appliqués aussi à une config normalisée plus ancienne). Chaque
+minute, la tâche ne lance **qu'une seule source lourde** (Todoist, Xiaomi ou Hevy) : parmi celles
+qui sont dues (dernier passage tenté il y a au moins la cadence, à 30 s près ; un rattrapage en
+cours est dû chaque minute), la plus en retard en temps absolu, à égalité Todoist puis Xiaomi
+puis Hevy (`choisirSource`) ; les autres passent à la minute suivante (au plus une minute de
+décalage, Todoist toutes les 2 min ne les affame pas). Dernier passage Todoist tenté : clé de
+cache `synchro_todoist`. Bornes par passage : Todoist 20 requêtes (au-delà, faits abandonnés,
+cache précédent gardé), Xiaomi 16 requêtes de données + 2 de connexion (morceaux de rattrapage :
+2 par passage), Hevy 10 pages (rattrapage initial en plusieurs passes, une par minute, reprise à
+la page suivante ; une lecture partielle n'efface rien). Les étapes légères (fermeture des
+sessions, photos) tournent à chaque minute ; la vérification des étiquettes (2 requêtes, une
+fois par jour) jamais avec Xiaomi ni Hevy.
+Jeton Todoist : il n'appartient qu'à **un** utilisateur, `TODOIST_UTILISATEUR` (comme Xiaomi et
+Hevy) ; sans cette variable, pas de synchro Todoist.
+À sa cadence : rafraîchir les faits Todoist en cache (réécrits seulement s'ils changent).
 À 00:00 locale (fuseau de la routine du jour qui commence) : **photo des retards** (tâches en
 retard à cet instant, toutes priorités, hors exclusions). Au coucher appliqué : photo de la
 nuit (table `nuits`, pour l'historique ; sa colonne `lever` = lever du lendemain que le plan
 donnait au coucher : c'est le **lever prévu figé** du journal des levers, §3.1). Une fois par jour : vérifier que les étiquettes de la
 config existent dans Todoist.
-Une fois par heure, si les secrets `XIAOMI_USER_ID`, `XIAOMI_PASS_TOKEN` et `XIAOMI_UTILISATEUR`
+À sa cadence (15 min par défaut), si les secrets `XIAOMI_USER_ID`, `XIAOMI_PASS_TOKEN` et `XIAOMI_UTILISATEUR`
 sont posés (`XIAOMI_REGION` : `de` pour un compte européen, vide = Chine) : **sommeil mesuré**.
 Le compte Xiaomi appartient à **un seul utilisateur** : `XIAOMI_UTILISATEUR` (identifiant
 `utilisateur` de sa config) ; les autres utilisateurs de la base ne sont jamais synchronisés
@@ -454,19 +513,21 @@ de respiration, nuit incomplète, `timezone` et version d'algorithme bruts) :
 insérée, mise à jour si elle a changé, effacée si Xiaomi l'a supprimée. Secrets absents : étape
 sautée. Chaque requête porte un User-Agent : sans lui, le compte refuse le passToken (code
 70016, cas du `fetch` des Workers). passToken refusé : erreur `jeton_xiaomi_expire` notée dans le cache (`synchro_xiaomi`),
-renvoyée par le statut et relancée l'heure suivante ; le jeton n'est jamais journalisé.
+renvoyée par le statut et relancée à la cadence suivante ; le jeton n'est jamais journalisé.
+**Verrou** : chaque passage prend le verrou `xiaomi:<utilisateur>` (table `verrous`, échéance
+5 min) ; un second passage simultané (deux crons) ne fait rien. Sans lui, les deux feraient
+tourner le passToken en même temps et l'un garderait un jeton déjà périmé.
 
 **Rattrapage de l'historique.** Lancé au premier passage (pas d'état de rattrapage dans
 `synchro_xiaomi`, ou aucune mesure Xiaomi pour l'utilisateur et dernier rattrapage lancé il y a plus
 d'un jour) depuis `XIAOMI_DEPUIS` (date `AAAA-MM-JJ`, UTC) ou, à défaut, 60 jours en arrière ; et
 quand des nuits récentes manquent (dernière lecture réussie des 3 jours antérieure au début de la
 fenêtre : la synchro n'a pas tourné pendant plus de 3 jours), depuis cette lecture moins un jour.
-Lecture du plus récent au plus ancien, par morceaux de 10 jours (recouvrement de 12 h), 3 morceaux
-au plus par passage, une seule connexion par passage : environ 2 + 3 × (pages) sous-requêtes, loin
-des 50 du Worker. Tant qu'il reste des morceaux et que le dernier passage a réussi, la tâche
+Lecture du plus récent au plus ancien, par morceaux de 10 jours (recouvrement de 12 h), 2 morceaux
+au plus par passage, une seule connexion par passage, 16 requêtes de données au plus. Tant qu'il reste des morceaux et que le dernier passage a réussi, la tâche
 reprend à la minute suivante ; le curseur (`rattrapage.curseur`) n'avance qu'après un morceau
-écrit, donc une panne reprend là où elle s'est arrêtée, une heure plus tard. Les 3 derniers jours
-restent lus une fois par heure (`recente_le`).
+écrit, donc une panne reprend là où elle s'est arrêtée, à la cadence suivante. Les 3 derniers jours
+restent lus à la cadence (`recente_le`).
 
 **passToken tournant.** Xiaomi renvoie un passToken à chaque connexion (champ `passToken` de la
 réponse, sinon cookie). Si le secret `CLE_CHIFFREMENT` est posé, le plus récent est gardé dans le
@@ -477,19 +538,20 @@ effacé et le passage reprend avec le secret ; le jeton reçu ensuite le remplac
 `CLE_CHIFFREMENT` : rien n'est gardé, le secret sert toujours. Ni le jeton ni la clé ne sont
 journalisés ou renvoyés par l'API.
 
-Une fois par heure, si les secrets `HEVY_API_KEY` et `HEVY_UTILISATEUR` sont posés : **séances
+À sa cadence (1 h par défaut), si les secrets `HEVY_API_KEY` et `HEVY_UTILISATEUR` sont posés : **séances
 mesurées** (`api/src/hevy.ts`, lecture seule ; API publique officielle de Hevy, comptes Pro,
 doc https://api.hevyapp.com/docs/, clé dans l'en-tête `api-key`). Même règle de compte que Xiaomi :
 seul `HEVY_UTILISATEUR` est synchronisé. `GET /v1/workouts` est paginé (10 au plus) et n'a pas de
 filtre de date : lecture de la page 1 jusqu'à la première page qui contient une séance antérieure
-à la période (les séances arrivent de la plus récente à la plus ancienne ; 15 pages au plus).
+à la période (les séances arrivent de la plus récente à la plus ancienne ; 10 pages par passage :
+au-delà, l'état `rattrapage: { depuis, page }` reprend au passage suivant, sans rien effacer).
 Période : les 7 derniers jours ; au premier passage (aucune synchro réussie), 60 jours ; après une
 panne, depuis la dernière réussite moins un jour (60 jours au plus). Chaque séance, normalisée en
 `{ id, debut, fin, titre }`, est rangée dans `mesures` (`type = seance`, `source = hevy`, `cle` =
 identifiant Hevy, `valeur` = durée en minutes, `details` = `{ titre }`) : insérée, mise à jour si
 elle a changé ; une séance de la période absente de la réponse (supprimée chez Hevy) est effacée.
 État dans le cache (`synchro_hevy`) ; clé refusée (HTTP 401/403) : erreur `cle_hevy_refusee`,
-relancée l'heure suivante. La clé n'est jamais journalisée. Secrets absents : étape sautée.
+relancée à la cadence suivante. La clé n'est jamais journalisée. Secrets absents : étape sautée.
 
 ### 4.5 Sessions
 - **Session possible** sur un appareil seulement si (1) le mode en vigueur sur l'appareil a
@@ -516,6 +578,16 @@ relancée l'heure suivante. La clé n'est jamais journalisée. Secrets absents :
   `posee_a + attente_s`.
 - Pas de réponse avant `expire_a`, ou « arrête » : session fermée. Tâche terminée : session
   fermée.
+- **Fins imposées** (revue du 01/11) : une session est fermée, même gardée en vie par des
+  « continue », (1) quand le mode de son appareil passe à `sessions: interdites` (nuit, matin
+  verrouillé) — `motif_fin = mode_interdit`, `fermee_le` = début de l'interdiction — et (2) quand
+  le plafond quotidien est atteint — `motif_fin = plafond_atteint`, `fermee_le` = l'instant où le
+  cumul du jour atteint le plafond (le cumul avance d'autant de secondes par seconde qu'il y a de
+  sessions de travail ouvertes). La fermeture a lieu à chaque lecture (`cloturerEchues`) et à
+  chaque minute par la tâche planifiée. Un « continue » sur une session ainsi fermée : 409
+  `session_fermee` avec `motif_fin`. Chaque session ouverte porte `fin_au_plus_tard` = min(fin
+  par le plafond, début du premier segment qui interdit les sessions dans les 36 h), pour que le
+  client l'applique hors ligne (§4.3).
 
 ### 4.6 Statut (`GET /v1/statut`)
 Champs calculés à partir de la journée courante J (contrat partagé avec la web app) :
@@ -591,7 +663,10 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   enregistrées ; `dette_cumulee_min` = leur somme.
 - **Dette réelle** (sommeil mesuré, §4.4) : `dette_reelle_min` = cible − temps endormi de la nuit
   (somme des sessions de la nuit, siestes exclues ; null sans mesure). Une session appartient à
-  la nuit du jour du soir : date locale de son milieu moins 12 h. `phases` : minutes par phase,
+  la nuit du jour du soir : date locale de son milieu moins 12 h. **Rendormissement** (01/11) :
+  une session qui commence moins d'une heure après la fin d'une session de nuit prolonge cette
+  nuit (même rattachement), même si elle tombe après le lever prévu ou que la montre la marque
+  sieste ; une session plus d'une heure après reste une sieste. `phases` : minutes par phase,
   cumulées sur la nuit.
   `sommeil_mesure` : dernière synchro réussie et code d'erreur de la dernière tentative
   (null si jamais tentée). `endormi_min` : minutes dormies de la nuit (null sans mesure) ;
@@ -672,7 +747,10 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   sans mesure, pour que le lever ne dépende pas de lui-même) et prend, pour chaque nuit D−1, la
   fin de sa dernière session : c'est le lever mesuré de D (`contexte.leversMesures`). Une nuit
   marquée incomplète par la montre ne donne pas de lever (sa fin n'est pas un réveil sûr), ni
-  une session qui finit après maintenant.
+  une session qui finit après maintenant, ni une nuit dont la dernière session a fini il y a
+  moins d'une heure (un rendormissement peut encore suivre). La nuit = de la première session au
+  dernier réveil qui n'est pas suivi d'un rendormissement dans l'heure. Ce lever mesuré ne finit
+  jamais la nuit en cours (§3.1) : il ne sert qu'aux jours suivants, à la dette et aux journaux.
 - **Endormissements mesurés** : pour chaque nuit D, celle de la dette réelle (mêmes sessions,
   siestes écartées de la même façon), le début de sa **première session** ; si la chronologie
   Xiaomi est gardée, le début de sa première tranche de sommeil (léger, profond ou REM) : la
@@ -725,6 +803,39 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
 - `appareils[].session_possible` / `session_motif` : la règle de §4.5 ; `session_motif` est null
   quand la session est possible. À l'ouverture, la web app montre **tous** les appareils ; ceux où
   la session est impossible sont désactivés, leur motif sous le nom.
+
+### 4.7 Résultats gardés 60 s (statut, planning) et CPU
+
+Plan gratuit de Workers (vérifié le 01/11 sur developers.cloudflare.com/workers/platform/limits) :
+10 ms de CPU par requête HTTP comme par cron, 50 sous-requêtes par invocation, D1 compris (un
+`db.batch` compte pour une ; 50 requêtes D1 par invocation). Décision de Frédéric : « toutes les
+minutes ça suffit ».
+- **Cache** : table `cache_calculs (utilisateur, cle, valeur, calcule_le, expire_le)` (migration
+  0003). `GET /v1/statut` est gardé par utilisateur (`statut`), `GET /v1/planning` par appareil
+  (`planning:<appareil>`), au plus 60 s **et jamais au-delà de leur prochaine bascule** (fin du
+  premier segment, ouverture, coucher, lever, échéance d'une question ou fin d'une session).
+  `heure_serveur` n'est jamais gardée : recalculée à chaque requête (décalage d'horloge des
+  clients). Le cache n'est actif que dans le Worker (`cacheCalculs: true` dans `src/index.ts`) ;
+  les tests l'activent explicitement (`test/revue.test.ts`).
+- **Invalidation** : toute écriture qui change l'état efface les lignes de l'utilisateur et
+  incrémente un compteur de génération (ligne `~generation`) dans le même `db.batch` : exception,
+  ouverture / « continue » / « arrête » / ajout d'app / fermeture de session, fermeture
+  automatique (`cloturerEchues`), config reçue, synchro Todoist qui change les faits, sommeil ou
+  séances qui changent des lignes, photo des retards, photo de la nuit ; l'horloge de
+  développement efface tout. Un résultat calculé pendant une écriture n'est pas gardé : il n'est
+  écrit que si la génération lue avant le calcul n'a pas changé. Les accusés ne changent rien de
+  ce que lisent statut et planning : pas d'invalidation.
+- **CPU** (mesure : moteur seul, script `cpu.ts` de la revue — mêmes calculs que le statut
+  complet, contexte reparsé à chaque appel, Node 22, médiane de 20 appels après 5 de chauffe ; et
+  durée murale de bout en bout dans miniflare, `perf.test.ts`) : le temps passait à 70 % dans
+  `Intl.DateTimeFormat.formatToParts` (décalage des fuseaux). Le décalage est maintenant gardé
+  par quart d'heure UTC (`temps.ts`, exact : les changements d'heure tombent sur un quart d'heure
+  UTC ; test minute par minute autour des changements d'heure de Paris, Lord Howe, Katmandou…).
+  Statut, moteur seul : 11,5 ms → 3,7 ms (4,7 ms cache des fuseaux vide) ; planning : 1,1 →
+  0,5 ms. Bout en bout dans miniflare (I/O D1 locale comprise, après le premier appel) : statut
+  15-19 → 10-14 ms, planning 3-5 → 2-5 ms. Le statut non gardé reste proche de la limite (JSON
+  de la config, sommeil, 17 journées des levers mesurés) : le cache en fait un calcul par minute
+  au plus.
 
 ## 5. Client PC (Go)
 

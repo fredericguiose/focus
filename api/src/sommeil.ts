@@ -1,5 +1,6 @@
 // Sommeil mesuré (Xiaomi) : synchronisation dans `mesures` et rattachement aux nuits (§4.4, §4.6).
 import { type Chiffre, chiffrer, dechiffrer } from './chiffrement';
+import { invaliderCache, prendreVerrou, rendreVerrou } from './cache';
 import { CLES_CACHE, ecrireCache, lireCache } from './contexte';
 import type { Liaisons } from './env';
 import { ajouterJours, dateLocale, decaler, versInstant } from './temps';
@@ -13,11 +14,12 @@ import {
 } from './xiaomi';
 
 export const JOURS_SYNCHRO = 3;
-export const INTERVALLE_SYNCHRO_S = 3600;
+/** Cadence par défaut (config `synchro.xiaomi`, 15 min ; jamais sous 10 min : API non officielle). */
+export const INTERVALLE_SYNCHRO_S = 15 * 60;
 /** Rattrapage de l'historique : profondeur par défaut, taille d'une lecture, lectures par passage. */
 export const JOURS_HISTORIQUE = 60;
 export const JOURS_PAR_MORCEAU = 10;
-export const MORCEAUX_PAR_PASSAGE = 3;
+export const MORCEAUX_PAR_PASSAGE = 2;
 const RECOUVREMENT_MS = 12 * 3_600_000;
 const JOUR_MS = 86_400_000;
 
@@ -86,7 +88,7 @@ interface DetailsSommeil extends Partial<ComplementsSommeil> {
 export async function enregistrerSessions(db: D1Database, utilisateur: string, sessions: SessionSommeil[], maintenant: Date) {
   if (sessions.length === 0) return;
   const recu = versInstant(maintenant);
-  await db.batch(
+  const resultats = await db.batch(
     sessions.map((s) => {
       if (s.supprimee) {
         return db.prepare(`DELETE FROM mesures WHERE utilisateur = ? AND type = 'sommeil' AND source = 'xiaomi' AND cle = ?`).bind(utilisateur, s.id);
@@ -104,6 +106,8 @@ export async function enregistrerSessions(db: D1Database, utilisateur: string, s
         .bind(utilisateur, s.id, s.debut, s.fin, s.endormi_min, JSON.stringify(details), recu);
     }),
   );
+  // Le sommeil mesuré change les levers et la dette : les résultats gardés sont périmés.
+  if (resultats.some((r) => (r.meta.changes ?? 0) > 0)) await invaliderCache(db, utilisateur);
 }
 
 interface Plage {
@@ -117,7 +121,14 @@ interface Plage {
  * Les plages à lire à ce passage : les 3 derniers jours (une fois par heure), puis au plus
  * MORCEAUX_PAR_PASSAGE morceaux du rattrapage, du plus récent au plus ancien.
  */
-export function plagesALire(avant: EtatSynchro | undefined, maintenant: Date, depuis: string | null, aucuneMesure: boolean, forcer = false) {
+export function plagesALire(
+  avant: EtatSynchro | undefined,
+  maintenant: Date,
+  depuis: string | null,
+  aucuneMesure: boolean,
+  forcer = false,
+  intervalleS = INTERVALLE_SYNCHRO_S,
+) {
   const t = maintenant.getTime();
   const recentDebut = t - JOURS_SYNCHRO * JOUR_MS;
   const cible = depuis ? Date.parse(`${depuis}T00:00:00Z`) : t - JOURS_HISTORIQUE * JOUR_MS;
@@ -136,7 +147,7 @@ export function plagesALire(avant: EtatSynchro | undefined, maintenant: Date, de
   }
   if (rattrapage && rattrapage.curseur <= rattrapage.depuis) rattrapage = null;
   const plages: Plage[] = [];
-  const recente = forcer || !avant?.recente_le || t - Date.parse(avant.recente_le) >= INTERVALLE_SYNCHRO_S * 1000 - 60_000;
+  const recente = forcer || !avant?.recente_le || t - Date.parse(avant.recente_le) >= intervalleS * 1000 - 60_000;
   if (recente) plages.push({ debut: new Date(recentDebut), fin: new Date(decaler(maintenant, 3600)) });
   if (rattrapage) {
     let curseur = Date.parse(rattrapage.curseur);
@@ -150,10 +161,26 @@ export function plagesALire(avant: EtatSynchro | undefined, maintenant: Date, de
   return { plages, rattrapage, lance };
 }
 
+/** Rattrapage en cours ou jamais lancé (état d'avant le rattrapage) : pas d'attente de la cadence. */
+function rattrapageEnCours(avant: EtatSynchro | undefined): boolean {
+  return !!avant && avant.erreur === null && (!!avant.rattrapage || !avant.rattrapage_lance_le);
+}
+
 /**
- * Une fois par heure au plus : relit les 3 derniers jours. Au premier passage, ou si des nuits
- * récentes manquent, rattrape l'historique par morceaux, un passage par minute jusqu'au bout.
- * L'échec est noté puis relancé l'heure suivante.
+ * Retard de la synchro Xiaomi sur sa cadence (ms, ≥ 0), ou null si elle n'est pas due. La tâche
+ * planifiée choisit, à chaque minute, la source la plus en retard (une seule source lourde par appel).
+ */
+export function retardSommeil(avant: EtatSynchro | undefined, maintenant: Date, intervalleS = INTERVALLE_SYNCHRO_S): number | null {
+  if (!avant || rattrapageEnCours(avant)) return 0;
+  const retard = maintenant.getTime() - Date.parse(avant.tentee_le) - intervalleS * 1000;
+  return retard >= -30_000 ? Math.max(0, retard) : null;
+}
+
+/**
+ * À la cadence `intervalleS` au plus (15 min par défaut) : relit les 3 derniers jours. Au premier
+ * passage, ou si des nuits récentes manquent, rattrape l'historique par morceaux, un passage par
+ * minute jusqu'au bout. L'échec est noté puis relancé au passage suivant. Un verrou à échéance
+ * empêche deux passages simultanés (deux crons) de faire tourner le passToken en même temps.
  */
 export async function synchroniserSommeil(
   db: D1Database,
@@ -161,17 +188,37 @@ export async function synchroniserSommeil(
   reglages: ReglagesXiaomi,
   maintenant: Date,
   forcer = false,
+  intervalleS = INTERVALLE_SYNCHRO_S,
+): Promise<EtatSynchro | null> {
+  const verrou = `xiaomi:${reglages.utilisateur}`;
+  const detenteur = await prendreVerrou(db, verrou, maintenant, VERROU_XIAOMI_S);
+  if (!detenteur) return null;
+  try {
+    return await synchroniserSommeilSousVerrou(db, fabrique, reglages, maintenant, forcer, intervalleS);
+  } finally {
+    await rendreVerrou(db, verrou, detenteur);
+  }
+}
+
+/** Échéance du verrou : plus longue qu'un passage (délais réseau compris), courte devant la cadence. */
+const VERROU_XIAOMI_S = 5 * 60;
+
+async function synchroniserSommeilSousVerrou(
+  db: D1Database,
+  fabrique: (identifiants: IdentifiantsXiaomi) => ClientXiaomi,
+  reglages: ReglagesXiaomi,
+  maintenant: Date,
+  forcer: boolean,
+  intervalleS: number,
 ): Promise<EtatSynchro | null> {
   const { utilisateur, identifiants, cle } = reglages;
   const avant = (await lireCache<EtatSynchro>(db, utilisateur, CLES_CACHE.synchroXiaomi))?.valeur;
-  // Rattrapage en cours ou jamais lancé (état d'avant le rattrapage) : pas d'attente d'une heure.
-  const enCours = !!avant && avant.erreur === null && (!!avant.rattrapage || !avant.rattrapage_lance_le);
-  if (!forcer && avant && !enCours && maintenant.getTime() - Date.parse(avant.tentee_le) < INTERVALLE_SYNCHRO_S * 1000) return null;
+  if (!forcer && retardSommeil(avant, maintenant, intervalleS) === null) return null;
   const aucuneMesure = !(await db
     .prepare(`SELECT 1 FROM mesures WHERE utilisateur = ? AND type = 'sommeil' AND source = 'xiaomi' LIMIT 1`)
     .bind(utilisateur)
     .first());
-  const { plages, rattrapage, lance } = plagesALire(avant, maintenant, reglages.depuis, aucuneMesure, forcer);
+  const { plages, rattrapage, lance } = plagesALire(avant, maintenant, reglages.depuis, aucuneMesure, forcer, intervalleS);
   if (plages.length === 0) return null;
 
   const tentee = versInstant(maintenant);
@@ -234,13 +281,19 @@ export interface SommeilMesure {
   incomplete?: boolean;
   /** Début de la première tranche de sommeil (léger, profond, REM) de la chronologie, si Xiaomi la donne. */
   premier_sommeil?: string;
+  /** Nuit imposée : rendormissement rattaché à la nuit de la session qu'il prolonge. */
+  nuit?: string;
 }
+
+/** Un réveil suivi d'une nouvelle session moins d'une heure après n'est pas un lever (§4.6). */
+export const RENDORMISSEMENT_MS = 60 * 60_000;
 
 /**
  * Une nuit appartient au jour du soir : une session est rattachée à la date locale de son
  * milieu moins 12 h (23:00–07:00 et 02:00–10:00 tombent sur le soir de la veille du réveil).
  */
-export function nuitDeLaSession(s: { debut: string; fin: string }, fuseau: string): string {
+export function nuitDeLaSession(s: { debut: string; fin: string; nuit?: string }, fuseau: string): string {
+  if (s.nuit !== undefined) return s.nuit;
   const milieu = (Date.parse(s.debut) + Date.parse(s.fin)) / 2;
   return dateLocale(new Date(milieu - 12 * 3_600_000), fuseau);
 }
@@ -276,14 +329,24 @@ export function journeeDeLaSieste(s: { debut: string; fin: string; sieste: boole
   return contient?.date ?? dateLocale(new Date(milieu), fuseau);
 }
 
-/** Sépare les siestes (par journée, dans l'ordre) des sessions de nuit. */
+/**
+ * Sépare les siestes (par journée, dans l'ordre) des sessions de nuit. Une session qui commence
+ * moins d'une heure après la fin d'une session de nuit est un rendormissement : elle prolonge la
+ * nuit (même rattachement), même si elle tombe après le lever prévu ou que la montre la marque
+ * sieste. Une vraie sieste (plus d'une heure après la nuit) reste une sieste.
+ */
 export function separerSiestes(sessions: SommeilMesure[], journees: JourneeDeVeille[], fuseau: string) {
   const nuits: SommeilMesure[] = [];
   const siestes = new Map<string, Sieste[]>();
-  for (const s of sessions) {
-    const jour = journeeDeLaSieste(s, journees, fuseau);
+  const ordre = [...sessions].sort((a, b) => Date.parse(a.debut) - Date.parse(b.debut));
+  let derniereNuit: SommeilMesure | null = null;
+  for (const s of ordre) {
+    const prolonge: boolean = derniereNuit !== null && Date.parse(s.debut) - Date.parse(derniereNuit.fin) < RENDORMISSEMENT_MS;
+    const jour = prolonge ? null : journeeDeLaSieste(s, journees, fuseau);
     if (jour === null) {
-      nuits.push(s);
+      const nuit: SommeilMesure = prolonge ? { ...s, sieste: false, nuit: nuitDeLaSession(derniereNuit!, fuseau) } : s;
+      nuits.push(nuit);
+      if (derniereNuit === null || Date.parse(nuit.fin) > Date.parse(derniereNuit.fin)) derniereNuit = nuit;
       continue;
     }
     const liste = siestes.get(jour) ?? [];
@@ -376,12 +439,15 @@ export async function lireSommeil(db: D1Database, utilisateur: string, depuis: s
 
 /**
  * Lever mesuré de chaque jour (§3.1) : fin de la dernière session de la nuit principale de la
- * veille, siestes exclues comme pour la dette réelle. Les journées servent à reconnaître les
- * siestes : ce sont celles du plan, sans mesure (sinon le lever dépendrait de lui-même). Une nuit
- * marquée incomplète par la montre (montre retirée, batterie) ne donne pas de lever : sa fin
- * n'est pas un réveil sûr.
+ * veille, siestes exclues comme pour la dette réelle, rendormissements (nouvelle session moins
+ * d'une heure après) inclus. Les journées servent à reconnaître les siestes : ce sont celles du
+ * plan, sans mesure (sinon le lever dépendrait de lui-même). Une nuit marquée incomplète par la
+ * montre (montre retirée, batterie) ne donne pas de lever : sa fin n'est pas un réveil sûr. Une
+ * nuit dont la dernière session a fini il y a moins d'une heure non plus : un rendormissement
+ * peut encore suivre. Le lever mesuré ne sert qu'aux jours suivants, jamais à finir la nuit en
+ * cours (CDC §4, 01/11).
  */
-export function leversMesures(sessions: SommeilMesure[], journees: JourneeDeVeille[]): Record<string, string> {
+export function leversMesures(sessions: SommeilMesure[], journees: JourneeDeVeille[], maintenant?: Date): Record<string, string> {
   const fuseau = journees.at(-1)?.fuseau;
   if (!fuseau) return {};
   const dates = new Set(journees.map((j) => j.date));
@@ -394,7 +460,9 @@ export function leversMesures(sessions: SommeilMesure[], journees: JourneeDeVeil
   for (const [nuit, siennes] of parNuit) {
     const date = ajouterJours(nuit, 1);
     if (!dates.has(date) || siennes.some((s) => s.incomplete === true)) continue;
-    levers[date] = siennes.reduce((fin, s) => (Date.parse(s.fin) > Date.parse(fin) ? s.fin : fin), siennes[0]!.fin);
+    const fin = siennes.reduce((f, s) => (Date.parse(s.fin) > Date.parse(f) ? s.fin : f), siennes[0]!.fin);
+    if (maintenant && maintenant.getTime() - Date.parse(fin) < RENDORMISSEMENT_MS) continue;
+    levers[date] = fin;
   }
   return levers;
 }

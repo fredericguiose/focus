@@ -1,11 +1,15 @@
-// Tâche planifiée unique (cron chaque minute, §4.4). Chaque étape est indépendante : une
-// panne de Todoist n'empêche ni la fermeture des sessions échues ni la photo de la nuit.
+// Tâche planifiée unique (cron chaque minute, §4.4, §4.7). Chaque étape est indépendante : une
+// panne de Todoist n'empêche ni la fermeture des sessions échues ni la photo de la nuit. Une
+// seule source lourde (Todoist, Xiaomi ou Hevy) par invocation, à sa cadence (config `synchro`) :
+// le plan gratuit de Workers donne 10 ms de CPU et 50 sous-requêtes (D1 compris) par invocation.
 import type { Condition, Config, Contexte } from '../../core/src/types';
-import { CLES_CACHE, type ContexteCharge, chargerContexte, ecrireCache, lireCache } from './contexte';
+import { cadencesDeSynchro } from '../../core/src/config';
+import { instructionsInvalider, invaliderCache } from './cache';
+import { CLES_CACHE, type ContexteCharge, chargerContexte, ecrireCache, lireCache, lireCaches } from './contexte';
 import type { Dependances, Liaisons } from './env';
 import { cloturerEchues } from './sessions';
-import { reglagesHevy, synchroniserSeances } from './hevy';
-import { reglagesXiaomi, synchroniserSommeil } from './sommeil';
+import { type EtatSynchroHevy, reglagesHevy, retardSeances, synchroniserSeances } from './hevy';
+import { type EtatSynchro, reglagesXiaomi, retardSommeil, synchroniserSommeil } from './sommeil';
 import { dateLocale, ms, versInstant } from './temps';
 import type { SuiviDeadline } from './todoist';
 
@@ -25,6 +29,42 @@ export async function executerTachesPlanifiees(env: Liaisons, deps: Dependances)
   if (erreurs.length > 0) throw new AggregateError(erreurs, `Tâche planifiée : ${erreurs.length} étape(s) en échec.`);
 }
 
+/** Sources lourdes (appels réseau, écritures en lot) : une seule par invocation (§4.7). */
+export type SourceLourde = 'todoist' | 'xiaomi' | 'hevy';
+
+/** État de la synchro Todoist : seulement l'heure du dernier passage tenté (pour la cadence). */
+interface EtatSynchroTodoist {
+  tentee_le: string;
+}
+
+/**
+ * La source à synchroniser à cette invocation : parmi celles qui sont dues, la plus en retard sur
+ * sa cadence (à égalité : Todoist, Xiaomi, Hevy). Le retard absolu, pas relatif : Todoist toutes
+ * les 2 min n'affame pas Xiaomi (qui passe au plus une minute après son échéance).
+ */
+export function choisirSource(retards: Partial<Record<SourceLourde, number | null>>): SourceLourde | null {
+  let choix: SourceLourde | null = null;
+  for (const source of ['todoist', 'xiaomi', 'hevy'] as const) {
+    const r = retards[source];
+    if (r === null || r === undefined) continue;
+    if (choix === null || r > retards[choix]!) choix = source;
+  }
+  return choix;
+}
+
+function retardTodoist(avant: EtatSynchroTodoist | undefined, maintenant: Date, cadenceMin: number): number | null {
+  if (!avant) return 0;
+  const retard = maintenant.getTime() - Date.parse(avant.tentee_le) - cadenceMin * 60_000;
+  return retard >= -30_000 ? Math.max(0, retard) : null;
+}
+
+/** Le jeton Todoist n'est utilisé que pour son propriétaire (TODOIST_UTILISATEUR), comme Xiaomi et Hevy. */
+export function jetonTodoist(env: Liaisons, utilisateur: string): string | null {
+  const jeton = env.TODOIST_TOKEN?.trim();
+  const proprietaire = env.TODOIST_UTILISATEUR?.trim();
+  return jeton && proprietaire && proprietaire === utilisateur ? jeton : null;
+}
+
 async function pourUtilisateur(env: Liaisons, deps: Dependances, utilisateur: string, maintenant: Date): Promise<unknown[]> {
   const erreurs: unknown[] = [];
   const etape = async (nom: string, action: () => Promise<unknown>) => {
@@ -38,18 +78,35 @@ async function pourUtilisateur(env: Liaisons, deps: Dependances, utilisateur: st
     }
   };
   const charge = await chargerContexte(env.DB, utilisateur, maintenant);
-  const jeton = env.TODOIST_TOKEN;
-  const todoistFrais = jeton ? await etape('todoist', () => rafraichirTodoist(env.DB, deps, jeton, utilisateur, charge, maintenant)) : false;
-  await etape('sessions', () => cloturerEchues(env.DB, utilisateur, maintenant, charge.contexte.faits.taches));
+  const cadences = cadencesDeSynchro(charge.contexte.config);
+  const jeton = jetonTodoist(env, utilisateur);
+  const xiaomi = reglagesXiaomi(env);
+  const avecXiaomi = !!(xiaomi && deps.xiaomi && xiaomi.utilisateur === utilisateur);
+  const hevy = reglagesHevy(env);
+  const avecHevy = !!(hevy && deps.hevy && hevy.utilisateur === utilisateur);
+
+  // Une seule lecture pour décider : l'état des trois synchros.
+  const etats = await lireCaches(env.DB, utilisateur, [CLES_CACHE.synchroTodoist, CLES_CACHE.synchroXiaomi, CLES_CACHE.synchroHevy]);
+  const source = choisirSource({
+    todoist: jeton ? retardTodoist(etats[CLES_CACHE.synchroTodoist] as EtatSynchroTodoist | undefined, maintenant, cadences.todoist) : null,
+    xiaomi: avecXiaomi ? retardSommeil(etats[CLES_CACHE.synchroXiaomi] as EtatSynchro | undefined, maintenant, cadences.xiaomi * 60) : null,
+    hevy: avecHevy ? retardSeances(etats[CLES_CACHE.synchroHevy] as EtatSynchroHevy | undefined, maintenant, cadences.hevy * 60) : null,
+  });
+
+  let todoistFrais = false;
+  if (source === 'todoist' && jeton) {
+    await ecrireCache(env.DB, utilisateur, CLES_CACHE.synchroTodoist, { tentee_le: versInstant(maintenant) }, maintenant);
+    todoistFrais = await etape('todoist', () => rafraichirTodoist(env.DB, deps, jeton, utilisateur, charge, maintenant));
+  }
+  await etape('sessions', () => cloturerEchues(env.DB, deps.moteur, charge.contexte, utilisateur, maintenant));
   // Une photo prise sur un cache périmé figerait de faux retards : on attend un passage réussi.
   if (todoistFrais) await etape('retards', () => photoDesRetards(env.DB, deps, utilisateur, charge.contexte, maintenant));
   await etape('nuit', () => photoDeLaNuit(env.DB, deps, utilisateur, charge, maintenant));
-  const xiaomi = reglagesXiaomi(env);
-  // Le compte Xiaomi appartient à un seul utilisateur : les autres ne sont jamais synchronisés.
-  if (xiaomi && deps.xiaomi && xiaomi.utilisateur === utilisateur) await etape('sommeil', () => synchroniserSommeil(env.DB, deps.xiaomi!, xiaomi, maintenant));
-  const hevy = reglagesHevy(env);
-  if (hevy && deps.hevy && hevy.utilisateur === utilisateur) await etape('seances', () => synchroniserSeances(env.DB, deps.hevy!, hevy, maintenant));
-  if (jeton) await etape('etiquettes', () => verifierEtiquettes(env.DB, deps, jeton, utilisateur, charge.contexte, maintenant));
+  // Le compte Xiaomi (Hevy) appartient à un seul utilisateur : les autres ne sont jamais synchronisés.
+  if (source === 'xiaomi') await etape('sommeil', () => synchroniserSommeil(env.DB, deps.xiaomi!, xiaomi!, maintenant, false, cadences.xiaomi * 60));
+  if (source === 'hevy') await etape('seances', () => synchroniserSeances(env.DB, deps.hevy!, hevy!, maintenant, false, cadences.hevy * 60));
+  // Vérification des étiquettes (deux requêtes, une fois par jour) : jamais avec Xiaomi ni Hevy.
+  if (jeton && (source === null || source === 'todoist')) await etape('etiquettes', () => verifierEtiquettes(env.DB, deps, jeton, utilisateur, charge.contexte, maintenant));
   return erreurs;
 }
 
@@ -83,7 +140,10 @@ export async function rafraichirTodoist(
   ]);
   charge.contexte.faits.taches = faits.taches;
   charge.contexte.faits.reports = faits.reports;
-  if (ecrits[0] || ecrits[1]) charge.contexte.faits.recupereLe = versInstant(maintenant);
+  if (ecrits[0] || ecrits[1]) {
+    charge.contexte.faits.recupereLe = versInstant(maintenant);
+    await invaliderCache(db, utilisateur);
+  }
 }
 
 /**
@@ -106,6 +166,7 @@ export async function photoDesRetards(db: D1Database, deps: Dependances, utilisa
     .filter((t) => !t.terminee && t.assigneeAMoi && t.echeance !== null && t.echeance < date && !t.etiquettes.some((e) => exclues.has(e)))
     .map((t) => ({ id: t.id, nom: t.contenu }));
   await db.batch([
+    ...instructionsInvalider(db, utilisateur),
     db
       .prepare(`INSERT OR IGNORE INTO photos_retards (utilisateur, date, fuseau, prise_le) VALUES (?, ?, ?, ?)`)
       .bind(utilisateur, date, fuseau, versInstant(maintenant)),
@@ -122,7 +183,7 @@ export async function photoDesRetards(db: D1Database, deps: Dependances, utilisa
 export async function photoDeLaNuit(db: D1Database, deps: Dependances, utilisateur: string, charge: ContexteCharge, maintenant: Date) {
   const j = deps.moteur.journeeCourante(charge.contexte);
   if (maintenant.getTime() < ms(j.coucherApplique)) return;
-  await db
+  const r = await db
     .prepare(
       `INSERT OR IGNORE INTO nuits (utilisateur, nuit, routine, lever, coucher_prevu, coucher_applique, decision_de_nuit, photo_le, version_config)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -139,6 +200,8 @@ export async function photoDeLaNuit(db: D1Database, deps: Dependances, utilisate
       charge.version,
     )
     .run();
+  // Le statut lit les prévus figés par la photo.
+  if ((r.meta.changes ?? 0) > 0) await invaliderCache(db, utilisateur);
 }
 
 function etiquettesDesConditions(c: Condition, acc: Set<string>): void {

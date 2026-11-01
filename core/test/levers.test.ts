@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { lireConfig } from '../src/config';
 import { prixException } from '../src/exceptions';
-import { journee, journeeCourante, lever, leverPrevu, mesureIgnoree } from '../src/journee';
+import { journee, journeeCourante, lever, leverMesure, leverPrevu, mesureIgnoree } from '../src/journee';
 import { journalDesCouchers, journalDesLevers } from '../src/levers';
 import type { Contexte, Exception } from '../src/types';
 import { ecartDeFuseauxMin, instantLocal } from '../src/temps';
@@ -148,9 +148,10 @@ describe('coucher et endormissement', () => {
 describe('levers mesurés', () => {
   const mesures = { '2026-12-27': '2026-12-27T05:00:00Z' };
 
-  it('un jour mesuré a pour lever sa mesure ; son prévu reste le plan', () => {
+  it('un jour mesuré garde son lever prévu (la mesure est à part) ; son prévu reste le plan', () => {
     const c = ctx('2026-12-27T12:00:00Z', { leversMesures: mesures });
-    expect(heureDuLever(c, '2026-12-27')).toBe('05:00');
+    expect(heureDuLever(c, '2026-12-27')).toBe('08:00');
+    expect(new Date(leverMesure(c, '2026-12-27')!).toISOString()).toBe('2026-12-27T05:00:00.000Z');
     expect(new Date(leverPrevu(c, '2026-12-27')).toISOString()).toBe('2026-12-27T08:00:00.000Z');
     // La nuit du 26 garde son coucher prévu (sur le plan) : 08:00 − 8 h 30.
     expect(journee(c, '2026-12-26')).toMatchObject({ coucherPrevu: '2026-12-26T23:30:00Z', detteNuitMin: 0 });
@@ -165,7 +166,7 @@ describe('levers mesurés', () => {
 
   it('un lever mesuré tardif ne recule rien', () => {
     const c = ctx('2026-11-07T12:00:00Z', { leversMesures: { '2026-11-06': '2026-11-06T07:45:00Z' } });
-    expect(heureDuLever(c, '2026-11-06')).toBe('07:45');
+    expect(new Date(leverMesure(c, '2026-11-06')!).toISOString().slice(11, 16)).toBe('07:45');
     expect(heureDuLever(c, '2026-11-07')).toBe('06:30');
   });
 
@@ -174,10 +175,15 @@ describe('levers mesurés', () => {
     expect(heureDuLever(c, '2026-12-28')).toBe('04:30');
   });
 
-  it('la journée courante change au lever mesuré', () => {
+  // Revue du 01/11 : un réveil mesuré avant le lever prévu (nuit coupée à 01:00) finissait la nuit.
+  it('la montre ne raccourcit jamais la nuit en cours : la journée change au lever prévu', () => {
     const c = ctx('2026-12-27T05:10:00Z', { leversMesures: mesures });
-    expect(journeeCourante(c).date).toBe('2026-12-27');
-    expect(journeeCourante(ctx('2026-12-27T05:10:00Z')).date).toBe('2026-12-26');
+    expect(journeeCourante(c).date).toBe('2026-12-26');
+    expect(journeeCourante(ctx('2026-12-27T07:59:00Z', { leversMesures: mesures })).date).toBe('2026-12-26');
+    expect(journeeCourante(ctx('2026-12-27T08:00:00Z', { leversMesures: mesures })).date).toBe('2026-12-27');
+    // Réveil mesuré à 01:00 : toujours la nuit du 26.
+    const coupee = ctx('2026-12-27T01:30:00Z', { leversMesures: { '2026-12-27': '2026-12-27T01:00:00Z' } });
+    expect(journeeCourante(coupee).date).toBe('2026-12-26');
   });
 });
 
@@ -322,8 +328,8 @@ describe('décalage horaire : mesures ignorées après un séjour dans un autre 
     expect(heure(c, '2026-11-03', CAYENNE)).toBe('08:00');
     // Prévu du 05/11 : la mesure du 04/11 compte.
     expect(heure(c, '2026-11-05', CAYENNE)).toBe('07:00');
-    // Un jour ignoré garde sa mesure pour lever.
-    expect(heure(c, '2026-11-01', CAYENNE, lever)).toBe('05:00');
+    // Un jour ignoré garde sa mesure (journal).
+    expect(heure(c, '2026-11-01', CAYENNE, (x, d) => leverMesure(x, d)!)).toBe('05:00');
   });
 
   it('journal : la mesure reste affichée, marquée, hors de l’amplitude', () => {

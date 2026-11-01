@@ -31,7 +31,7 @@ describe('tâche planifiée (§4.4)', () => {
   let faux: ReturnType<typeof fauxClient>;
   const lancer = () => {
     const { deps } = client(horloge, {}, () => faux.c);
-    return executerTachesPlanifiees({ ...env, TODOIST_TOKEN: 'jeton-factice' }, deps);
+    return executerTachesPlanifiees({ ...env, TODOIST_TOKEN: 'jeton-factice', TODOIST_UTILISATEUR: 'alice' }, deps);
   };
 
   beforeEach(async () => {
@@ -44,13 +44,17 @@ describe('tâche planifiée (§4.4)', () => {
   it('réécrit le cache Todoist seulement quand les faits changent', async () => {
     await lancer();
     expect((await lire('taches'))?.maj_le).toBe(MARDI.matin);
+    // Cadence Todoist : 2 min (config `synchro.todoist`) ; la minute d'entre deux n'appelle pas Todoist.
+    horloge.avancer(60);
+    await lancer();
+    expect(faux.appels.faits).toBe(1);
     horloge.avancer(60);
     await lancer();
     expect((await lire('taches'))?.maj_le).toBe(MARDI.matin);
-    taches = [tache({ id: '1', terminee: true, termineeLe: '2026-11-03T10:01:30Z' })];
-    horloge.avancer(60);
+    taches = [tache({ id: '1', terminee: true, termineeLe: '2026-11-03T10:03:30Z' })];
+    horloge.avancer(120);
     await lancer();
-    expect((await lire('taches'))?.maj_le).toBe('2026-11-03T10:02:00Z');
+    expect((await lire('taches'))?.maj_le).toBe('2026-11-03T10:04:00Z');
     expect(faux.appels.faits).toBe(3);
   });
 
@@ -156,6 +160,19 @@ describe('tâche planifiée (§4.4)', () => {
     await lancer();
     const ligne = await env.DB.prepare(`SELECT motif_fin FROM sessions WHERE id = ?`).bind(s.id).first();
     expect(ligne).toEqual({ motif_fin: 'sans_reponse' });
+  });
+
+  it('le jeton Todoist ne sert qu\'à son propriétaire (TODOIST_UTILISATEUR) ; sans lui, aucun appel (revue 01/11)', async () => {
+    const { deps } = client(horloge, {}, () => faux.c);
+    await executerTachesPlanifiees({ ...env, TODOIST_TOKEN: 'jeton-factice' }, deps);
+    await executerTachesPlanifiees({ ...env, TODOIST_TOKEN: 'jeton-factice', TODOIST_UTILISATEUR: 'bob' }, deps);
+    expect(faux.appels).toEqual({ faits: 0, etiquettes: 0 });
+    // Deux utilisateurs : seul le propriétaire du compte reçoit les faits de ce compte.
+    await installerConfig({ ...configExemple(), utilisateur: 'bob' }, 'b0b');
+    await executerTachesPlanifiees({ ...env, TODOIST_TOKEN: 'jeton-factice', TODOIST_UTILISATEUR: 'alice' }, deps);
+    expect(faux.appels.faits).toBe(1);
+    const proprietaires = await env.DB.prepare(`SELECT DISTINCT utilisateur FROM cache_todoist WHERE cle = 'taches'`).all();
+    expect(proprietaires.results).toEqual([{ utilisateur: 'alice' }]);
   });
 
   it("sans jeton Todoist : ni appel, ni photo des retards, mais la nuit est photographiée", async () => {

@@ -1,6 +1,9 @@
 // Exceptions (conception §3.4) : l'aperçu et l'enregistrement passent par le même calcul du
 // moteur ; seul l'enregistrement écrit. Aucune règle de friction n'est recodée ici.
 import type { Contexte, DemandeException, FrictionFournie, Moteur, PrixException } from '../../core/src/types';
+import { PREPARATION_MAX_MIN } from '../../core/src/exceptions';
+import { dateCourte } from '../../core/src/temps';
+import { instructionsInvalider } from './cache';
 import { chargerContexte, nouvelIdentifiant } from './contexte';
 import type { Dependances, JetonAuthentifie } from './env';
 import { ErreurApi, requeteInvalide } from './erreurs';
@@ -15,7 +18,7 @@ function lireDemande(corps: Corps, contexte: Contexte, moteur: Moteur): DemandeE
       const heure = corps.heure === undefined ? undefined : heureLocale(corps, 'heure');
       const reveil = corps.reveil === undefined ? undefined : heureLocale(corps, 'reveil');
       if (!heure && !reveil) throw requeteInvalide('Un engagement ajouté demande « heure » ou « reveil ».');
-      const preparationMin = entierFacultatif(corps, 'preparation_min', 0, 600);
+      const preparationMin = entierFacultatif(corps, 'preparation_min', 0, PREPARATION_MAX_MIN);
       const obligatoire = booleenFacultatif(corps, 'obligatoire');
       return {
         type,
@@ -30,7 +33,7 @@ function lireDemande(corps: Corps, contexte: Contexte, moteur: Moteur): DemandeE
     case 'retire':
       return { type, date: dateLocale(corps, 'date'), engagement: texte(corps, 'engagement', 100) };
     case 'decale': {
-      const preparationMin = entierFacultatif(corps, 'preparation_min', 0, 600);
+      const preparationMin = entierFacultatif(corps, 'preparation_min', 0, PREPARATION_MAX_MIN);
       return {
         type,
         date: dateLocale(corps, 'date'),
@@ -74,6 +77,7 @@ function vuePrix(p: PrixException) {
     lever_apres: p.leverApres,
     dette_avant_min: p.detteAvantMin,
     dette_apres_min: p.detteApresMin,
+    nuit_decision: p.nuitDecision ?? null,
   };
 }
 
@@ -107,24 +111,38 @@ export async function enregistrerException(deps: Dependances, db: D1Database, je
   const id = nouvelIdentifiant('e');
   const jour = demande.type === 'coucher' || demande.type === 'avancer_coucher' ? demande.nuit : demande.date;
   const appareil = typeof corps.appareil === 'string' && corps.appareil !== '' ? corps.appareil.slice(0, 100) : jeton.nom;
-  await db
-    .prepare(
-      `INSERT INTO exceptions (id, utilisateur, jour, type, raison, pendant_nuit, appareil, details, version_config, cree_le)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      id,
-      jeton.utilisateur,
-      jour,
-      demande.type,
-      friction.raison ?? null,
-      // La décision de nuit est exactement l'exception qui a exigé la friction de nuit.
-      prix.friction === 'raison_phrase' ? 1 : 0,
-      appareil,
-      JSON.stringify(demande),
-      version,
-      contexte.maintenant,
-    )
-    .run();
+  // La décision de nuit est exactement l'exception qui a exigé la friction de nuit ; elle consomme
+  // la nuit que le moteur désigne (l'index unique refuse une seconde décision pour cette nuit).
+  const decision = prix.friction === 'raison_phrase';
+  try {
+    await db.batch([
+      db
+        .prepare(
+          `INSERT INTO exceptions (id, utilisateur, jour, type, raison, pendant_nuit, nuit_decision, appareil, details, version_config, cree_le)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          id,
+          jeton.utilisateur,
+          jour,
+          demande.type,
+          friction.raison ?? null,
+          decision ? 1 : 0,
+          decision ? (prix.nuitDecision ?? null) : null,
+          appareil,
+          JSON.stringify(demande),
+          version,
+          contexte.maintenant,
+        ),
+      ...instructionsInvalider(db, jeton.utilisateur),
+    ]);
+  } catch (e) {
+    // Deux décisions de nuit simultanées : la seconde arrive ici, après la lecture des deux.
+    if (decision && String(e).includes('UNIQUE')) {
+      const motif = `décision de nuit déjà prise pour la nuit du ${dateCourte(prix.nuitDecision ?? jour)} (une seule par nuit)`;
+      throw new ErreurApi(422, 'exception_refusee', motif, { prix: { ...vuePrix(prix), admissible: false, motif_refus: motif } });
+    }
+    throw e;
+  }
   return { id, demande: vueDemande(demande), prix: vuePrix(prix) };
 }

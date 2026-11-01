@@ -98,7 +98,12 @@ export interface OptionsXiaomi extends IdentifiantsXiaomi {
   /** Heure réelle pour le nonce (le serveur la vérifie) ; injectée par les tests. */
   maintenant?: () => number;
   aleatoire?: (n: number) => Uint8Array;
+  /** Requêtes de données au plus pour ce client (une invocation de Worker : 50 sous-requêtes, D1 compris). */
+  demandesMax?: number;
 }
+
+/** Défaut de `demandesMax` : les deux requêtes de connexion et la synchro tiennent sous 20 sous-requêtes. */
+export const DEMANDES_MAX_PAR_CLIENT = 16;
 
 export const URL_CONNEXION = 'https://account.xiaomi.com/pass/serviceLogin?_json=true&sid=miothealth';
 export const CHEMIN_DONNEES = '/app/v1/data/get_fitness_data_by_time';
@@ -306,6 +311,8 @@ export function creerClientXiaomi(o: OptionsXiaomi): ClientXiaomi {
   const base = hoteSante(o.region);
   let session: Promise<Session> | null = null;
   let jetonRecu: string | null = null;
+  let demandes = 0;
+  const demandesMax = o.demandesMax ?? DEMANDES_MAX_PAR_CLIENT;
 
   async function appel(url: string, init: RequestInit): Promise<Response> {
     try {
@@ -350,6 +357,7 @@ export function creerClientXiaomi(o: OptionsXiaomi): ClientXiaomi {
   }
 
   async function demander(s: Session, chemin: string, charge: unknown): Promise<Record<string, unknown>> {
+    if (++demandes > demandesMax) throw new ErreurXiaomi('xiaomi_indisponible', `plus de ${demandesMax} requêtes en un passage, reprise au suivant`);
     const n = nonce(aleatoire(8), maintenant());
     const signe = await nonceSigne(s.ssecurity, n);
     const data = JSON.stringify(charge);

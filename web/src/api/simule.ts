@@ -321,7 +321,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
   }
 
   function decisionPrise(nuit: DateLocale): boolean {
-    return exceptions.some((e) => e.pendantNuit && nuitDe(e.demande) === nuit);
+    return exceptions.some((e) => e.pendantNuit && (e.nuitDecision ?? nuitDe(e.demande)) === nuit);
   }
 
   function dateCourante(t: number): DateLocale {

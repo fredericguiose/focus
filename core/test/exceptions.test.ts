@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { lireConfig } from '../src/config';
 import { PHRASE_DECISION_DE_NUIT, prixException } from '../src/exceptions';
-import { journeeCourante } from '../src/journee';
+import { journee, journeeCourante } from '../src/journee';
+import { lireInstant } from '../src/temps';
+import type { Exception } from '../src/types';
 import { contexte, EXEMPLE, exception, remplacer } from './aides';
 
 // Nuit du lundi 02/11 : ouverture 20:30 (19:30Z), coucher 22:30 (21:30Z), lever mardi 06:30 (05:30Z).
@@ -163,7 +165,7 @@ describe('exceptions — engagements', () => {
       admissible: true, friction: 'aucune', leverApres: '2026-12-21T06:30:00Z',
     });
     expect(prixException(ctx, { type: 'decale', date: '2026-12-21', engagement: 'sport', heure: '07:00', preparationMin: -5 }).motifRefus).toBe(
-      'préparation invalide : attendu un nombre entier de minutes',
+      'préparation invalide : attendu un nombre entier de minutes, de 0 à 240',
     );
   });
 
@@ -281,5 +283,84 @@ describe('exceptions — « je vais dormir » après le coucher', () => {
     const tot = exception(coucher('21:00'), '2026-11-02T14:00:00Z');
     const q = prixException(contexte('2026-11-02T20:30:00Z', { exceptions: [tot] }), dormir('2026-11-02T20:30:00Z'));
     expect(q.motifRefus).toBe('la nuit a déjà commencé à 21:00');
+  });
+});
+
+// ─── Revue du 01/11 : resserrer / desserrer se juge sur l'effet ──────────────────────────────
+
+describe('exceptions — un engagement ne finit jamais la nuit en cours (revue 01/11)', () => {
+  // Lundi 23:00 Paris : NIGHT_LOCK depuis 22:30, lever mardi 06:30.
+  const NUIT_EN_COURS = '2026-11-02T22:00:00Z';
+
+  it('« 00:00 + 600 min » (réveil la veille à 14:00) est refusé : sous le lever plancher', () => {
+    const d = { type: 'ajoute' as const, date: '2026-11-03', libelle: 'leurre', heure: '00:00', preparationMin: 600, obligatoire: false };
+    const p = prixException(contexte(NUIT_EN_COURS), d);
+    expect(p.admissible).toBe(false);
+    expect(p.resserre).toBe(false);
+    expect(p.motifRefus).toMatch(/préparation invalide/);
+    const p2 = prixException(contexte(NUIT_EN_COURS), { ...d, preparationMin: 240 });
+    expect(p2).toMatchObject({ admissible: false, motifRefus: 'réveil à 20:00 (la veille), avant le lever plancher de 04:30' });
+    expect(prixException(contexte(NUIT_EN_COURS), { ...d, heure: undefined, preparationMin: undefined, reveil: '01:00' }).admissible).toBe(false);
+  });
+
+  it('un réveil ≥ plancher mais déjà passé est refusé', () => {
+    // Mardi 04:40 Paris : réveil 04:35 → le lever de mardi serait passé.
+    const p = prixException(contexte('2026-11-03T03:40:00Z'), { type: 'ajoute', date: '2026-11-03', libelle: 'x', heure: '05:00', preparationMin: 25 });
+    expect(p).toMatchObject({ admissible: false, resserre: false });
+    expect(p.motifRefus).toMatch(/déjà passé/);
+  });
+
+  it('avancer la fin de la nuit en cours est une décision de nuit, pas un resserrement', () => {
+    // Mardi 03:00 Paris : réveil 04:30 au lieu de 06:30.
+    const d = { type: 'ajoute' as const, date: '2026-11-03', libelle: 'train', heure: '05:00', preparationMin: 30 };
+    const sans = prixException(contexte('2026-11-03T02:00:00Z'), d);
+    expect(sans).toMatchObject({ admissible: false, resserre: false, friction: 'raison_phrase', frictionManquante: true });
+    const avec = prixException(contexte('2026-11-03T02:00:00Z'), d, FRICTION);
+    expect(avec).toMatchObject({ admissible: true, friction: 'raison_phrase', nuitDecision: NUIT });
+  });
+
+  it('décaler plus tôt : mêmes règles (plancher)', () => {
+    const p = prixException(contexte(AVANT_OUVERTURE), { type: 'decale', date: '2026-11-03', engagement: 'travail', heure: '04:00' });
+    expect(p).toMatchObject({ admissible: false, motifRefus: 'réveil à 04:00, avant le lever plancher de 04:30' });
+  });
+
+  it('ajouter un engagement le soir, avant le coucher, reste un resserrement libre', () => {
+    const p = prixException(contexte(APRES_OUVERTURE), { type: 'ajoute', date: '2026-11-03', libelle: 'dentiste', heure: '05:30', preparationMin: 30 });
+    expect(p).toMatchObject({ admissible: true, friction: 'aucune', resserre: true });
+  });
+});
+
+describe('exceptions — une exception d\'un autre jour qui desserre ce soir (revue 01/11)', () => {
+  // Plancher abaissé pour que l'examen de jeudi (05:00 − 60 min = 04:00) soit admis.
+  const cfg = lireConfig(remplacer(EXEMPLE, 'lever_plancher: "04:30"', 'lever_plancher: "03:30"'));
+  const examen = { type: 'ajoute' as const, date: '2026-11-05', libelle: 'examen', heure: '05:00', preparationMin: 60 };
+  const retire = { type: 'retire' as const, date: '2026-11-05', engagement: 'examen' };
+  const ctx = (maintenant: string, autres: Exception[] = []) =>
+    contexte(maintenant, { config: cfg, exceptions: [exception(examen, '2026-11-01T08:00:00Z', false), ...autres] });
+
+  it('l\'examen de jeudi avance le coucher de ce soir (régularité) ; le retirer le recule', () => {
+    const avec = journee(ctx('2026-11-02T20:15:00Z'), NUIT);
+    const sans = journee(contexte('2026-11-02T20:15:00Z', { config: cfg }), NUIT);
+    expect(lireInstant(avec.coucherApplique)).toBeLessThan(lireInstant(sans.coucherApplique));
+  });
+
+  it('après l\'ouverture de ce soir : décision de nuit pour CE SOIR (raison + phrase), pas une simple raison', () => {
+    const p = prixException(ctx('2026-11-02T20:15:00Z'), retire, MOTIF);
+    expect(p).toMatchObject({ admissible: false, friction: 'raison_phrase', frictionManquante: true, resserre: false });
+    const ok = prixException(ctx('2026-11-02T20:15:00Z'), retire, FRICTION);
+    expect(ok).toMatchObject({ admissible: true, friction: 'raison_phrase', nuitDecision: NUIT });
+  });
+
+  it('la décision consommée vaut pour ce soir : une seconde est refusée', () => {
+    const prise: Exception = { ...exception(retire, '2026-11-02T20:16:00Z', true), nuitDecision: NUIT };
+    const c = ctx('2026-11-02T20:20:00Z', [prise]);
+    expect(journee(c, NUIT).decisionDeNuitPrise).toBe(true);
+    const p = prixException(c, coucher('23:45'), FRICTION);
+    expect(p).toMatchObject({ admissible: false, friction: 'raison_phrase' });
+    expect(p.motifRefus).toMatch(/déjà prise pour la nuit du/);
+  });
+
+  it('avant l\'ouverture : une raison suffit', () => {
+    expect(prixException(ctx(AVANT_OUVERTURE), retire, MOTIF)).toMatchObject({ admissible: true, friction: 'raison' });
   });
 });

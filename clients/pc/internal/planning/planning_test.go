@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -223,5 +224,91 @@ func TestCache(t *testing.T) {
 	}
 	if _, err := LireCache(chemin); err == nil {
 		t.Error("cache corrompu accepté")
+	}
+}
+
+// Segment qui interdit les sessions sans verrouiller l'écran (MORNING_LOCK) : une session
+// encore valide, prolongée par un « continue », ne doit rien libérer (planning en cache).
+func TestSessionsIgnoreesPendantSegmentInterdit(t *testing.T) {
+	p := exemple(t)
+	p.Sessions[0].Question.ExpireA = instant(t, "2026-11-04T07:00:00Z")
+	for _, continues := range []map[string]string{nil, {"s_01": "q_07"}} {
+		e := Evaluer(p, instant(t, "2026-11-04T06:00:00Z"), continues)
+		if e.Segment == nil || e.Segment.Mode != "MORNING_LOCK" || e.Verrouiller {
+			t.Fatalf("segment MORNING_LOCK non verrouillé attendu : %+v", e)
+		}
+		if len(e.SessionsValides) != 0 || !slices.Contains(e.Domaines, "chatgpt.com") {
+			t.Errorf("continues %v : les sessions ne doivent pas compter pendant un segment « interdites » : %+v", continues, e)
+		}
+	}
+}
+
+// fin_au_plus_tard l'emporte sur un « continue » accepté et sur une question non échue.
+func TestFinAuPlusTardLEmporteSurContinue(t *testing.T) {
+	p := exemple(t)
+	fin := instant(t, "2026-11-03T22:00:00Z")
+	p.Sessions[0].FinAuPlusTard = &fin
+	continues := map[string]string{"s_01": "q_07"}
+	if e := Evaluer(p, instant(t, "2026-11-03T21:59:59Z"), continues); slices.Contains(e.Domaines, "chatgpt.com") {
+		t.Errorf("avant fin_au_plus_tard, la session libère encore : %v", e.Domaines)
+	}
+	e := Evaluer(p, fin, continues)
+	if len(e.SessionsValides) != 0 || !slices.Contains(e.Domaines, "chatgpt.com") {
+		t.Errorf("à fin_au_plus_tard, la session ne doit plus rien libérer : %+v", e)
+	}
+	// Question encore ouverte mais fin atteinte.
+	p.Sessions[0].Question.ExpireA = instant(t, "2026-11-03T23:00:00Z")
+	if SessionValide(p.Sessions[0], instant(t, "2026-11-03T22:30:00Z"), "") {
+		t.Error("question non échue mais fin_au_plus_tard passée : session valide à tort")
+	}
+	// Sans question non plus.
+	s := Session{ID: "s_02", FinAuPlusTard: &fin}
+	if SessionValide(s, fin, "") {
+		t.Error("session sans question au-delà de fin_au_plus_tard : valide à tort")
+	}
+}
+
+func TestDecodageFinAuPlusTard(t *testing.T) {
+	cas := []struct {
+		json    string
+		attendu string // "" = absent
+	}{
+		{`{"id":"s","fin_au_plus_tard":"2026-11-03T22:00:00Z"}`, "2026-11-03T22:00:00Z"},
+		{`{"id":"s","fin_au_plus_tard":"2026-11-03T19:00:00-03:00"}`, "2026-11-03T22:00:00Z"},
+		{`{"id":"s","fin_au_plus_tard":null}`, ""},
+		{`{"id":"s"}`, ""},
+	}
+	for _, c := range cas {
+		var s Session
+		if err := json.Unmarshal([]byte(c.json), &s); err != nil {
+			t.Fatalf("%s : %v", c.json, err)
+		}
+		switch {
+		case c.attendu == "" && s.FinAuPlusTard != nil:
+			t.Errorf("%s : fin %v, attendu absente", c.json, s.FinAuPlusTard)
+		case c.attendu != "" && (s.FinAuPlusTard == nil || !s.FinAuPlusTard.Equal(instant(t, c.attendu))):
+			t.Errorf("%s : fin %v, attendu %s", c.json, s.FinAuPlusTard, c.attendu)
+		}
+	}
+	if err := json.Unmarshal([]byte(`{"id":"s","fin_au_plus_tard":"demain"}`), new(Session)); err == nil {
+		t.Error("fin_au_plus_tard illisible acceptée")
+	}
+	// Planning sans le champ (ancien serveur) : la session reste valide comme avant.
+	p := exemple(t)
+	if p.Sessions[0].FinAuPlusTard != nil {
+		t.Fatal("le planning d'exemple n'a pas de fin_au_plus_tard")
+	}
+	if !SessionValide(p.Sessions[0], instant(t, "2026-11-03T21:10:00Z"), "") {
+		t.Error("compatibilité : session sans fin_au_plus_tard invalide à tort")
+	}
+	// Aller-retour par le cache : le champ est conservé, et omis s'il est absent.
+	fin := instant(t, "2026-11-03T22:00:00Z")
+	b, _ := json.Marshal(Session{ID: "s", FinAuPlusTard: &fin})
+	var relu Session
+	if err := json.Unmarshal(b, &relu); err != nil || relu.FinAuPlusTard == nil || !relu.FinAuPlusTard.Equal(fin) {
+		t.Errorf("aller-retour : %s → %+v (%v)", b, relu, err)
+	}
+	if b, _ := json.Marshal(Session{ID: "s"}); strings.Contains(string(b), "fin_au_plus_tard") {
+		t.Errorf("champ absent sérialisé : %s", b)
 	}
 }

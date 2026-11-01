@@ -401,12 +401,17 @@ func (d *Demon) Etat() local.Etat {
 	if d.plan == nil || !t.Before(d.plan.ValableJusqua) {
 		return e
 	}
-	if seg := planning.SegmentEnVigueur(d.plan, t); seg != nil {
+	seg := planning.SegmentEnVigueur(d.plan, t)
+	if seg != nil {
 		e.Mode = seg.Mode
-		e.SessionsPermises = seg.Sessions != "interdites" && !seg.Actions.VerrouillerSession
+	}
+	e.SessionsPermises = planning.SessionsPermises(seg)
+	if !e.SessionsPermises {
+		// Aucune session ne libère rien : pas de question à poser à leur sujet.
+		return e
 	}
 	for _, s := range d.plan.Sessions {
-		if d.fermees[s.ID] {
+		if d.fermees[s.ID] || s.Terminee(t) {
 			continue
 		}
 		accepte := s.Question != nil && d.continues[s.ID] == s.Question.ID

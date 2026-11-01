@@ -207,3 +207,67 @@ describe('sessions (§4.5)', () => {
     expect(r.corps.session.motif_fin).toBe('fermee');
   });
 });
+
+// Revue du 01/11 : une session gardée en vie par des « continue » survivait au NIGHT_LOCK et au plafond.
+describe('sessions — fin imposée par le mode et le plafond (revue 01/11)', () => {
+  const horloge = Horloge.a('2026-11-03T17:00:00Z'); // mardi 18:00 Paris, WORK
+  const api = client(horloge);
+  let tel: string;
+  let web: string;
+
+  beforeEach(async () => {
+    horloge.regler('2026-11-03T17:00:00Z');
+    await installerConfig();
+    await poserTaches([tache({ id: 't1' })]);
+    tel = await creerJeton('appareil', 'iphone', 'iphone');
+    web = await creerJeton('interface', 'web');
+  });
+
+  const continuer = async (s: { id: string; question: { id: string; posee_a: string; attente_s: number } }) => {
+    horloge.regler(s.question.posee_a);
+    horloge.avancer(s.question.attente_s + 1);
+    return api.post(`/v1/sessions/${s.id}/reponse`, web, { question_id: s.question.id, reponse: 'continue' });
+  };
+
+  it('le plafond quotidien ferme la session ; « continue » est refusé ; le cumul ne dépasse pas le plafond', async () => {
+    const o = await api.post('/v1/sessions', tel, { tache_id: 't1', apps: ['youtube'] });
+    expect(o.statut).toBe(201);
+    // Plafond 3 h (18:00 → 21:00), avant le coucher de 21:30.
+    expect(o.corps.session.fin_au_plus_tard).toBe('2026-11-03T20:00:00Z');
+    let s = o.corps.session;
+    let refus: { statut: number; corps: { erreur: string; motif_fin?: string } } | null = null;
+    for (let i = 0; i < 40 && !refus; i++) {
+      const r = await continuer(s);
+      if (r.statut !== 200) refus = r;
+      else s = r.corps.session;
+    }
+    expect(refus).toMatchObject({ statut: 409, corps: { erreur: 'session_fermee', motif_fin: 'plafond_atteint' } });
+    const ligne = await env.DB.prepare('SELECT fermee_le, motif_fin FROM sessions').first();
+    expect(ligne).toEqual({ fermee_le: '2026-11-03T20:00:00Z', motif_fin: 'plafond_atteint' });
+    const st = await api.get('/v1/statut', web);
+    expect(st.corps.sessions_du_jour).toEqual({ cumul_min: 180, plafond_min: 180 });
+    const b = await api.get('/v1/blocage?domaine=youtube.com&bundle=com.google.ios.youtube', tel);
+    expect(b.corps).toMatchObject({ bloque: true, session: null });
+  });
+
+  it('le NIGHT_LOCK ferme la session au coucher ; le planning n\'en libère plus aucune', async () => {
+    horloge.regler('2026-11-03T19:00:00Z'); // 20:00 Paris : coucher à 21:30, avant le plafond (23:00)
+    const o = await api.post('/v1/sessions', tel, { tache_id: 't1', apps: ['youtube'] });
+    expect(o.corps.session.fin_au_plus_tard).toBe(MARDI.coucher);
+    const planning = await api.get('/v1/planning', tel);
+    expect(planning.corps.sessions[0].fin_au_plus_tard).toBe(MARDI.coucher);
+    // « continue » à chaque question jusqu'au refus : la nuit commence à 21:30.
+    let s = o.corps.session;
+    let r = await continuer(s);
+    while (r.statut === 200) {
+      s = r.corps.session;
+      r = await continuer(s);
+    }
+    const apres = await api.get('/v1/planning', tel);
+    expect(apres.corps.segments[0].mode).toBe('NIGHT_LOCK');
+    expect(apres.corps.sessions).toEqual([]);
+    const ligne = await env.DB.prepare('SELECT fermee_le, motif_fin FROM sessions').first();
+    expect(ligne).toEqual({ fermee_le: MARDI.coucher, motif_fin: 'mode_interdit' });
+    expect(r).toMatchObject({ statut: 409, corps: { erreur: 'session_fermee', motif_fin: 'mode_interdit' } });
+  });
+});

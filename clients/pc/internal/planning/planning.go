@@ -45,6 +45,15 @@ type Session struct {
 	Domaines  []string  `json:"domaines"`
 	OuverteLe time.Time `json:"ouverte_le"`
 	Question  *Question `json:"question,omitempty"`
+	// FinAuPlusTard : instant à partir duquel la session ne libère plus rien, quoi qu'il arrive
+	// (plafond quotidien de sessions atteint, début du premier segment qui interdit les
+	// sessions). Absent ou null : pas de fin connue, seule la question fait foi.
+	FinAuPlusTard *time.Time `json:"fin_au_plus_tard,omitempty"`
+}
+
+// Terminee : la fin au plus tard de la session est atteinte (fin incluse).
+func (s Session) Terminee(t time.Time) bool {
+	return s.FinAuPlusTard != nil && !t.Before(*s.FinAuPlusTard)
 }
 
 type Question struct {

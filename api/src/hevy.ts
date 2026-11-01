@@ -2,6 +2,7 @@
 // Doc : https://api.hevyapp.com/docs/ — clé d'API dans l'en-tête `api-key`. GET /v1/workouts
 // est paginé (10 séances au plus par page) et n'a pas de filtre de date : les séances arrivent
 // de la plus récente à la plus ancienne, la lecture s'arrête à la première page qui sort de la période.
+import { invaliderCache } from './cache';
 import { CLES_CACHE, ecrireCache, lireCache } from './contexte';
 import type { Liaisons } from './env';
 import { versInstant } from './temps';
@@ -29,7 +30,15 @@ export interface SeanceHevy {
 export interface ClientHevy {
   /** Séances commencées depuis `depuis`, toutes (la liste est complète pour la période). */
   seances(depuis: Date): Promise<SeanceHevy[]>;
+  /**
+   * Au plus `max` pages à partir de la page `premiere` (la plus récente : 1). `complet` : la période
+   * est couverte ; sinon reprendre à `suivante` au passage suivant (rattrapage en plusieurs passes).
+   */
+  seancesParPages?(depuis: Date, premiere: number, max: number): Promise<{ seances: SeanceHevy[]; complet: boolean; suivante: number }>;
 }
+
+/** Pages lues au plus par passage : une invocation de Worker a 50 sous-requêtes, D1 compris. */
+export const PAGES_PAR_PASSAGE_HEVY = 10;
 
 export interface OptionsHevy {
   cle: string;
@@ -87,6 +96,18 @@ export function creerClientHevy(o: OptionsHevy): ClientHevy {
   }
 
   return {
+    async seancesParPages(depuis, premiere, max) {
+      const limite = depuis.getTime();
+      const resultat: SeanceHevy[] = [];
+      for (let n = premiere; n < premiere + max; n++) {
+        const p = await page(n);
+        resultat.push(...p.seances.filter((s) => Date.parse(s.debut) >= limite));
+        if (n >= p.pages || p.seances.length === 0 || p.seances.some((s) => Date.parse(s.debut) < limite)) {
+          return { seances: resultat, complet: true, suivante: n + 1 };
+        }
+      }
+      return { seances: resultat, complet: false, suivante: premiere + max };
+    },
     async seances(depuis) {
       const limite = depuis.getTime();
       const resultat: SeanceHevy[] = [];
@@ -124,6 +145,15 @@ export interface EtatSynchroHevy {
   reussie_le: string | null;
   erreur: string | null;
   seances: number;
+  /** Rattrapage en plusieurs passes : période visée et prochaine page à lire. */
+  rattrapage?: { depuis: string; page: number } | null;
+}
+
+/** Retard de la synchro Hevy sur sa cadence (ms, ≥ 0), ou null si elle n'est pas due. */
+export function retardSeances(avant: EtatSynchroHevy | undefined, maintenant: Date, intervalleS = INTERVALLE_SYNCHRO_HEVY_S): number | null {
+  if (!avant || (avant.rattrapage && avant.erreur === null)) return 0;
+  const retard = maintenant.getTime() - Date.parse(avant.tentee_le) - intervalleS * 1000;
+  return retard >= -30_000 ? Math.max(0, retard) : null;
 }
 
 /** Début de la période à relire : 7 jours, ou depuis la dernière réussite moins un jour (60 jours au plus). */
@@ -138,15 +168,20 @@ export function debutDeLecture(avant: EtatSynchroHevy | undefined, maintenant: D
  * Insère ou met à jour chaque séance par son identifiant Hevy ; une séance de la période qui
  * n'est plus chez Hevy (supprimée) est effacée.
  */
-export async function enregistrerSeances(db: D1Database, utilisateur: string, seances: SeanceHevy[], depuis: Date, maintenant: Date) {
+export async function enregistrerSeances(db: D1Database, utilisateur: string, seances: SeanceHevy[], depuis: Date, maintenant: Date, effacer = true) {
   const recu = versInstant(maintenant);
-  await db.batch([
-    db
-      .prepare(
-        `DELETE FROM mesures WHERE utilisateur = ? AND type = 'seance' AND source = 'hevy' AND debut >= ?
-           AND cle NOT IN (SELECT value FROM json_each(?))`,
-      )
-      .bind(utilisateur, versInstant(depuis), JSON.stringify(seances.map((s) => s.id))),
+  const resultats = await db.batch([
+    // Lecture partielle (rattrapage) : rien n'est effacé, la liste ne couvre pas toute la période.
+    ...(effacer
+      ? [
+          db
+            .prepare(
+              `DELETE FROM mesures WHERE utilisateur = ? AND type = 'seance' AND source = 'hevy' AND debut >= ?
+                 AND cle NOT IN (SELECT value FROM json_each(?))`,
+            )
+            .bind(utilisateur, versInstant(depuis), JSON.stringify(seances.map((s) => s.id))),
+        ]
+      : []),
     ...seances.map((s) =>
       db
         .prepare(
@@ -160,26 +195,39 @@ export async function enregistrerSeances(db: D1Database, utilisateur: string, se
         .bind(utilisateur, s.id, s.debut, s.fin, Math.round((Date.parse(s.fin) - Date.parse(s.debut)) / 60_000), JSON.stringify({ titre: s.titre }), recu),
     ),
   ]);
+  if (resultats.some((r) => (r.meta.changes ?? 0) > 0)) await invaliderCache(db, utilisateur);
 }
 
-/** Une fois par heure au plus ; au premier passage, 60 jours d'historique. L'échec est noté et relancé l'heure suivante. */
+/**
+ * À la cadence `intervalleS` au plus (1 h par défaut) ; au premier passage, 60 jours d'historique,
+ * lus en plusieurs passes de 10 pages au plus (une par minute) si besoin. L'échec est noté et
+ * relancé à la cadence suivante.
+ */
 export async function synchroniserSeances(
   db: D1Database,
   fabrique: (cle: string) => ClientHevy,
   reglages: ReglagesHevy,
   maintenant: Date,
   forcer = false,
+  intervalleS = INTERVALLE_SYNCHRO_HEVY_S,
 ): Promise<EtatSynchroHevy | null> {
   const { utilisateur } = reglages;
   const avant = (await lireCache<EtatSynchroHevy>(db, utilisateur, CLES_CACHE.synchroHevy))?.valeur;
-  if (!forcer && avant && maintenant.getTime() - Date.parse(avant.tentee_le) < INTERVALLE_SYNCHRO_HEVY_S * 1000) return null;
-  const depuis = debutDeLecture(avant, maintenant);
-  const etat: EtatSynchroHevy = { tentee_le: versInstant(maintenant), reussie_le: avant?.reussie_le ?? null, erreur: null, seances: 0 };
+  if (!forcer && retardSeances(avant, maintenant, intervalleS) === null) return null;
+  const reprise = avant?.rattrapage && avant.erreur === null ? avant.rattrapage : null;
+  const depuis = reprise ? new Date(reprise.depuis) : debutDeLecture(avant, maintenant);
+  const etat: EtatSynchroHevy = { tentee_le: versInstant(maintenant), reussie_le: avant?.reussie_le ?? null, erreur: null, seances: 0, rattrapage: null };
   try {
-    const seances = await fabrique(reglages.cle).seances(depuis);
-    await enregistrerSeances(db, utilisateur, seances, depuis, maintenant);
-    etat.seances = seances.length;
-    etat.reussie_le = etat.tentee_le;
+    const client = fabrique(reglages.cle);
+    const premiere = reprise?.page ?? 1;
+    const lu = client.seancesParPages
+      ? await client.seancesParPages(depuis, premiere, PAGES_PAR_PASSAGE_HEVY)
+      : { seances: await client.seances(depuis), complet: true, suivante: 0 };
+    // Effacer suppose la période entière lue d'un coup (première page comprise).
+    await enregistrerSeances(db, utilisateur, lu.seances, depuis, maintenant, lu.complet && premiere === 1);
+    etat.seances = lu.seances.length;
+    if (lu.complet) etat.reussie_le = etat.tentee_le;
+    else etat.rattrapage = { depuis: versInstant(depuis), page: lu.suivante };
     return etat;
   } catch (e) {
     etat.erreur = e instanceof ErreurHevy ? e.code : 'erreur_interne';

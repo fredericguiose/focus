@@ -148,6 +148,8 @@ export interface Config {
     expirationQuestionS: number;
     intervalleQuestionMin: { pc: number; iphone: number };
   };
+  /** Cadences de synchronisation, en minutes (absent dans une config normalisée d'avant le 01/11). */
+  synchro?: { todoistMin: number; xiaomiMin: number; hevyMin: number };
 }
 
 export type ResultatValidation =
@@ -207,6 +209,12 @@ export interface Exception {
   raison?: string;
   /** Vrai si demandée après l'ouverture de la soirée (décision de nuit). */
   pendantNuit: boolean;
+  /**
+   * Décision de nuit : la nuit qu'elle a desserrée (la nuit en cours, qui n'est pas toujours celle
+   * de l'exception : retirer un engagement de jeudi peut reculer le coucher de ce soir). Absente :
+   * la nuit de l'exception.
+   */
+  nuitDecision?: DateLocale;
 }
 
 export interface FrictionFournie {
@@ -221,6 +229,8 @@ export interface PrixException {
   friction: 'aucune' | 'raison' | 'raison_phrase';
   /** Vrai si seule la friction manque : tout le reste est admissible. */
   frictionManquante?: boolean;
+  /** Décision de nuit acceptée : la nuit qu'elle consomme (à enregistrer avec l'exception). */
+  nuitDecision?: DateLocale;
   resserre: boolean;
   coucherAvant: Instant;
   coucherApres: Instant;

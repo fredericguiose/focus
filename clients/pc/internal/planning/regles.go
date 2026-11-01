@@ -52,10 +52,21 @@ func SegmentEnVigueur(p *Planning, t time.Time) *Segment {
 	return nil
 }
 
+// SessionsPermises : le segment autorise les sessions de travail. Un segment qui verrouille
+// l'écran ou qui interdit les sessions ne laisse aucune session libérer quoi que ce soit.
+func SessionsPermises(seg *Segment) bool {
+	return seg != nil && seg.Sessions != "interdites" && !seg.Actions.VerrouillerSession
+}
+
 // SessionValide : valide tant que question.expire_a n'est pas passé, ou après un « continue »
 // accepté pour la question en cours. Sans question, aucune échéance n'est connue : la session
-// reste valide jusqu'à ce que l'API la retire du planning.
+// reste valide jusqu'à ce que l'API la retire du planning. Dans tous les cas, fin_au_plus_tard
+// l'emporte, même sur un « continue » accepté : un planning en cache doit cesser de libérer au
+// plafond ou au premier segment qui interdit les sessions, sans attendre l'API.
 func SessionValide(s Session, t time.Time, continueAccepte string) bool {
+	if s.Terminee(t) {
+		return false
+	}
 	if s.Question == nil {
 		return true
 	}
@@ -81,7 +92,7 @@ func Evaluer(p *Planning, t time.Time, continues map[string]string) Etat {
 	e.FermerComptes = seg.Actions.FermerComptesHorsTravail
 
 	liberes := map[string]bool{}
-	if !seg.Actions.VerrouillerSession {
+	if SessionsPermises(seg) {
 		for _, s := range p.Sessions {
 			if !SessionValide(s, t, continues[s.ID]) {
 				continue

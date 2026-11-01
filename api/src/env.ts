@@ -10,6 +10,8 @@ export interface Liaisons {
   ASSETS?: Fetcher;
   /** Secret Worker ; absent en local tant qu'il n'est pas posé dans .dev.vars. */
   TODOIST_TOKEN?: string;
+  /** Utilisateur Focus à qui appartient le compte Todoist ; seul synchronisé. Absent : pas de synchro. */
+  TODOIST_UTILISATEUR?: string;
   /** Secrets Worker du cloud Xiaomi (Mi Fitness) ; absents : pas de sommeil mesuré. */
   XIAOMI_USER_ID?: string;
   XIAOMI_PASS_TOKEN?: string;
@@ -54,6 +56,11 @@ export interface Dependances {
   hevy?: (cle: string) => ClientHevy;
   /** Présente si l'horloge peut être réglée (en local seulement, voir horloge.ts). */
   horloge?: HorlogeLocale;
+  /**
+   * Vrai : statut et planning gardés 60 s (table cache_calculs, §4.7). Activé par le Worker ; les
+   * tests l'activent explicitement (ils écrivent souvent en base sans passer par l'API).
+   */
+  cacheCalculs?: boolean;
 }
 
 export interface EnvApp {

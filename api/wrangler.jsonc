@@ -1,5 +1,7 @@
 // Configuration du Worker de l'API Focus. Rien de secret ici : le jeton Todoist est un
-// secret Worker (`wrangler secret put TODOIST_TOKEN`), à poser à la main, jamais dans ce fichier.
+// secret Worker (`wrangler secret put TODOIST_TOKEN`), à poser à la main, jamais dans ce fichier,
+// avec son propriétaire `TODOIST_UTILISATEUR` (identifiant `utilisateur` de sa config ; sans lui,
+// pas de synchro Todoist), comme XIAOMI_UTILISATEUR et HEVY_UTILISATEUR.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "focus-api",

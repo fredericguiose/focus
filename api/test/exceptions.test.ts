@@ -115,3 +115,63 @@ describe('exceptions (§3.4)', () => {
     expect(r.corps.prix).toMatchObject({ admissible: true, friction: 'raison', lever_avant: '2026-11-04T04:30:00Z', lever_apres: '2026-11-04T05:30:00Z' });
   });
 });
+
+// ─── Revue du 01/11 ──────────────────────────────────────────────────────────────────────────
+
+describe('exceptions — revue du 01/11', () => {
+  const horloge = Horloge.a('2026-11-02T22:00:00Z'); // lundi 23:00 Paris, NIGHT_LOCK
+  const api = client(horloge);
+  let web: string;
+  let pc: string;
+
+  beforeEach(async () => {
+    horloge.regler('2026-11-02T22:00:00Z');
+    await installerConfig();
+    web = await creerJeton('interface', 'web');
+    pc = await creerJeton('appareil', 'pc_linux', 'pc_linux');
+  });
+
+  it('un engagement « 00:00 + 600 min » ne sort pas du NIGHT_LOCK (préparation bornée, réveil ≥ plancher)', async () => {
+    const leurre = { type: 'ajoute', date: '2026-11-03', libelle: 'leurre', heure: '00:00', preparation_min: 600, obligatoire: false };
+    expect((await api.post('/v1/exceptions', web, leurre)).statut).toBe(400);
+    const r = await api.post('/v1/exceptions', web, { ...leurre, preparation_min: 240 });
+    expect(r.statut).toBe(422);
+    expect(r.corps.message).toBe('réveil à 20:00 (la veille), avant le lever plancher de 04:30');
+    expect(await nombre()).toBe(0);
+    const p = await api.get('/v1/planning', pc);
+    expect(p.corps.segments[0]).toMatchObject({ mode: 'NIGHT_LOCK', fin: '2026-11-03T05:30:00Z' });
+  });
+
+  it('deux décisions de nuit simultanées : une seule passe (index unique), l\'autre reçoit 422', async () => {
+    horloge.regler('2026-11-02T20:00:00Z');
+    const c = { raison: RAISON, phrase: PHRASE };
+    const rs = await Promise.all([
+      api.post('/v1/exceptions', web, { type: 'coucher', nuit: '2026-11-02', heure: '23:15', ...c }),
+      api.post('/v1/exceptions', web, { type: 'coucher', nuit: '2026-11-02', heure: '22:45', ...c }),
+    ]);
+    expect(rs.map((r) => r.statut).sort()).toEqual([201, 422]);
+    const refusee = rs.find((r) => r.statut === 422)!;
+    expect(refusee.corps).toMatchObject({ erreur: 'exception_refusee' });
+    expect(refusee.corps.message).toMatch(/décision de nuit déjà prise pour la nuit du/);
+    const n = await env.DB.prepare('SELECT COUNT(*) AS n FROM exceptions WHERE pendant_nuit = 1').first<{ n: number }>();
+    expect(n!.n).toBe(1);
+    // La base refuse aussi une seconde décision écrite directement pour la même nuit.
+    const inserer = (id: string) =>
+      env.DB.prepare(
+        `INSERT INTO exceptions (id, utilisateur, jour, type, pendant_nuit, nuit_decision, details, version_config, cree_le)
+         VALUES (?, 'alice', '2026-11-04', 'retire', 1, '2026-11-02', '{}', 'c0ffee1', '2026-11-02T20:01:00Z')`,
+      ).bind(id).run();
+    await expect(inserer('e_direct')).rejects.toThrow(/UNIQUE/);
+  });
+
+  it('une décision de nuit venue d\'une exception d\'un autre jour est enregistrée pour la nuit qu\'elle desserre', async () => {
+    horloge.regler('2026-11-02T20:00:00Z'); // lundi 21:00 Paris, soirée ouverte
+    const r = await api.post('/v1/exceptions', web, { type: 'retire', date: '2026-11-03', engagement: 'travail', raison: RAISON, phrase: PHRASE });
+    expect(r.statut).toBe(201);
+    expect(r.corps.prix).toMatchObject({ friction: 'raison_phrase', nuit_decision: '2026-11-02' });
+    const ligne = await env.DB.prepare('SELECT jour, pendant_nuit, nuit_decision FROM exceptions').first();
+    expect(ligne).toEqual({ jour: '2026-11-03', pendant_nuit: 1, nuit_decision: '2026-11-02' });
+    const statut = await api.get('/v1/statut', web);
+    expect(statut.corps.journee.decision_de_nuit_prise).toBe(true);
+  });
+});

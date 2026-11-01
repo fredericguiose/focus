@@ -28,4 +28,5 @@ export default creerWorker({
   todoist: (jeton) => creerClientTodoist({ jeton }),
   xiaomi: (identifiants) => creerClientXiaomi(identifiants),
   hevy: (cle) => creerClientHevy({ cle }),
+  cacheCalculs: true,
 });

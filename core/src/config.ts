@@ -45,6 +45,28 @@ const duree = z.string().transform((v, ctx) => {
   return min ?? 0;
 });
 
+/**
+ * Cadences de synchronisation des sources (docs/conception.md §4.4), en minutes. Planchers : la
+ * tâche planifiée tourne chaque minute ; Xiaomi est une API non officielle, jamais sous 10 min.
+ */
+export const SYNCHRO_PAR_DEFAUT_MIN = { todoist: 2, xiaomi: 15, hevy: 60 } as const;
+export const SYNCHRO_MIN_MIN = { todoist: 1, xiaomi: 10, hevy: 10 } as const;
+const SYNCHRO_MAX_MIN = 24 * 60;
+
+function cadence(minimum: number) {
+  return duree.refine((m) => m >= minimum && m <= SYNCHRO_MAX_MIN, {
+    error: `entre ${minimum} min et 24h`,
+  });
+}
+
+/** Cadences appliquées (une config normalisée plus ancienne, gardée en base, n'en a pas). */
+export function cadencesDeSynchro(config: Config): { todoist: number; xiaomi: number; hevy: number } {
+  const c = config.synchro;
+  const lire = (k: keyof typeof SYNCHRO_PAR_DEFAUT_MIN) =>
+    Number.isFinite(c?.[`${k}Min`]) ? Math.max(c![`${k}Min`], SYNCHRO_MIN_MIN[k]) : SYNCHRO_PAR_DEFAUT_MIN[k];
+  return { todoist: lire('todoist'), xiaomi: lire('xiaomi'), hevy: lire('hevy') };
+}
+
 /** Durée, ou nombre seul = minutes (pour `preparation`). */
 const dureeOuMinutes = z.union([entierPositif, duree], {
   error: 'durée invalide : attendu un nombre de minutes, "30min", "1h" ou "1h30"',
@@ -309,6 +331,13 @@ const schemaConfig = z.strictObject({
         .prefault({}),
     })
     .prefault({}),
+  synchro: z
+    .strictObject({
+      todoist: cadence(SYNCHRO_MIN_MIN.todoist).default(SYNCHRO_PAR_DEFAUT_MIN.todoist),
+      xiaomi: cadence(SYNCHRO_MIN_MIN.xiaomi).default(SYNCHRO_PAR_DEFAUT_MIN.xiaomi),
+      hevy: cadence(SYNCHRO_MIN_MIN.hevy).default(SYNCHRO_PAR_DEFAUT_MIN.hevy),
+    })
+    .prefault({}),
 });
 
 type ConfigBrute = z.output<typeof schemaConfig>;
@@ -422,6 +451,7 @@ function normaliser(b: ConfigBrute): Config {
       expirationQuestionS: b.sessions.expiration_question_s,
       intervalleQuestionMin: b.sessions.intervalle_question,
     },
+    synchro: { todoistMin: b.synchro.todoist, xiaomiMin: b.synchro.xiaomi, hevyMin: b.synchro.hevy },
   };
 }
 
@@ -662,7 +692,7 @@ const CLES_CONNUES = [
   'prioritaires', 'etiquettes_exclues', 'prix_du_report', 'par_report', 'plafond', 'commentaire_min', 'deadline',
   'reports_max', 'jours_minimum', 'plafond_quotidien', 'attentes_s', 'delai_nouvelle_tache',
   'expiration_question_s', 'intervalle_question', 'pc', 'apres', 'avant', 'decale_par', 'filtre', 'au_plus',
-  'priorites', 'etiquettes_incluses', 'verification', 'mesure',
+  'priorites', 'etiquettes_incluses', 'verification', 'mesure', 'synchro', 'xiaomi', 'hevy',
 ];
 
 /** Clés retirées du schéma : un message qui dit quoi faire plutôt que « clé inconnue ». */

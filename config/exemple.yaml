@@ -115,6 +115,9 @@ prix_du_report:
   commentaire_min: 15
   deadline: { reports_max: 3, jours_minimum: 2 }
 
+# Cadences de synchronisation (facultatif ; valeurs par défaut). Xiaomi jamais sous 10 min.
+# synchro: { todoist: "2min", xiaomi: "15min", hevy: "1h" }
+
 sessions:
   plafond_quotidien: "3h"
   attentes_s: [0, 3, 5, 10, 15, 20]

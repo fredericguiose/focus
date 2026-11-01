@@ -15,6 +15,8 @@ export const CLES_CACHE = {
   /** passToken Xiaomi le plus récent, chiffré (AES-GCM). */
   jetonXiaomi: 'jeton_xiaomi',
   synchroHevy: 'synchro_hevy',
+  /** Heure du dernier passage Todoist tenté (cadence `synchro.todoist`). */
+  synchroTodoist: 'synchro_todoist',
 } as const;
 
 /** Assez pour recalculer les 7 dernières nuits du statut (jour UTC et jour local peuvent différer d'un). */
@@ -57,6 +59,15 @@ export async function lireCache<T>(db: D1Database, utilisateur: string, cle: str
   return ligne ? { valeur: JSON.parse(ligne.valeur) as T, majLe: ligne.maj_le } : null;
 }
 
+/** Plusieurs clés du cache en une requête : valeur par clé (absente si la ligne n'existe pas). */
+export async function lireCaches(db: D1Database, utilisateur: string, cles: string[]): Promise<Record<string, unknown>> {
+  const { results } = await db
+    .prepare(`SELECT cle, valeur FROM cache_todoist WHERE utilisateur = ? AND cle IN (${cles.map(() => '?').join(', ')})`)
+    .bind(utilisateur, ...cles)
+    .all<{ cle: string; valeur: string }>();
+  return Object.fromEntries(results.map((l) => [l.cle, JSON.parse(l.valeur) as unknown]));
+}
+
 /** Réécrit seulement si la valeur a changé : D1 compte les lignes écrites. Renvoie vrai si écrit. */
 export async function ecrireCache(db: D1Database, utilisateur: string, cle: string, valeur: unknown, maintenant: Date): Promise<boolean> {
   const json = JSON.stringify(valeur);
@@ -77,6 +88,7 @@ interface LigneException {
   cree_le: string;
   raison: string | null;
   pendant_nuit: number;
+  nuit_decision: string | null;
 }
 
 /** Charge config, faits et exceptions en un seul aller-retour vers D1. */
@@ -101,7 +113,7 @@ export async function chargerContexte(db: D1Database, utilisateur: string, maint
       .bind(utilisateur, ajouterJours(aujourdhuiUtc, -JOURS_PHOTOS)),
     db
       .prepare(
-        `SELECT id, details, cree_le, raison, pendant_nuit FROM exceptions
+        `SELECT id, details, cree_le, raison, pendant_nuit, nuit_decision FROM exceptions
          WHERE utilisateur = ? AND annulee_le IS NULL AND jour >= ? ORDER BY cree_le, rowid`,
       )
       .bind(utilisateur, ajouterJours(aujourdhuiUtc, -JOURS_EXCEPTIONS)),
@@ -151,7 +163,7 @@ function mesurerLevers(plan: Contexte, sessions: ReturnType<typeof versSommeilMe
   }
   // Une session encore en cours de synchro après maintenant n'est pas un lever.
   const avant = sessions.filter((s) => Date.parse(s.fin) <= Date.parse(plan.maintenant));
-  return leversMesures(avant, journees);
+  return leversMesures(avant, journees, new Date(Date.parse(plan.maintenant)));
 }
 
 function versException(l: LigneException): Exception {
@@ -161,6 +173,7 @@ function versException(l: LigneException): Exception {
     creeeLe: l.cree_le,
     ...(l.raison ? { raison: l.raison } : {}),
     pendantNuit: l.pendant_nuit === 1,
+    ...(l.nuit_decision ? { nuitDecision: l.nuit_decision } : {}),
   };
 }
 

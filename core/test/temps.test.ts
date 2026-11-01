@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ajouterJours, ecartJours, ecrireInstant, estDate, instantLocal, jourSemaine, local } from '../src/temps';
+import { ajouterJours, ecartJours, ecrireInstant, estDate, instantLocal, jourSemaine, local, muraleSansCache, muraleUtc, viderCacheDesDecalages } from '../src/temps';
 import { minutesDuree, lireExpression } from '../src/expressions';
 
 const iso = (ms: number) => ecrireInstant(ms);
@@ -47,5 +47,27 @@ describe('temps', () => {
     expect(lireExpression('$lever + 30min')).toEqual({ variable: 'lever', decalageMin: 30 });
     expect(lireExpression('18:00')).toEqual({ heure: '18:00' });
     expect(lireExpression('$coucher - 2 h')).toBeNull();
+  });
+});
+
+// Revue du 01/11 : le décalage est gardé par quart d'heure UTC (CPU). Il doit rester exact autour
+// des changements d'heure, y compris pour les fuseaux à demi-heure ou à 45 min.
+describe('décalage gardé par quart d\'heure = Intl, minute par minute autour des changements d\'heure', () => {
+  const cas: [string, string][] = [
+    ['Europe/Paris', '2026-03-29T00:00:00Z'],
+    ['Europe/Paris', '2026-10-25T00:00:00Z'],
+    ['America/Cayenne', '2026-10-25T00:00:00Z'],
+    ['Australia/Lord_Howe', '2026-04-04T13:00:00Z'],
+    ['Australia/Lord_Howe', '2026-10-03T14:00:00Z'],
+    ['Asia/Kathmandu', '2026-01-01T00:00:00Z'],
+    ['America/St_Johns', '2026-11-01T02:00:00Z'],
+  ];
+  it.each(cas)('%s autour de %s', (fuseau, autour) => {
+    viderCacheDesDecalages();
+    const t0 = Date.parse(autour);
+    for (let m = 0; m < 4 * 60; m += 1) {
+      const t = t0 + m * 60_000 + 17_123;
+      expect(muraleUtc(t, fuseau)).toBe(muraleSansCache(t, fuseau));
+    }
   });
 });

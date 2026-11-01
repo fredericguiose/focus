@@ -5,6 +5,9 @@ import { requeteInvalide } from './erreurs';
 import { estInstant, versInstant } from './temps';
 import { type Corps, instant, texte } from './validation';
 
+/** Un accusé de pose date d'il y a peu (envoi différé hors ligne) : au-delà, l'heure est fausse. */
+const ECART_ACCUSE_MAX_MS = 2 * 86_400_000;
+
 /** Le téléphone envoie sa journée d'ouvertures en un lot (~300) ; la marge couvre plusieurs jours hors ligne. */
 const LOT_MAX = 2000;
 
@@ -12,6 +15,9 @@ export async function enregistrerAccuse(deps: Dependances, db: D1Database, jeton
   const action = texte(corps, 'action', 100);
   const poseLe = instant(corps, 'pose_le');
   const maintenant = deps.maintenant();
+  if (Math.abs(Date.parse(poseLe) - maintenant.getTime()) > ECART_ACCUSE_MAX_MS) {
+    throw requeteInvalide('Champ « pose_le » : à plus de 2 jours de l\'heure du serveur.', { champ: 'pose_le' });
+  }
   const { contexte } = await chargerContexte(db, jeton.utilisateur, maintenant);
   const nuit = deps.moteur.journeeCourante({ ...contexte, maintenant: versInstant(new Date(Date.parse(poseLe))) }).date;
   await db

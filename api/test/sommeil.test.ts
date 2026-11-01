@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { executerTachesPlanifiees } from '../src/planifie';
 import { nuitsALire } from '../src/planning';
 import { chiffrer, dechiffrer } from '../src/chiffrement';
-import { journeeDeLaSieste, nuitDeLaSession, rattacherAuxNuits, separerSiestes, type SommeilMesure } from '../src/sommeil';
+import { journeeDeLaSieste, leversMesures, nuitDeLaSession, rattacherAuxNuits, separerSiestes, type SommeilMesure } from '../src/sommeil';
 import { type ClientXiaomi, ErreurXiaomi, type IdentifiantsXiaomi, type SessionSommeil } from '../src/xiaomi';
 import { Horloge, MARDI, client, configExemple, creerJeton, installerConfig } from './aides';
 
@@ -179,36 +179,40 @@ describe('synchronisation du sommeil (§4.4)', () => {
     expect(parUtilisateur.results).toEqual([{ utilisateur: 'bob' }]);
   });
 
-  it('premier passage : rattrapage de 60 jours par morceaux de 10, étalé sur deux passages, puis 3 jours par heure', async () => {
+  it('premier passage : rattrapage de 60 jours par morceaux de 10 (deux par passage), étalé sur trois passages, puis 3 jours toutes les 15 min', async () => {
     await lancer(SECRETS);
     expect(faux.appels.plages).toEqual([
       ['2026-10-31T10:00:00.000Z', '2026-11-03T11:00:00.000Z'],
       ['2026-10-21T10:00:00.000Z', '2026-10-31T22:00:00.000Z'],
       ['2026-10-11T10:00:00.000Z', '2026-10-21T22:00:00.000Z'],
-      ['2026-10-01T10:00:00.000Z', '2026-10-11T22:00:00.000Z'],
     ]);
     horloge.avancer(60);
     await lancer(SECRETS);
-    expect(faux.appels.plages.slice(4)).toEqual([
+    expect(faux.appels.plages.slice(3)).toEqual([
+      ['2026-10-01T10:00:00.000Z', '2026-10-11T22:00:00.000Z'],
       ['2026-09-21T10:00:00.000Z', '2026-10-01T22:00:00.000Z'],
+    ]);
+    horloge.avancer(60);
+    await lancer(SECRETS);
+    expect(faux.appels.plages.slice(5)).toEqual([
       ['2026-09-11T10:00:00.000Z', '2026-09-21T22:00:00.000Z'],
       ['2026-09-04T10:00:00.000Z', '2026-09-11T22:00:00.000Z'],
     ]);
     horloge.avancer(60);
     await lancer(SECRETS);
     expect(faux.appels.n).toBe(7);
-    horloge.avancer(3600);
+    horloge.avancer(15 * 60);
     await lancer(SECRETS);
-    expect(faux.appels.plages.slice(7)).toEqual([['2026-10-31T11:02:00.000Z', '2026-11-03T12:02:00.000Z']]);
+    expect(faux.appels.plages.slice(7)).toEqual([['2026-10-31T10:18:00.000Z', '2026-11-03T11:18:00.000Z']]);
   });
 
-  it('état d\'avant le rattrapage (synchro récente) : le rattrapage part sans attendre l\'heure', async () => {
+  it('état d\'avant le rattrapage (synchro récente) : le rattrapage part sans attendre la cadence', async () => {
     const avant = { tentee_le: '2026-11-03T09:50:00Z', reussie_le: '2026-11-03T09:50:00Z', erreur: null, sessions: 1 };
     await env.DB.prepare(`INSERT INTO cache_todoist (utilisateur, cle, valeur, maj_le) VALUES ('alice', 'synchro_xiaomi', ?, ?)`)
       .bind(JSON.stringify(avant), avant.tentee_le)
       .run();
     await lancer(SECRETS);
-    expect(faux.appels.n).toBe(4);
+    expect(faux.appels.n).toBe(3);
   });
 
   it('rattrapage depuis XIAOMI_DEPUIS', async () => {
@@ -217,19 +221,19 @@ describe('synchronisation du sommeil (§4.4)', () => {
     expect(faux.appels.n).toBe(3);
   });
 
-  it('panne pendant le rattrapage : repris là où il s\'était arrêté, une heure plus tard', async () => {
+  it('panne pendant le rattrapage : repris là où il s\'était arrêté, à la cadence suivante', async () => {
     await lancer(SECRETS);
     faux.enPanne(new ErreurXiaomi('xiaomi_indisponible', 'HTTP 502'));
     horloge.avancer(60);
     await expect(lancer(SECRETS)).rejects.toThrow(AggregateError);
-    expect(faux.appels.n).toBe(5);
+    expect(faux.appels.n).toBe(4);
     faux.enPanne(null);
     horloge.avancer(60);
     await lancer(SECRETS);
-    expect(faux.appels.n).toBe(5);
-    horloge.avancer(3600);
+    expect(faux.appels.n).toBe(4);
+    horloge.avancer(15 * 60);
     await lancer(SECRETS);
-    expect(faux.appels.plages.slice(5).map(([d]) => d)).toEqual(['2026-10-31T11:02:00.000Z', '2026-09-21T10:00:00.000Z', '2026-09-11T10:00:00.000Z', '2026-09-04T10:00:00.000Z']);
+    expect(faux.appels.plages.slice(4).map(([d]) => d)).toEqual(['2026-10-31T10:17:00.000Z', '2026-10-01T10:00:00.000Z', '2026-09-21T10:00:00.000Z']);
   });
 
   it('nuits récentes manquantes (synchro arrêtée plus de 3 jours) : rattrapage depuis la dernière lecture', async () => {
@@ -243,10 +247,10 @@ describe('synchronisation du sommeil (§4.4)', () => {
     ]);
   });
 
-  it('lit les 3 derniers jours, une fois par heure', async () => {
+  it('lit les 3 derniers jours, toutes les 15 min (config synchro.xiaomi)', async () => {
     await lancer();
     expect(faux.appels.plages[0]).toEqual(['2026-10-31T10:00:00.000Z', '2026-11-03T11:00:00.000Z']);
-    horloge.avancer(59 * 60);
+    horloge.avancer(14 * 60);
     await lancer();
     expect(faux.appels.n).toBe(1);
     horloge.avancer(60);
@@ -509,7 +513,8 @@ describe('levers mesurés et journal des levers (§3.1)', () => {
     await poser('s1', '2026-11-02T10:00:00Z', '2026-11-02T11:00:00Z', 55); // sieste non marquée, lun. 11:00
     await poser('n0', '2026-10-31T20:30:00Z', '2026-11-01T05:30:00Z', 510, false, true); // incomplète : pas de lever
     const r = await api.get('/v1/statut', await creerJeton('interface', 'web'));
-    expect(r.corps.journee.lever).toBe('2026-11-03T05:00:00Z');
+    // La journée commence au lever prévu, jamais au mesuré (CDC §4, 01/11).
+    expect(r.corps.journee.lever).toBe('2026-11-03T05:30:00Z');
     const par = Object.fromEntries(r.corps.levers.jours.map((j: { date: string }) => [j.date, j]));
     expect(r.corps.levers.jours.map((j: { date: string }) => j.date)).toEqual([
       '2026-10-28', '2026-10-29', '2026-10-30', '2026-10-31', '2026-11-01', '2026-11-02', '2026-11-03',
@@ -576,7 +581,7 @@ describe('levers mesurés et journal des levers (§3.1)', () => {
     expect(couchers.amplitude).toEqual({ plus_tot: '2026-11-02T21:00:00Z', plus_tard: '2026-11-01T22:40:00Z', ecart_min: 100, mesures: 2 });
     expect(couchers.limite_min).toBe(120);
     // Affichage seul : le plan du jour est le même qu'avec les levers seuls.
-    expect(journee.lever).toBe('2026-11-03T05:00:00Z');
+    expect(journee.lever).toBe('2026-11-03T05:30:00Z');
   });
 
   it('couchers : premier sommeil de la chronologie s’il y en a une ; coucher prévu figé par la photo de la nuit', async () => {
@@ -626,5 +631,51 @@ describe('levers mesurés et journal des levers (§3.1)', () => {
     expect(r.corps.levers.amplitude).toBeNull();
     for (const n of r.corps.couchers.nuits) expect(n).toMatchObject({ mesure: null, ecart_min: null, prevu_fige: false });
     expect(r.corps.couchers.amplitude).toBeNull();
+  });
+});
+
+// Revue du 01/11 : un réveil mesuré en pleine nuit (session coupée à 01:00) finissait la nuit.
+describe('la montre ne raccourcit jamais la nuit en cours (revue 01/11)', () => {
+  const s = (debut: string, fin: string, endormi_min: number, sieste = false): SommeilMesure => ({ debut, fin, endormi_min, sieste, phases: null });
+  const poser = (cle: string, debut: string, fin: string, endormi: number, sieste = false) =>
+    env.DB.prepare(
+      `INSERT INTO mesures (utilisateur, type, source, cle, debut, fin, valeur, details, recu_le) VALUES ('alice', 'sommeil', 'xiaomi', ?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(cle, debut, fin, endormi, JSON.stringify({ eveille_min: 0, phases: null, score: null, sieste }), '2026-11-03T00:20:00Z')
+      .run();
+
+  it('une nuit coupée à 00:50 ne lève pas la nuit : planning toujours NIGHT_LOCK', async () => {
+    const horloge = Horloge.a('2026-11-03T00:30:00Z'); // mardi 01:30 Paris
+    const api = client(horloge);
+    await installerConfig();
+    const tel = await creerJeton('appareil', 'iphone', 'iphone');
+    const pc = await creerJeton('appareil', 'pc_linux', 'pc_linux');
+    await poser('k1', '2026-11-02T21:30:00Z', '2026-11-02T23:50:00Z', 140);
+    for (const jeton of [tel, pc]) {
+      const p = await api.get('/v1/planning', jeton);
+      expect(p.corps.segments[0]).toMatchObject({ mode: 'NIGHT_LOCK', fin: '2026-11-03T05:30:00Z' });
+    }
+    // Deux heures plus tard, sans rendormissement : toujours la nuit jusqu'au lever prévu.
+    horloge.regler('2026-11-03T02:30:00Z');
+    expect((await api.get('/v1/planning', pc)).corps.segments[0]).toMatchObject({ mode: 'NIGHT_LOCK', fin: '2026-11-03T05:30:00Z' });
+  });
+
+  it('rendormissement dans l\'heure : le premier réveil n\'est pas le lever ; une vraie sieste reste une sieste', () => {
+    const journees = [
+      { date: '2026-11-02', fuseau: PARIS, lever: '2026-11-02T04:30:00Z', coucher: '2026-11-02T21:30:00Z' },
+      { date: '2026-11-03', fuseau: PARIS, lever: '2026-11-03T05:30:00Z', coucher: '2026-11-03T20:30:00Z' },
+    ];
+    const sessions = [
+      s('2026-11-02T21:30:00Z', '2026-11-03T05:00:00Z', 420), // réveil 06:00
+      s('2026-11-03T05:40:00Z', '2026-11-03T06:30:00Z', 45, true), // rendormi 06:40 → 07:30 (marquée sieste)
+      s('2026-11-03T13:00:00Z', '2026-11-03T13:30:00Z', 25), // vraie sieste, 14:00
+    ];
+    expect(leversMesures(sessions, journees, new Date('2026-11-03T12:00:00Z'))).toEqual({ '2026-11-03': '2026-11-03T06:30:00Z' });
+    const { nuits, siestes } = separerSiestes(sessions, journees, PARIS);
+    expect(nuits.map((n) => n.endormi_min)).toEqual([420, 45]);
+    expect(siestes.get('2026-11-03')).toEqual([{ debut: '2026-11-03T13:00:00Z', fin: '2026-11-03T13:30:00Z', minutes: 25 }]);
+    // Réveil il y a moins d'une heure : pas encore de lever mesuré (un rendormissement peut suivre).
+    expect(leversMesures(sessions.slice(0, 1), journees, new Date('2026-11-03T05:30:00Z'))).toEqual({});
+    expect(leversMesures(sessions.slice(0, 1), journees, new Date('2026-11-03T06:00:00Z'))).toEqual({ '2026-11-03': '2026-11-03T05:00:00Z' });
   });
 });

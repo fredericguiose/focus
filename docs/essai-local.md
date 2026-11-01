@@ -29,7 +29,8 @@ La commande est idempotente : relancée, elle ne refait que ce qui manque ou a c
    synchronisé) et `CLE_CHIFFREMENT` (clé aléatoire créée une fois dans
    `~/.config/focus/local/cle-chiffrement`, 600) ; `XIAOMI_DEPUIS` est recopié s'il est posé.
    `HEVY_API_KEY` (séances Hevy) est recopié de même, avec `HEVY_UTILISATEUR` (même règle que
-   `XIAOMI_UTILISATEUR`).
+   `XIAOMI_UTILISATEUR`), et `TODOIST_TOKEN` avec `TODOIST_UTILISATEUR` (même règle : le jeton
+   Todoist ne sert qu'à son propriétaire, sans lui pas de synchro Todoist).
 6. Lance `wrangler dev --local` sur le port 8799 avec `FOCUS_ENVIRONNEMENT=local` (horloge
    réglable), puis déclenche une première tâche planifiée. À côté, `vite build --watch`
    reconstruit `web/dist` à chaque modification du code de la web app (ou de `core/src`) :
@@ -90,6 +91,7 @@ Facultatif, pour lire le vrai Todoist (lecture seule, GET uniquement) : le jeton
 ```sh
 git check-ignore .dev.vars         # doit répondre « .dev.vars »
 (umask 077; grep '^TODOIST_TOKEN=' ~/.config/focus/secrets.env > .dev.vars)
+echo 'TODOIST_UTILISATEUR=<utilisateur de la config>' >> .dev.vars   # sans lui, pas de synchro
 ```
 
 Même chose pour le sommeil mesuré (montre Xiaomi) : ajouter les lignes `XIAOMI_*` à

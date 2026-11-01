@@ -5,6 +5,7 @@ import { JOURS_DU_JOURNAL_DES_LEVERS } from '../../core/src/levers';
 import { dateCourte, JOURS_SEMAINE, jourSemaine } from '../../core/src/temps';
 import { etatSynchroHevy, lireSeances } from './hevy';
 import { usagesDesEtiquettes } from './planifie';
+import { CLES_CALCUL, ecrireCalcul, lireCalcul } from './cache';
 import { CLES_CACHE, chargerContexte, lireCache } from './contexte';
 import type { Dependances, JetonAuthentifie } from './env';
 import { ErreurApi, requeteInvalide } from './erreurs';
@@ -64,13 +65,49 @@ function appareilDeLaConfig(contexte: Contexte, appareil: string): void {
   }
 }
 
-export async function planningAppareil(deps: Dependances, db: D1Database, jeton: JetonAuthentifie): Promise<Planning> {
+/** Instants à venir d'un résultat (segments, sessions, journée) : le premier borne sa durée en cache. */
+function prochainInstant(maintenant: Date, instants: (string | null | undefined)[]): number {
+  const t = maintenant.getTime();
+  return Math.min(Infinity, ...instants.filter((x): x is string => !!x).map(ms).filter((x) => x > t));
+}
+
+/**
+ * Résultat gardé 60 s au plus (§4.7), et jamais au-delà de son prochain instant de bascule.
+ * `heure_serveur` est toujours celle de la requête : les clients en tirent leur décalage d'horloge.
+ */
+async function garde<T extends { heure_serveur: string }>(
+  deps: Dependances,
+  db: D1Database,
+  utilisateur: string,
+  cle: string,
+  calculer: (maintenant: Date) => Promise<{ valeur: T; bascule: number }>,
+): Promise<T> {
   const maintenant = deps.maintenant();
+  if (!deps.cacheCalculs) return (await calculer(maintenant)).valeur;
+  const lu = await lireCalcul<T>(db, utilisateur, cle, maintenant);
+  if (lu.valeur) return { ...lu.valeur, heure_serveur: versInstant(maintenant) };
+  const { valeur, bascule } = await calculer(maintenant);
+  await ecrireCalcul(db, utilisateur, cle, lu.generation, valeur, maintenant, bascule);
+  return valeur;
+}
+
+export function planningAppareil(deps: Dependances, db: D1Database, jeton: JetonAuthentifie): Promise<Planning> {
+  return garde(deps, db, jeton.utilisateur, CLES_CALCUL.planning(jeton.nom), async (maintenant) => {
+    const valeur = await calculerPlanning(deps, db, jeton, maintenant);
+    const bascule = prochainInstant(maintenant, [
+      valeur.segments[0]?.fin,
+      ...valeur.sessions.flatMap((s) => [s.fin_au_plus_tard, s.question?.posee_a, s.question?.expire_a]),
+    ]);
+    return { valeur, bascule };
+  });
+}
+
+async function calculerPlanning(deps: Dependances, db: D1Database, jeton: JetonAuthentifie, maintenant: Date): Promise<Planning> {
   const { contexte, version } = await chargerContexte(db, jeton.utilisateur, maintenant);
   appareilDeLaConfig(contexte, jeton.nom);
   const segments = deps.moteur.planifier(contexte, jeton.nom, HORIZON_H);
   const etat = deps.moteur.etat(contexte, jeton.nom);
-  const sessions = await sessionsOuvertes(db, jeton.utilisateur, contexte, maintenant, jeton.nom);
+  const sessions = await sessionsOuvertes(db, deps.moteur, jeton.utilisateur, contexte, maintenant, jeton.nom);
   return construirePlanning({ appareil: jeton.nom, config: contexte.config, version, maintenant, segments, sessions, raison: etat.raison });
 }
 
@@ -311,8 +348,20 @@ export function engagementsVerifies(moteur: Moteur, contexte: Contexte, mesures:
   };
 }
 
-export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuthentifie) {
-  const maintenant = deps.maintenant();
+export function statut(deps: Dependances, db: D1Database, jeton: JetonAuthentifie) {
+  return garde(deps, db, jeton.utilisateur, CLES_CALCUL.statut, async (maintenant) => {
+    const valeur = await calculerStatut(deps, db, jeton, maintenant);
+    const j = valeur.journee;
+    const bascule = prochainInstant(maintenant, [
+      j.ouverture, j.coucher_applique, j.lever_suivant,
+      ...valeur.appareils.map((a) => a.jusqua),
+      ...valeur.sessions.flatMap((s) => [s.fin_au_plus_tard, s.question?.posee_a, s.question?.expire_a]),
+    ]);
+    return { valeur, bascule };
+  });
+}
+
+async function calculerStatut(deps: Dependances, db: D1Database, jeton: JetonAuthentifie, maintenant: Date) {
   const { contexte, version } = await chargerContexte(db, jeton.utilisateur, maintenant);
   const { config } = contexte;
   const journee = deps.moteur.journeeCourante(contexte);
@@ -326,7 +375,7 @@ export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuth
       .bind(jeton.utilisateur)
       .all<{ nom: string; vu_le: string | null }>(),
     lireCache<{ verifie_le: string; manquantes: string[] }>(db, jeton.utilisateur, CLES_CACHE.etiquettes),
-    sessionsOuvertes(db, jeton.utilisateur, contexte, maintenant),
+    sessionsOuvertes(db, deps.moteur, jeton.utilisateur, contexte, maintenant),
     cumulSessionsS(db, jeton.utilisateur, journee, maintenant),
     lireSommeil(db, jeton.utilisateur, versInstant(debutJourLocal(ajouterJours(journee.date, -nuitsALire(journee.date) - 1), journee.fuseau))),
     etatSynchro(db, jeton.utilisateur),
@@ -451,7 +500,7 @@ export async function raisonDuBlocage(
     : entrees.find(([, a]) => a.iphone?.toLowerCase() === cible);
 
   const etat = deps.moteur.etat(contexte, appareil);
-  const sessions = await sessionsOuvertes(db, jeton.utilisateur, contexte, maintenant, appareil);
+  const sessions = await sessionsOuvertes(db, deps.moteur, jeton.utilisateur, contexte, maintenant, appareil);
   const session = trouvee ? (sessions.find((s) => s.apps.includes(trouvee[0])) ?? null) : null;
   const pc = 'bloquer_domaines' in etat.actions;
   const bloqueParLeMode = pc

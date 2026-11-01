@@ -381,9 +381,14 @@ export function leverPrevu(contexte: Contexte, date: DateLocale): number {
   return leverCalcule(contexte, date);
 }
 
-/** Lever de D : mesuré s'il l'est, sinon prévu. */
+/**
+ * Lever de D, qui borne les journées : toujours le lever PRÉVU (CDC §4, 01/11 : « la montre ne
+ * raccourcit jamais la nuit en cours »). Un réveil mesuré trop tôt (nuit coupée, montre mal
+ * lue) ne finit pas la nuit et ne déverrouille rien ; les levers mesurés ne servent qu'aux jours
+ * suivants (régularité), à la dette et aux journaux.
+ */
 export function lever(contexte: Contexte, date: DateLocale): number {
-  return leverMesure(contexte, date) ?? leverPrevu(contexte, date);
+  return leverPrevu(contexte, date);
 }
 
 /** Coucher prévu de la nuit D = lever calculé de D + 1 − cible − endormissement. */
@@ -450,7 +455,7 @@ export function journee(contexte: Contexte, date: DateLocale): Journee {
     prixDuReportMin: prixMin,
     // Dette prévue : comptée sur le lever prévu (le plan), endormissement déduit.
     detteNuitMin: config.sommeil.cibleMin - ((leverPrevu(contexte, lendemain) - coucher) / MINUTE - reglagesDuLever(config).endormissementMin),
-    decisionDeNuitPrise: contexte.exceptions.some((e) => e.pendantNuit && nuitDe(e.demande) === date),
+    decisionDeNuitPrise: contexte.exceptions.some((e) => e.pendantNuit && (e.nuitDecision ?? nuitDe(e.demande)) === date),
   };
 }
 

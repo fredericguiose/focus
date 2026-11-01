@@ -7,6 +7,8 @@ import { ajouterJours, dateLocale, debutJourLocal, decalageFuseau, ms, versInsta
 export const BASE_TODOIST = 'https://api.todoist.com/api/v1/';
 const TAILLE_PAGE = 50;
 const PAGES_MAX = 20;
+/** Requêtes au plus par client (un passage) : une invocation de Worker a 50 sous-requêtes, D1 compris. */
+export const REQUETES_MAX_TODOIST = 20;
 const JOURS_COMMENTAIRE = 3;
 /** Profondeur du journal lu : sert à compter les reports précédents d'une tâche. */
 const JOURS_HISTORIQUE = 4;
@@ -238,7 +240,10 @@ export interface OptionsClient {
 }
 
 export function creerClientTodoist({ jeton, fetch: f = (u, i) => fetch(u, i), base = BASE_TODOIST }: OptionsClient): ClientTodoist {
+  let requetes = 0;
   async function obtenir<T>(chemin: string, params: Record<string, string>): Promise<T> {
+    // Au-delà, faits abandonnés (le cache précédent reste) plutôt qu'une invocation qui casse en route.
+    if (++requetes > REQUETES_MAX_TODOIST) throw new Error(`Todoist : plus de ${REQUETES_MAX_TODOIST} requêtes en un passage, faits abandonnés.`);
     const url = new URL(chemin, base);
     for (const [cle, valeur] of Object.entries(params)) url.searchParams.set(cle, valeur);
     const reponse = await f(url.toString(), { headers: { Authorization: `Bearer ${jeton}` } });

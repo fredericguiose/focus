@@ -279,15 +279,17 @@ principal() {
 	section "4. logind : comptes libres"
 	tout_fermer
 	mode_planning essai-6 "$(p_libre essai-6)"
-	local L_tty L_fond L_x11v L_x11 F_tty F_x11v
+	local L_tty L_fond L_x11v L_x11 F_tty F_x11v F_fond L_fond_classe
 	L_tty=$(ouvrir libre tty)
 	L_fond=$(ouvrir libre fond)
 	L_x11v=$(ouvrir libre x11-verrou)
 	L_x11=$(ouvrir libre x11)
 	F_tty=$(ouvrir alice tty)
 	F_x11v=$(ouvrir alice x11-verrou)
-	info "sessions : libre tty=$L_tty fond=$L_fond($(classe "$L_fond")) x11+verrou=$L_x11v x11=$L_x11 ; alice tty=$F_tty x11+verrou=$F_x11v"
-	if tenir 8 bash -c "$(declare -f existe); existe $L_tty && existe $L_x11v && existe $L_x11 && existe $F_tty && existe $F_x11v" && [[ $(locks "$L_x11v") == 0 && $(locks "$F_x11v") == 0 ]]; then
+	F_fond=$(ouvrir alice fond)
+	L_fond_classe=$(classe "$L_fond")
+	info "sessions : libre tty=$L_tty fond=$L_fond($L_fond_classe) x11+verrou=$L_x11v x11=$L_x11 ; alice tty=$F_tty x11+verrou=$F_x11v fond=$F_fond($(classe "$F_fond"))"
+	if tenir 8 bash -c "$(declare -f existe); existe $L_tty && existe $L_fond && existe $L_x11v && existe $L_x11 && existe $F_tty && existe $F_x11v && existe $F_fond" && [[ $(locks "$L_x11v") == 0 && $(locks "$F_x11v") == 0 ]]; then
 		ok "4.1 soirée libre : aucune session fermée ni verrouillée (8 s)"
 	else
 		echec "4.1 soirée libre : une session a été touchée"
@@ -303,15 +305,28 @@ principal() {
 	verifier "4.6 déverrouillage pendant le segment : session du compte libre fermée" 5 fermee "$L_x11v"
 	s=$(ouvrir libre tty)
 	verifier "4.7 nouvelle session texte du compte libre pendant le segment : fermée" 5 fermee "$s"
-	if existe "$F_tty" && existe "$F_x11v" && [[ $(locks "$F_x11v") == 0 ]] && ! verrouillee "$F_x11v"; then
-		ok "4.8 compte de travail (alice) : sessions ni fermées ni verrouillées"
+	if existe "$F_tty" && existe "$F_x11v" && existe "$F_fond" && [[ $(locks "$F_x11v") == 0 ]] && ! verrouillee "$F_x11v"; then
+		ok "4.8 compte de travail (alice) : sessions (tty, x11, background) ni fermées ni verrouillées"
 	else
 		echec "4.8 compte de travail touché"
 	fi
-	if existe "$L_fond"; then
-		info "4.9 session de classe « $(classe "$L_fond") » du compte libre (su sans terminal, cron, ssh sans pty) NON fermée : seules les classes « user » sont visées (point à trancher)"
+	# su sans terminal, cron, ssh sans pty : classe background, aucun écran à verrouiller.
+	if [[ "$L_fond_classe" != background ]]; then
+		echec "4.9 la session « fond » du compte libre n'est pas de classe background ($L_fond_classe) : essai non concluant"
 	else
-		info "4.9 session de classe background du compte libre fermée"
+		verifier "4.9 session de classe background du compte libre fermée (sans verrouillage)" 4 fermee "$L_fond"
+	fi
+	s=$(ouvrir libre fond)
+	verifier "4.9b nouvelle session background ($(classe "$s")) du compte libre pendant le segment : fermée" 5 fermee "$s"
+	# Session « manager » (user@.service) : jamais visée ; systemd l'arrête seul une fois les
+	# autres sessions du compte fermées (sauf linger). Constat, sans verdict.
+	# UserStopDelaySec (10 s par défaut) : on laisse 20 s.
+	manager_libre() { loginctl list-sessions --no-legend | awk '$3=="libre" && $6 ~ /^manager/{print $1}' | head -1; }
+	if attendre 20 bash -c "$(declare -f manager_libre); [[ -z \$(manager_libre) ]]"; then
+		info "4.9c plus de session manager pour le compte libre (user@ arrêté par systemd une fois les autres sessions fermées)"
+	else
+		m=$(manager_libre)
+		info "4.9c session manager du compte libre encore présente après 20 s ($m, état $(loginctl show-session "$m" -p State --value 2>/dev/null))"
 	fi
 	journal | grep -q "compte=alice" && echec "4.10 journal : une action vise alice" || ok "4.10 journal : aucune action sur le compte de travail"
 	mode_planning essai-8 "$(p_libre essai-8)"

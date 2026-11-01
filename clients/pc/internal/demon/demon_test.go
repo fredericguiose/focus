@@ -407,3 +407,62 @@ func TestPremierEchecJournalise(t *testing.T) {
 		t.Errorf("échec après un planning reçu : %d ligne(s), 1 attendue", n)
 	}
 }
+
+// Attaque : « continue » accepté en WORK, puis API coupée. Le démon rejoue le planning en
+// cache ; au segment MORNING_LOCK (sessions interdites, écran non verrouillé), la session ne
+// doit plus rien libérer, et aucune question ne doit plus être proposée à l'agent.
+func TestContinueNeSurvitPasAuSegmentInterdit(t *testing.T) {
+	b := nouveauBanc(t, "")
+	ctx := context.Background()
+	if err := b.d.Rafraichir(ctx); err != nil {
+		t.Fatal(err)
+	}
+	b.horloge.avancer(25*time.Minute + 10*time.Second) // 21:25:10 serveur
+	if err := b.d.Repondre(ctx, "s_01", local.DemandeReponse{QuestionID: "q_07", Reponse: "continue"}); err != nil {
+		t.Fatal(err)
+	}
+	b.d.fond.Wait()
+	b.panne(true)
+	b.horloge.avancer(9 * time.Hour) // MORNING_LOCK (le rafraîchissement après la réponse a recalé l'horloge)
+	b.d.Appliquer()
+	if !slices.Contains(b.bloques(t), "chatgpt.com") {
+		t.Errorf("segment « interdites » : chatgpt.com doit être bloqué malgré le continue (hosts %v)", b.bloques(t))
+	}
+	if e := b.d.Etat(); e.Mode != "MORNING_LOCK" || e.SessionsPermises || len(e.Sessions) != 0 {
+		t.Errorf("état local %+v", e)
+	}
+}
+
+// Attaque : fin_au_plus_tard (plafond atteint) passée alors qu'un « continue » a été accepté.
+func TestContinueNeSurvitPasAFinAuPlusTard(t *testing.T) {
+	b := nouveauBanc(t, "")
+	b.api.planning = []byte(strings.Replace(string(b.api.planning),
+		`"ouverte_le": "2026-11-03T21:00:00Z",`,
+		`"ouverte_le": "2026-11-03T21:00:00Z", "fin_au_plus_tard": "2026-11-03T22:00:00Z",`, 1))
+	ctx := context.Background()
+	if err := b.d.Rafraichir(ctx); err != nil {
+		t.Fatal(err)
+	}
+	b.horloge.avancer(25*time.Minute + 10*time.Second)
+	if err := b.d.Repondre(ctx, "s_01", local.DemandeReponse{QuestionID: "q_07", Reponse: "continue"}); err != nil {
+		t.Fatal(err)
+	}
+	b.d.fond.Wait()
+	b.panne(true)
+	// Le rafraîchissement qui suit la réponse recale l'horloge (heure_serveur fixe du faux
+	// serveur) : on vise l'instant serveur, pas l'heure locale.
+	vers := func(serveur time.Time) { b.horloge.avancer(serveur.Sub(b.d.Etat().Maintenant)) }
+	vers(time.Date(2026, 11, 3, 21, 59, 59, 0, time.UTC))
+	b.d.Appliquer()
+	if slices.Contains(b.bloques(t), "chatgpt.com") {
+		t.Fatal("avant fin_au_plus_tard, chatgpt.com doit rester libre")
+	}
+	vers(time.Date(2026, 11, 3, 22, 0, 0, 0, time.UTC))
+	b.d.Appliquer()
+	if !slices.Contains(b.bloques(t), "chatgpt.com") {
+		t.Error("à fin_au_plus_tard, chatgpt.com doit être rebloqué malgré le continue")
+	}
+	if e := b.d.Etat(); len(e.Sessions) != 0 {
+		t.Errorf("session terminée encore proposée à l'agent : %+v", e.Sessions)
+	}
+}

@@ -104,13 +104,51 @@ export function estFuseau(fuseau: string): boolean {
   }
 }
 
-/** Heure murale (lue comme si elle était UTC) de l'instant dans le fuseau. */
-function muraleUtc(ms: number, fuseau: string): number {
+/** Heure murale (lue comme si elle était UTC) de l'instant dans le fuseau, via Intl (coûteux). */
+function muraleIntl(ms: number, fuseau: string): number {
   const p: Record<string, number> = {};
   for (const { type, value } of formateur(fuseau).formatToParts(new Date(ms))) {
     if (type !== 'literal') p[type] = Number(value);
   }
   return Date.UTC(p.year!, p.month! - 1, p.day!, p.hour!, p.minute!, p.second!);
+}
+
+/**
+ * Décalage d'un fuseau gardé par quart d'heure UTC : les changements d'heure tombent toujours sur
+ * un quart d'heure UTC (décalages multiples de 15 min), le décalage est donc constant dans chaque
+ * quart d'heure. Intl.formatToParts faisait l'essentiel du temps CPU du statut (revue du 01/11 :
+ * plan gratuit de Workers, 10 ms par appel).
+ */
+const QUART_MS = 15 * 60_000;
+const DECALAGES_MAX = 20_000;
+const decalages = new Map<string, Map<number, number>>();
+
+function decalageDuQuart(ms: number, fuseau: string): number {
+  let parFuseau = decalages.get(fuseau);
+  if (!parFuseau) decalages.set(fuseau, (parFuseau = new Map()));
+  const quart = Math.floor(ms / QUART_MS);
+  let d = parFuseau.get(quart);
+  if (d === undefined) {
+    const debut = quart * QUART_MS;
+    d = muraleIntl(debut, fuseau) - debut;
+    if (parFuseau.size >= DECALAGES_MAX) parFuseau.clear();
+    parFuseau.set(quart, d);
+  }
+  return d;
+}
+
+/** Vide le cache des décalages (mesures de CPU « à froid », tests). */
+export function viderCacheDesDecalages(): void {
+  decalages.clear();
+}
+
+/** Pour les tests : l'heure murale calculée par Intl seul, sans cache. */
+export const muraleSansCache = (ms: number, fuseau: string) => muraleIntl(Math.floor(ms / 1000) * 1000, fuseau);
+
+/** Heure murale (lue comme si elle était UTC) de l'instant dans le fuseau, à la seconde. */
+export function muraleUtc(ms: number, fuseau: string): number {
+  const secondes = Math.floor(ms / 1000) * 1000;
+  return secondes + decalageDuQuart(secondes, fuseau);
 }
 
 /** Décalage du fuseau à cet instant, en ms (heure murale − UTC). */

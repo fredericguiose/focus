@@ -38,7 +38,7 @@ describe('intégration : vrai moteur + exemple.yaml', () => {
       etiquettesExistantes: async () => ['planning', 'recap'],
     };
     const w = creerWorker({ moteur, maintenant: horloge.maintenant, todoist: () => todoist });
-    const envTodoist = { ...env, TODOIST_TOKEN: 'jeton-factice' };
+    const envTodoist = { ...env, TODOIST_TOKEN: 'jeton-factice', TODOIST_UTILISATEUR: 'alice' };
     const appeler = async (methode: string, chemin: string, jeton: string, corps?: unknown) => {
       const r = await w.fetch!(
         new Request(`https://focus.test${chemin}`, {
@@ -80,8 +80,12 @@ describe('intégration : vrai moteur + exemple.yaml', () => {
     const iphone = statut.corps.appareils.find((a: { nom: string }) => a.nom === 'iphone');
     expect(iphone.mode).toBe('WORK');
 
-    // Planning fait dans Todoist : au passage suivant, WORK.
+    // Planning fait dans Todoist : au passage Todoist suivant (cadence 2 min), WORK — le planning
+    // gardé 60 s est effacé par la synchro qui change les faits.
     taches = taches.map((t) => (t.id === 'p' ? { ...t, terminee: true, termineeLe: '2026-11-08T10:00:30Z' } : t));
+    horloge.avancer(60);
+    await cron();
+    expect((await appeler('GET', '/v1/planning', pc)).corps.segments[0].mode).toBe('MORNING_LOCK');
     horloge.avancer(60);
     await cron();
     planning = await appeler('GET', '/v1/planning', pc);
@@ -90,7 +94,7 @@ describe('intégration : vrai moteur + exemple.yaml', () => {
     // Dimanche : EVENING_FREE exige aussi aucun_retard ; la tâche « r » en retard l'empêche.
     // Lundi n'a pas cette condition : la soirée libre y revient.
     expect(segments.map((s) => [s.debut, s.mode])).toEqual([
-      ['2026-11-08T10:01:00Z', 'WORK'],
+      ['2026-11-08T10:02:00Z', 'WORK'],
       ['2026-11-08T20:30:00Z', 'NIGHT_LOCK'],
       ['2026-11-09T04:30:00Z', 'WORK'],
       ['2026-11-09T19:30:00Z', 'EVENING_FREE'],
@@ -109,6 +113,12 @@ describe('intégration : vrai moteur + exemple.yaml', () => {
 
     const accuse = await appeler('POST', '/v1/accuses', pc, { action: 'verrouiller_session', pose_le: '2026-11-08T20:31:00Z' });
     expect(accuse).toEqual({ statut: 201, corps: { enregistre: true, nuit: '2026-11-08' } });
+    // Revue du 01/11 : un accusé daté n'importe quand (an 1970, an 9999) faisait calculer une journée arbitraire.
+    for (const pose_le of ['1970-01-01T00:00:00Z', '9999-01-01T00:00:00Z', '2026-11-05T09:59:00Z']) {
+      const faux = await appeler('POST', '/v1/accuses', pc, { action: 'verrouiller_session', pose_le });
+      expect(faux.statut).toBe(400);
+      expect(faux.corps.champ).toBe('pose_le');
+    }
     const lot = await appeler('POST', '/v1/evenements', pc, {
       evenements: [
         { type: 'reconnexion', debut: '2026-11-08T21:00:00Z', duree_s: 30 },
@@ -126,8 +136,8 @@ describe('intégration : vrai moteur + exemple.yaml', () => {
     });
 
     // Le retard de la photo terminé : la soirée libre de dimanche s'ouvre à 14:00 locale.
-    taches = taches.map((t) => (t.id === 'r' ? { ...t, terminee: true, termineeLe: '2026-11-08T10:01:30Z' } : t));
-    horloge.avancer(60);
+    taches = taches.map((t) => (t.id === 'r' ? { ...t, terminee: true, termineeLe: '2026-11-08T10:02:30Z' } : t));
+    horloge.avancer(120);
     await cron();
     planning = await appeler('GET', '/v1/planning', pc);
     expect(planning.corps.segments[1]).toMatchObject({ debut: '2026-11-08T13:00:00Z', mode: 'EVENING_FREE' });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validerConfig } from '../src/config';
+import { cadencesDeSynchro, validerConfig } from '../src/config';
 import { EXEMPLE, remplacer } from './aides';
 
 function erreurs(yaml: string): string[] {
@@ -288,5 +288,22 @@ describe('validerConfig — formes et valeurs', () => {
     expect(erreurs(remplacer(EXEMPLE, 'sessions: interdites\n  MORNING_LOCK', 'sessions: interdite\n  MORNING_LOCK'))).toEqual([
       'modes.NIGHT_LOCK.sessions : valeur « interdite » invalide ; attendu : autorisees, interdites',
     ]);
+  });
+});
+
+describe('validerConfig — cadences de synchro (01/11)', () => {
+  it('défauts : Todoist 2 min, Xiaomi 15 min, Hevy 1 h ; une config ancienne sans bloc les reçoit aussi', () => {
+    const r = validerConfig(EXEMPLE);
+    if (!r.ok) throw new Error(r.erreurs.join('\n'));
+    expect(cadencesDeSynchro(r.config)).toEqual({ todoist: 2, xiaomi: 15, hevy: 60 });
+    const { synchro: _, ...ancienne } = r.config;
+    expect(cadencesDeSynchro(ancienne)).toEqual({ todoist: 2, xiaomi: 15, hevy: 60 });
+  });
+
+  it('réglables ; Xiaomi jamais sous 10 min', () => {
+    const r = validerConfig(`${EXEMPLE}\nsynchro: { todoist: "5min", xiaomi: "30min", hevy: "2h" }\n`);
+    if (!r.ok) throw new Error(r.erreurs.join('\n'));
+    expect(r.config.synchro).toEqual({ todoistMin: 5, xiaomiMin: 30, hevyMin: 120 });
+    expect(erreurs(`${EXEMPLE}\nsynchro: { xiaomi: "5min" }\n`)).toEqual(['synchro.xiaomi : entre 10 min et 24h']);
   });
 });

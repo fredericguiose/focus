@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { TOUS, exigerJeton } from './auth';
+import { invaliderTout } from './cache';
 import { recevoirConfig, versionActive } from './config';
 import type { Dependances, EnvApp } from './env';
 import { ErreurApi, repondreErreur } from './erreurs';
@@ -83,7 +84,9 @@ export function creerApp(deps: Dependances) {
     const horloge = deps.horloge!;
     const corps = await lireCorps(c);
     if (!('horloge' in corps)) throw new ErreurApi(400, 'requete_invalide', 'Champ « horloge » manquant.', { champ: 'horloge' });
-    return c.json({ environnement: 'local', ...horloge.regler(corps.horloge) });
+    const regle = horloge.regler(corps.horloge);
+    await invaliderTout(c.env.DB);
+    return c.json({ environnement: 'local', ...regle });
   });
 
   app.all('/v1/*', () => {
