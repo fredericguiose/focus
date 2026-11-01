@@ -65,18 +65,7 @@ func lancer(o options, commande string) error {
 		o.config = abs
 	}
 	p := &programme{o: o}
-	svc, err := service.New(p, &service.Config{
-		Name:         "focusd",
-		DisplayName:  "Focus",
-		Description:  "Applique le planning Focus : sites bloqués, verrouillage, comptes libres.",
-		Arguments:    []string{"--config", o.config},
-		Dependencies: []string{"Wants=network-online.target", "After=network-online.target"},
-		Option: service.KeyValue{
-			"OnFailure":              "restart",
-			"OnFailureDelayDuration": "5s",
-			"DelayedAutoStart":       false,
-		},
-	})
+	svc, err := service.New(p, configService(o.config))
 	if err != nil {
 		return err
 	}
@@ -112,6 +101,42 @@ func lancer(o options, commande string) error {
 	default:
 		flag.Usage()
 		return fmt.Errorf("commande inconnue : %q", commande)
+	}
+}
+
+// uniteSystemd remplace le modèle de kardianos/service, qui fige RestartSec=120 : un focusd
+// tué resterait arrêté deux minutes (plus de reverrouillage ni de fermeture des comptes
+// libres). Ici : redémarrage après 2 s, sans plafond de tentatives (un service de blocage ne
+// doit jamais abandonner ; une config cassée ne coûte qu'une ligne de journal toutes les 2 s).
+const uniteSystemd = `[Unit]
+Description={{Description}}
+ConditionFileIsExecutable={{Path | cmdEscape}}
+{{range Dependencies}}{{.}}
+{{end}}StartLimitIntervalSec=0
+
+[Service]
+ExecStart={{Path | cmdEscape}}{{range Arguments}} {{. | cmd}}{{end}}
+Restart=always
+RestartSec=2
+EnvironmentFile=-/etc/sysconfig/{{Name}}
+
+[Install]
+WantedBy=multi-user.target
+`
+
+func configService(config string) *service.Config {
+	return &service.Config{
+		Name:         "focusd",
+		DisplayName:  "Focus",
+		Description:  "Applique le planning Focus : sites bloqués, verrouillage, comptes libres.",
+		Arguments:    []string{"--config", config},
+		Dependencies: []string{"Wants=network-online.target", "After=network-online.target"},
+		Option: service.KeyValue{
+			"SystemdScript":          uniteSystemd,
+			"OnFailure":              "restart",
+			"OnFailureDelayDuration": "5s",
+			"DelayedAutoStart":       false,
+		},
 	}
 }
 

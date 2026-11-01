@@ -1,0 +1,35 @@
+# Image d'essai système du client PC Focus : Fedora avec systemd en PID 1, logind, polkit,
+# zenity et un serveur X virtuel. Go n'est pas installé : lancer.sh monte celui de l'hôte.
+ARG FEDORA=44
+FROM registry.fedoraproject.org/fedora:${FEDORA}
+RUN dnf install -y --setopt=install_weak_deps=False \
+      systemd systemd-pam systemd-container dbus-broker polkit util-linux util-linux-script \
+      shadow-utils passwd zenity mesa-libGLES mesa-libEGL mesa-dri-drivers \
+      xorg-x11-server-Xvfb ImageMagick xdotool glib2 python3 procps-ng iproute \
+      findutils diffutils which \
+ && dnf clean all
+
+# Comptes de l'essai : « alice » (compte de travail, il lance l'installeur) et « libre ».
+RUN useradd -m -u 1000 alice && useradd -m -u 1001 libre
+
+# pkexec sans fenêtre de mot de passe pour « alice » : l'installeur est lancé tel quel.
+RUN printf '%s\n' 'polkit.addRule(function (action, subject) {' \
+      '  if (action.id == "org.freedesktop.policykit.exec" && subject.user == "alice") return polkit.Result.YES;' \
+      '});' > /etc/polkit-1/rules.d/49-focus-essai.rules
+
+# polkitd ne démarre pas dans un conteneur sans privilèges avec son bac à sable systemd
+# (« Failed to keep CAP_SYS_ADMIN ») : on le retire, dans le conteneur seulement.
+RUN mkdir -p /etc/systemd/system/polkit.service.d && printf '%s\n' '[Service]' \
+      PrivateDevices=no PrivateNetwork=no PrivateTmp=no ProtectHome=no ProtectSystem=no \
+      ProtectKernelModules=no ProtectKernelLogs=no ProtectKernelTunables=no \
+      ProtectControlGroups=no ProtectClock=no ProtectHostname=no RestrictNamespaces=no \
+      DevicePolicy=auto MemoryDenyWriteExecute=no LockPersonality=no SystemCallFilter= \
+      SystemCallArchitectures= RestrictAddressFamilies= RestrictRealtime=no \
+      RestrictSUIDSGID=no RemoveIPC=no > /etc/systemd/system/polkit.service.d/essai.conf
+
+# Go de l'hôte, monté en lecture seule par lancer.sh ; modules hors ligne.
+RUN printf '%s\n' 'export PATH=/opt/go/bin:$PATH GOMODCACHE=/opt/gomod GOPROXY=off GOTOOLCHAIN=local GOTELEMETRY=off GOFLAGS=-buildvcs=false' \
+      > /etc/profile.d/go-essai.sh
+
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]

@@ -58,7 +58,9 @@ Le script compile, demande le jeton (s'il n'est pas déjà en place), puis, en u
 demande `pkexec` : installe `zenity` (dnf), les binaires dans `/usr/local/bin`, la config,
 le service systemd (`focusd install`, puis `start`) et l'agent dans
 `/etc/xdg/autostart/focus-agent.desktop` (toutes les sessions GNOME). Relancé, il met à jour les
-binaires et redémarre le service sans toucher à la config ni au jeton.
+binaires, régénère l'unité systemd et redémarre le service sans toucher à la config ni au jeton.
+L'unité redémarre `focusd` 2 s après un arrêt, quelle qu'en soit la cause, sans plafond de
+tentatives.
 
 `zenity` est obligatoire sous Linux : `ncruces/zenity` appelle ce programme. Sans lui,
 `focus-agent` s'arrête avec un message. Installation seule : `pkexec dnf install zenity`.
@@ -103,6 +105,9 @@ focusd --config essai.json --sans-effet --hosts-fichier /tmp/hosts-essai
 
 `essai.json` pointe vers une API locale (`http://127.0.0.1:…`), un jeton et un `etat_dossier`
 accessibles à son compte, et un autre `ecoute_locale` si un `focusd` tourne déjà.
+
+Essai système complet (installation, systemd, logind, hosts, agent, robustesse) dans un
+conteneur podman, sans root sur l'hôte : `essai-systeme/lancer.sh` (voir son README).
 
 ## Fichier hosts
 

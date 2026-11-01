@@ -55,6 +55,7 @@ type Demon struct {
 	plan      *planning.Planning
 	horloge   planning.Horloge
 	horsLigne bool
+	erreurAPI string            // dernière erreur de GET /v1/planning journalisée
 	continues map[string]string // session → question pour laquelle « continue » a été accepté
 	fermees   map[string]bool   // sessions arrêtées ici, en attente du prochain planning
 	accuses   map[string]bool   // actions déjà accusées pour le segment en cours
@@ -114,10 +115,16 @@ func (d *Demon) Rafraichir(ctx context.Context) error {
 	p, recu, err := d.o.API.Planning(ctx)
 	if err != nil {
 		d.mu.Lock()
-		if !d.horsLigne {
-			d.o.Journal.Warn("API injoignable : rejeu du dernier planning", "erreur", err)
+		// Au démarrage, horsLigne vaut déjà vrai : sans ce suivi, une API injoignable ou un
+		// jeton refusé dès l'installation ne laissait aucune trace dans le journal.
+		if !d.horsLigne || err.Error() != d.erreurAPI {
+			if d.plan == nil {
+				d.o.Journal.Warn("API injoignable et aucun planning connu : rien n'est appliqué", "erreur", err)
+			} else {
+				d.o.Journal.Warn("API injoignable : rejeu du dernier planning", "erreur", err)
+			}
 		}
-		d.horsLigne = true
+		d.horsLigne, d.erreurAPI = true, err.Error()
 		d.mu.Unlock()
 		return err
 	}
@@ -129,7 +136,7 @@ func (d *Demon) Rafraichir(ctx context.Context) error {
 	if d.horsLigne {
 		d.o.Journal.Info("planning reçu", "config_version", p.ConfigVersion, "decalage", h.Decalage.Round(time.Millisecond))
 	}
-	d.plan, d.horloge, d.horsLigne = p, h, false
+	d.plan, d.horloge, d.horsLigne, d.erreurAPI = p, h, false, ""
 	presentes := map[string]*planning.Session{}
 	for i := range p.Sessions {
 		presentes[p.Sessions[i].ID] = &p.Sessions[i]

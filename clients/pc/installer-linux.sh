@@ -50,7 +50,7 @@ if [[ ! -e /etc/focus/client.json ]]; then
 fi
 
 if [[ ! -e /etc/focus/jeton ]]; then
-	read -rsp "Jeton d'appareil (affiché une fois par « npm run jeton:creer -- appareil <nom> ») : " JETON
+	read -rsp "Jeton d'appareil (affiché une fois par « npm run jeton:creer -- appareil <nom> ») : " JETON || true # dernière ligne sans saut de ligne : read échoue mais remplit JETON
 	echo
 	if [[ -z "$JETON" ]]; then
 		echo "Jeton vide." >&2
@@ -87,12 +87,13 @@ install -m 644 "$TMP/focus-agent.desktop" /etc/xdg/autostart/focus-agent.desktop
 command -v restorecon >/dev/null && restorecon -F /usr/local/bin/focusd /usr/local/bin/focus-agent \
 	/etc/xdg/autostart/focus-agent.desktop /etc/focus /etc/focus/* /var/lib/focus || true
 
+# L'unité est régénérée à chaque passage : une mise à jour de focusd peut changer son modèle.
 if [[ -e /etc/systemd/system/focusd.service ]]; then
-	systemctl restart focusd
-else
-	/usr/local/bin/focusd --config /etc/focus/client.json install
-	/usr/local/bin/focusd start
+	systemctl stop focusd || true
+	/usr/local/bin/focusd uninstall
 fi
+/usr/local/bin/focusd --config /etc/focus/client.json install
+/usr/local/bin/focusd start
 systemctl --no-pager --lines=5 status focusd || true
 EOF
 

@@ -357,3 +357,53 @@ func TestLever(t *testing.T) {
 		t.Errorf("Lever incomplet : %q", c)
 	}
 }
+
+type journalCompte struct {
+	mu       sync.Mutex
+	messages []string
+}
+
+func (j *journalCompte) Write(b []byte) (int, error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.messages = append(j.messages, string(b))
+	return len(b), nil
+}
+
+func (j *journalCompte) compter(texte string) int {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	n := 0
+	for _, m := range j.messages {
+		if strings.Contains(m, texte) {
+			n++
+		}
+	}
+	return n
+}
+
+// Essai système : API injoignable dès le démarrage (ou jeton refusé à l'installation) ne
+// laissait aucune ligne dans le journal, horsLigne valant déjà vrai.
+func TestPremierEchecJournalise(t *testing.T) {
+	b := nouveauBanc(t, "")
+	j := &journalCompte{}
+	b.d.o.Journal = slog.New(slog.NewTextHandler(j, nil))
+	b.panne(true)
+	for range 3 {
+		_ = b.d.Rafraichir(context.Background())
+	}
+	if n := j.compter("aucun planning connu"); n != 1 {
+		t.Fatalf("premier échec sans planning : %d ligne(s), 1 attendue\n%v", n, j.messages)
+	}
+	b.panne(false)
+	if err := b.d.Rafraichir(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	b.panne(true)
+	for range 3 {
+		_ = b.d.Rafraichir(context.Background())
+	}
+	if n := j.compter("rejeu du dernier planning"); n != 1 {
+		t.Errorf("échec après un planning reçu : %d ligne(s), 1 attendue", n)
+	}
+}
