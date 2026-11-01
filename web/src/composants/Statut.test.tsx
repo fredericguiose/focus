@@ -19,7 +19,7 @@ describe('carte du mode actuel', () => {
     const { s, t } = await statut('journee');
     render(<CarteMode statut={s} maintenant={t} />);
     expect(screen.getByText('Matin verrouillé')).toBeTruthy();
-    expect(screen.getByText('dès que le planning du matin est fait')).toBeTruthy();
+    expect(screen.getByText('Se termine dès que le planning du matin est fait')).toBeTruthy();
     expect(screen.queryByTestId('compte-a-rebours')).toBeNull();
     const sortie = screen.getByTestId('sortie-incertaine');
     expect(within(sortie).getByText('Planning à faire')).toBeTruthy();

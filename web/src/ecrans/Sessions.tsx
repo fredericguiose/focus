@@ -33,7 +33,7 @@ export function motifSessionsInterdites(
     return { titre: `Sessions interdites pendant la nuit,${jusqua}`.replace(/,$/, ''), detail: 'Aucune app ne peut être débloquée avant le lever.', motifs };
   }
   if (principal?.sessions === 'interdites') {
-    const detail = principal.sortie && !principal.sortie.certaine ? `Fin ${principal.sortie.texte}.` : raisonLisible(principal.raison);
+    const detail = principal.sortie && !principal.sortie.certaine ? `Se termine ${principal.sortie.texte}.` : raisonLisible(principal.raison);
     return { titre: `Sessions interdites en mode ${infoMode(principal.mode).libelle}${jusqua}`, detail, motifs };
   }
   return { titre: 'Aucune session possible en ce moment', detail: null, motifs: motifsSansSession(statut.appareils) };

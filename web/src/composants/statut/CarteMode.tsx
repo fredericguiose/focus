@@ -52,8 +52,7 @@ export function CarteMode({ statut, maintenant }: { statut: ReponseStatut; maint
             </div>
             {sortie ? (
               <p className="text-foreground/80 max-w-prose text-sm text-pretty">
-                <span className="text-muted-foreground">Fin : </span>
-                {sortie.texte}
+                Se termine {sortie.texte}
               </p>
             ) : principal ? (
               <p className="text-foreground/80 max-w-prose text-sm text-pretty">{raisonLisible(principal.raison)}</p>

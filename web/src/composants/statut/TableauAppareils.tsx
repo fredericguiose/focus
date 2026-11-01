@@ -5,7 +5,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { SortieMode, StatutAppareil, TypeAppareil } from '@/api/contrat';
 import { type EtatPing, etatPing, libelleAppareil } from '@/lib/appareils';
-import { STYLES_ETAT } from '@/lib/etats';
 import { infoMode, STYLES_FAMILLE } from '@/lib/modes';
 import { ilYA } from '@/lib/temps';
 import { cn } from '@/lib/utils';
@@ -30,16 +29,11 @@ export function BadgePing({ appareil, maintenant }: { appareil: StatutAppareil; 
   );
 }
 
-/** Fin du mode, avec la règle de couleurs commune : horloge grise si elle ne dépend que de l'heure, ✗ orange s'il y a à faire. */
+/** Quand le mode se termine : une phrase neutre, pas une icône d'état (ce n'est pas une erreur). */
 function Sortie({ sortie }: { sortie: SortieMode }) {
-  const { Icone, couleur, texte } = STYLES_ETAT[sortie.certaine ? 'attente' : 'a_faire'];
   return (
-    <span className="text-muted-foreground mt-1 flex max-w-36 items-start gap-1 text-xs leading-snug sm:max-w-60">
-      <Icone className={cn('mt-px size-3.5 shrink-0', couleur)} aria-hidden />
-      <span>
-        Fin {sortie.texte}
-        <span className="sr-only"> ({texte})</span>
-      </span>
+    <span className="text-muted-foreground mt-1 block max-w-36 text-xs leading-snug sm:max-w-60">
+      Se termine {sortie.texte}
     </span>
   );
 }
