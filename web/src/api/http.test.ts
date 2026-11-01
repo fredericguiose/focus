@@ -88,6 +88,30 @@ describe('format réel de l’API', () => {
     expect(statut.sessions_du_jour).toEqual({ cumul_min: 30, plafond_min: 180 });
   });
 
+  it('lit appareil_principal, parcours et sortie quand l’API les donne', async () => {
+    const parcours = [
+      { mode: 'WORK', nom: 'Travail', applicable: true, actif: true, logique: 'simple', conditions: [{ type: 'toujours', libelle: 'Par défaut', vraie: true, detail: null, a: null }] },
+    ];
+    const sortie = { texte: 'Dès que le planning est fait', certaine: false, au_plus_tard: '2026-11-04T01:00:00Z' };
+    const corps = {
+      heure_serveur: '2026-11-03T21:00:00Z',
+      config_version: null,
+      appareil_principal: 'pc_linux',
+      journee: {
+        date: '2026-11-03', routine: 'cours', fuseau: 'America/Cayenne', engagements: [],
+        lever: '2026-11-03T09:00:00Z', lever_suivant: '2026-11-04T09:00:00Z', coucher_prevu: '2026-11-04T01:00:00Z',
+        coucher_applique: '2026-11-04T01:00:00Z', ouverture: '2026-11-03T23:20:00Z', prix_du_report_min: 0,
+        dette_nuit_min: 0, decision_de_nuit_prise: false,
+      },
+      appareils: [{ nom: 'pc_linux', type: 'pc_linux', mode: 'WORK', sessions: 'autorisees', raison: 'WORK', dernier_ping: null, parcours, sortie }],
+      sessions: [],
+    };
+    const statut = await creerApiHttp('j', '', vi.fn<typeof fetch>(async () => reponse(200, JSON.stringify(corps)))).statut();
+    expect(statut.appareil_principal).toBe('pc_linux');
+    expect(statut.appareils[0]?.parcours).toEqual(parcours);
+    expect(statut.appareils[0]?.sortie).toEqual(sortie);
+  });
+
   it('lit phase, actions, engagements_demain et jusqua quand l’API les donne', async () => {
     const corps = {
       heure_serveur: '2026-11-03T21:00:00Z',

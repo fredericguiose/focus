@@ -61,11 +61,12 @@ export function TableauAppareils({ appareils, maintenant }: { appareils: StatutA
                       {libelleAppareil(a)}
                     </span>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="whitespace-normal">
                     <Badge variant="outline" className={cn('gap-1.5', styles.texte, styles.bordure)}>
                       <span className={cn('size-1.5 rounded-full', styles.fond)} aria-hidden />
                       {mode.libelle}
                     </Badge>
+                    {a.sortie ? <span className="text-muted-foreground mt-1 block max-w-32 text-xs leading-snug sm:max-w-56">{a.sortie.texte}</span> : null}
                   </TableCell>
                   <TableCell className="text-muted-foreground hidden sm:table-cell">{a.sessions === 'interdites' ? 'Interdites' : 'Autorisées'}</TableCell>
                   <TableCell className="text-right">

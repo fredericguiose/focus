@@ -31,6 +31,39 @@ export interface AppBloquee {
   iphone?: string | null;
 }
 
+/** Type d'une condition de mode (conception §2.6), tel que l'API le résume pour l'affichage. */
+export type TypeCondition = 'toujours' | 'heure' | 'planning' | 'recap' | 'prioritaires' | 'retard' | 'taches';
+
+export interface ConditionParcours {
+  type: TypeCondition;
+  libelle: string;
+  /** Valeur de la condition maintenant (avant la négation d'un mode `pas`). */
+  vraie: boolean;
+  /** Précision lisible, ex. « 2 restantes ». */
+  detail: string | null;
+  /** Pour une condition `heure` : l'instant à partir duquel elle est vraie. */
+  a: Instant | null;
+}
+
+/** Un mode de la routine du jour pour cet appareil, avec ses conditions évaluées maintenant. */
+export interface EtapeParcours {
+  mode: string;
+  nom: string;
+  /** Faux si le mode ne concerne pas cet appareil (ex. matin verrouillé sur l'iPhone). */
+  applicable: boolean;
+  actif: boolean;
+  logique: 'tous' | 'un_parmi' | 'pas' | 'simple';
+  conditions: ConditionParcours[];
+}
+
+/** Comment le mode en cours finira. Seule une sortie `certaine` justifie un compte à rebours. */
+export interface SortieMode {
+  texte: string;
+  certaine: boolean;
+  /** Fin au plus tard (ex. le coucher), quoi qu'il arrive. */
+  au_plus_tard: Instant;
+}
+
 export interface StatutAppareil {
   /** Nom de l'appareil dans la config, ex. "pc_linux". */
   appareil: string;
@@ -42,8 +75,14 @@ export interface StatutAppareil {
   /** Une session peut-elle s'ouvrir ici maintenant (§4.5) ; sinon `session_motif` dit pourquoi. */
   session_possible: boolean;
   session_motif: string | null;
-  /** Fin du mode en cours, donnée par l'API : sert au compte à rebours (jamais déduite). */
+  /**
+   * Fin du segment en cours si les faits ne changent pas (planning, tâches…) : ce n'est pas une
+   * certitude, ne pas l'afficher comme telle ; préférer `sortie`.
+   */
   jusqua?: Instant | null;
+  /** Modes de la routine, dans l'ordre de priorité (optionnel : absent d'une API plus ancienne). */
+  parcours?: EtapeParcours[];
+  sortie?: SortieMode;
   /** Dernier appel authentifié de l'appareil (`dernier_ping`, précision 5 min), null s'il n'a jamais appelé. */
   vu_le: Instant | null;
   /** Actions du mode en vigueur (domaines ou identifiants iPhone bloqués). */
@@ -105,6 +144,8 @@ export interface ReponseStatut {
   heure_serveur: Instant;
   config_version: string | null;
   journee: Journee;
+  /** Appareil dont la web app montre le mode (absent d'une API plus ancienne : le premier). */
+  appareil_principal?: string;
   appareils: StatutAppareil[];
   sessions: SessionOuverte[];
   /** Cumul des sessions de la journée et plafond quotidien. */

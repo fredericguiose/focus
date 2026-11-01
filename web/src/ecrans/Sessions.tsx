@@ -14,6 +14,7 @@ import type { ReponseStatut } from '@/api/contrat';
 import { useHeureServeur, useStatut } from '@/hooks/useFocus';
 import { motifsSansSession } from '@/lib/appareils';
 import { infoMode, raisonLisible } from '@/lib/modes';
+import { appareilPrincipal } from '@/lib/parcours';
 import { formaterDuree, formaterHeureRelative } from '@/lib/temps';
 
 /** Pourquoi aucune session ne peut s'ouvrir (null si un appareil le peut), avec le motif de chaque appareil. */
@@ -23,13 +24,16 @@ export function motifSessionsInterdites(
 ): { titre: string; detail: string | null; motifs: string[] } | null {
   if (statut.appareils.some((a) => a.session_possible)) return null;
   const motifs = motifsSansSession(statut.appareils);
-  const principal = statut.appareils[0];
-  const jusqua = principal?.jusqua ? ` — jusqu'à ${formaterHeureRelative(principal.jusqua, statut.journee.fuseau, maintenant)}` : '';
+  const principal = appareilPrincipal(statut);
+  // Une heure de fin n'est affichée que si elle est certaine (`jusqua` suppose les faits constants).
+  const fin = principal?.sortie ? (principal.sortie.certaine ? principal.sortie.au_plus_tard : null) : principal?.jusqua;
+  const jusqua = fin ? ` — jusqu'à ${formaterHeureRelative(fin, statut.journee.fuseau, maintenant)}` : '';
   if (statut.phase === 'nuit' || principal?.mode === 'NIGHT_LOCK') {
     return { titre: `Sessions interdites pendant la nuit${jusqua}`, detail: 'Aucune app ne peut être débloquée avant le lever.', motifs };
   }
   if (principal?.sessions === 'interdites') {
-    return { titre: `Sessions interdites : ${infoMode(principal.mode).libelle}${jusqua}`, detail: raisonLisible(principal.raison), motifs };
+    const detail = principal.sortie && !principal.sortie.certaine ? `Fin : ${principal.sortie.texte}` : raisonLisible(principal.raison);
+    return { titre: `Sessions interdites : ${infoMode(principal.mode).libelle}${jusqua}`, detail, motifs };
   }
   return { titre: 'Aucune session possible en ce moment', detail: null, motifs };
 }

@@ -12,6 +12,7 @@ import type {
   CorpsException,
   DemandeException,
   EngagementDemain,
+  EtapeParcours,
   Exception,
   Journee,
   Phase,
@@ -19,6 +20,7 @@ import type {
   ReponseStatut,
   ReponseTaches,
   SessionOuverte,
+  SortieMode,
   StatutAppareil,
   TacheSession,
   TypeAppareil,
@@ -92,10 +94,32 @@ export interface OptionsSimulation {
   latenceMs?: number;
   /**
    * Place l'horloge simulée dans cette phase de la journée en cours (`?phase=nuit` dans l'URL en
-   * mode simulé) : utile pour les captures. L'horloge avance ensuite normalement.
+   * mode simulé) : utile pour les captures. L'horloge avance ensuite normalement. Chaque phase
+   * vient avec ses faits (voir FAITS_PAR_PHASE), sauf si `faits` les précise.
    */
   phase?: Phase;
+  faits?: Partial<FaitsSimules>;
 }
+
+/** Faits Todoist que les conditions des modes lisent (§2.6), figés dans la simulation. */
+export interface FaitsSimules {
+  planningFait: boolean;
+  /** Tâches P1/P2 du jour non terminées. */
+  prioritairesRestantes: number;
+  recapFait: boolean;
+}
+
+const FAITS_PAR_DEFAUT: FaitsSimules = { planningFait: true, prioritairesRestantes: 0, recapFait: true };
+// Journée : planning pas encore fait (matin verrouillé sur les PC). Soirée : l'heure d'ouverture
+// est passée mais il reste 2 tâches prioritaires (travail). Nuit : tout est fait.
+const FAITS_PAR_PHASE: Record<Phase, FaitsSimules> = {
+  journee: { planningFait: false, prioritairesRestantes: 2, recapFait: true },
+  soiree: { planningFait: true, prioritairesRestantes: 2, recapFait: true },
+  nuit: FAITS_PAR_DEFAUT,
+};
+/** Le matin verrouillé ne concerne que les PC, comme dans l'exemple de config. */
+const APPAREILS_MATIN: TypeAppareil[] = ['pc_linux', 'pc_windows'];
+const APPAREIL_PRINCIPAL = 'pc_linux';
 
 const enMinutes = (h: HeureLocale) => {
   const [a, b] = h.split(':').map(Number);
@@ -107,6 +131,7 @@ const versHeure = (minutes: number) => {
 };
 // Copie par JSON, comme un passage par le réseau ; `undefined` (réponse sans corps) reste tel quel.
 const copie = <T,>(valeur: T): T => (valeur === undefined ? valeur : (JSON.parse(JSON.stringify(valeur)) as T));
+const minuscule = (texte: string) => texte.charAt(0).toLowerCase() + texte.slice(1);
 const HEURE_VALIDE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DATE_VALIDE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -126,6 +151,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
   const horloge = options.maintenant ?? (() => Date.now());
   const fuseau = options.fuseau ?? fuseauDuNavigateur();
   const latenceMs = options.latenceMs ?? 0;
+  const faits: FaitsSimules = { ...(options.phase ? FAITS_PAR_PHASE[options.phase] : FAITS_PAR_DEFAUT), ...options.faits };
   const exceptions: Exception[] = [];
   let decalage = 0;
   const maintenant = () => horloge() + decalage;
@@ -312,56 +338,133 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
 
   function etatAppareil(appareil: string, type: TypeAppareil, t: number): StatutAppareil {
     const etat = etatSansPossibilite(appareil, type, t);
+    const sortie = etat.sortie;
     const motif =
       type === 'pc_windows'
         ? 'aucun compte de travail sur ce PC'
         : etat.sessions === 'interdites'
-          ? `sessions interdites : ${etat.mode}${etat.jusqua ? ` jusqu'à ${formaterHeure(etat.jusqua, fuseau)}` : ''}`
+          ? sortie && !sortie.certaine
+            ? `sessions interdites : ${etat.mode}, ${minuscule(sortie.texte)}`
+            : `sessions interdites : ${etat.mode}${etat.jusqua ? ` jusqu'à ${formaterHeure(etat.jusqua, fuseau)}` : ''}`
           : (etat.apps_bloquees ?? []).length === 0
             ? "rien n'est bloqué en ce moment"
             : null;
     return { ...etat, session_possible: motif === null, session_motif: motif };
   }
 
+  /** Les modes de la routine dans l'ordre de priorité (§2.5), conditions évaluées à `t`. */
+  function parcoursA(type: TypeAppareil, t: number): EtapeParcours[] {
+    const date = dateCourante(t);
+    const coucher = coucherApplique(date, exceptions);
+    const soiree = ouverture(date, exceptions);
+    const n = faits.prioritairesRestantes;
+    const etapes: Omit<EtapeParcours, 'actif'>[] = [
+      {
+        mode: 'NIGHT_LOCK',
+        nom: 'Nuit',
+        applicable: true,
+        logique: 'simple',
+        conditions: [{ type: 'heure', libelle: 'Heure du coucher', vraie: t >= coucher, detail: null, a: versInstant(coucher) }],
+      },
+      {
+        mode: 'MORNING_LOCK',
+        nom: 'Matin verrouillé',
+        applicable: APPAREILS_MATIN.includes(type),
+        logique: 'pas',
+        conditions: [
+          { type: 'planning', libelle: 'Planning du jour fait', vraie: faits.planningFait, detail: faits.planningFait ? null : 'à faire', a: null },
+        ],
+      },
+      {
+        mode: 'EVENING_FREE',
+        nom: 'Soirée libre',
+        applicable: true,
+        logique: 'tous',
+        conditions: [
+          {
+            type: 'heure',
+            libelle: "Heure d'ouverture",
+            vraie: t >= soiree,
+            detail: `report de ${formaterDuree(PRIX_DU_REPORT_MIN)} compris`,
+            a: versInstant(soiree),
+          },
+          {
+            type: 'prioritaires',
+            libelle: 'Tâches P1/P2 du jour faites',
+            vraie: n === 0,
+            detail: n === 0 ? null : `${n} restante${n > 1 ? 's' : ''}`,
+            a: null,
+          },
+          { type: 'recap', libelle: "Récap d'hier fait", vraie: faits.recapFait, detail: faits.recapFait ? null : 'à faire', a: null },
+        ],
+      },
+      { mode: 'WORK', nom: 'Travail', applicable: true, logique: 'simple', conditions: [{ type: 'toujours', libelle: 'Par défaut', vraie: true, detail: null, a: null }] },
+    ];
+    const vrai = (e: Omit<EtapeParcours, 'actif'>) =>
+      e.applicable && (e.logique === 'pas' ? !e.conditions.every((c) => c.vraie) : e.conditions.every((c) => c.vraie));
+    const gagnant = etapes.find(vrai)?.mode;
+    return etapes.map((e) => ({ ...e, actif: e.mode === gagnant }));
+  }
+
   // Comme dans l'exemple de config : pc_windows n'a aucun compte de travail.
   function etatSansPossibilite(appareil: string, type: TypeAppareil, t: number): Omit<StatutAppareil, 'session_possible' | 'session_motif'> {
     const date = dateCourante(t);
     const coucher = coucherApplique(date, exceptions);
-    if (t >= coucher) {
+    const soiree = ouverture(date, exceptions);
+    const parcours = parcoursA(type, t);
+    const mode = parcours.find((e) => e.actif)?.mode ?? 'WORK';
+    const commun = { appareil, type, mode, parcours, vu_le: vuLe(appareil, t) };
+    if (mode === 'NIGHT_LOCK') {
       const leverSuivant = lever(ajouterJours(date, 1), exceptions);
       return {
-        appareil,
-        type,
-        mode: 'NIGHT_LOCK',
+        ...commun,
         raison: `NIGHT_LOCK — nuit jusqu'au lever de ${heureLocale(leverSuivant, fuseau)}`,
         sessions: 'interdites',
         jusqua: versInstant(leverSuivant),
-        vu_le: vuLe(appareil, t),
+        sortie: { texte: `Au lever de ${heureLocale(leverSuivant, fuseau)}`, certaine: true, au_plus_tard: versInstant(leverSuivant) },
         apps_bloquees: appsPour(type, Object.keys(CATALOGUE)),
       };
     }
-    const soiree = ouverture(date, exceptions);
-    if (t >= soiree) {
+    if (mode === 'MORNING_LOCK') {
       return {
-        appareil,
-        type,
-        mode: 'EVENING_FREE',
+        ...commun,
+        raison: 'MORNING_LOCK — planning du jour à faire',
+        sessions: 'interdites',
+        jusqua: versInstant(coucher),
+        sortie: { texte: 'Dès que le planning du jour est fait', certaine: false, au_plus_tard: versInstant(coucher) },
+        apps_bloquees: appsPour(type, Object.keys(CATALOGUE)),
+      };
+    }
+    if (mode === 'EVENING_FREE') {
+      return {
+        ...commun,
         raison: `EVENING_FREE — soirée libre jusqu'au coucher de ${heureLocale(coucher, fuseau)}`,
         sessions: 'autorisees',
         jusqua: versInstant(coucher),
-        vu_le: vuLe(appareil, t),
+        sortie: { texte: `Au coucher de ${heureLocale(coucher, fuseau)}`, certaine: true, au_plus_tard: versInstant(coucher) },
         apps_bloquees: [],
       };
     }
-    const prioritaires = taches.filter((x) => x.priorite === 'p1' || x.priorite === 'p2').length;
+    const n = faits.prioritairesRestantes;
+    const manque = [
+      ...(n > 0 ? [n > 1 ? `les ${n} tâches P1/P2 restantes sont faites` : 'la tâche P1/P2 restante est faite'] : []),
+      ...(faits.recapFait ? [] : ["le récap d'hier est fait"]),
+    ].join(' et ');
+    const hOuverture = heureLocale(soiree, fuseau);
+    const sortie: SortieMode =
+      manque === ''
+        ? { texte: `À l'ouverture de ${hOuverture}`, certaine: true, au_plus_tard: versInstant(soiree) }
+        : {
+            texte: t < soiree ? `Pas avant ${hOuverture}, et dès que ${manque}` : `Dès que ${manque}`,
+            certaine: false,
+            au_plus_tard: versInstant(coucher),
+          };
     return {
-      appareil,
-      type,
-      mode: 'WORK',
-      raison: `WORK — tâches prioritaires restantes : ${prioritaires}`,
+      ...commun,
+      raison: n > 0 ? `WORK — tâches prioritaires restantes : ${n}` : `WORK — soirée libre à ${hOuverture}`,
       sessions: 'autorisees',
-      jusqua: versInstant(soiree),
-      vu_le: vuLe(appareil, t),
+      jusqua: versInstant(manque === '' ? soiree : coucher),
+      sortie,
       apps_bloquees: appsPour(type, BLOQUEES_WORK),
     };
   }
@@ -523,6 +626,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
           heure_serveur: versInstant(t),
           config_version: 'simulee',
           journee: j,
+          appareil_principal: APPAREIL_PRINCIPAL,
           appareils: APPAREILS.map((a) => etatAppareil(a.appareil, a.type, t)),
           sessions: sessions.map((s) => ({
             ...s.session,

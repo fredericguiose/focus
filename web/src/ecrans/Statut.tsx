@@ -7,8 +7,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { CarteActions } from '@/composants/actions/CarteActions';
 import { CarteDette } from '@/composants/statut/CarteDette';
 import { CarteMode } from '@/composants/statut/CarteMode';
-import { FriseJournee } from '@/composants/statut/FriseJournee';
 import { Indicateur } from '@/composants/statut/Indicateur';
+import { ParcoursJournee } from '@/composants/statut/ParcoursJournee';
 import { TableauAppareils } from '@/composants/statut/TableauAppareils';
 import { useHeureServeur, useStatut } from '@/hooks/useFocus';
 import { formaterDuree, formaterEcart, formaterHeure } from '@/lib/temps';
@@ -19,7 +19,6 @@ export function EcranStatut() {
   const j = statut.journee;
   const coucherMs = Date.parse(j.coucherApplique);
   const cumul = statut.sessions_du_jour;
-  const principal = statut.appareils[0];
 
   return (
     <div className="grid gap-4 md:gap-6">
@@ -75,12 +74,11 @@ export function EcranStatut() {
         />
       </div>
 
-      <FriseJournee journee={j} maintenant={maintenant} modePrincipal={principal?.mode} jusqua={principal?.jusqua} />
-
-      <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-3">
-        <CarteDette statut={statut} />
-        <div className="min-w-0 lg:col-span-2">
+      <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-3 lg:items-start">
+        <ParcoursJournee statut={statut} maintenant={maintenant} />
+        <div className="grid min-w-0 gap-4 md:gap-6 lg:col-span-2 [&>*]:min-w-0">
           <TableauAppareils appareils={statut.appareils} maintenant={maintenant} />
+          <CarteDette statut={statut} />
         </div>
       </div>
     </div>

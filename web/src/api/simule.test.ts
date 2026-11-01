@@ -112,6 +112,36 @@ describe('API simulée : phase et actions', () => {
     }
   });
 
+  it('chaque phase a ses faits : matin verrouillé, travail après l’ouverture, nuit certaine', async () => {
+    const enPhase = (phase: 'journee' | 'soiree' | 'nuit') =>
+      creerApiSimulee({ maintenant: () => MARDI_15H, fuseau: 'Europe/Paris', phase }).statut();
+    const journee = await enPhase('journee');
+    expect(journee.appareil_principal).toBe('pc_linux');
+    expect(journee.appareils.map((a) => [a.appareil, a.mode, a.sortie?.certaine])).toEqual([
+      ['pc_linux', 'MORNING_LOCK', false],
+      ['pc_windows', 'MORNING_LOCK', false],
+      ['iphone', 'WORK', false],
+    ]);
+    expect(journee.appareils[0]?.sortie).toEqual({ texte: 'Dès que le planning du jour est fait', certaine: false, au_plus_tard: '2026-11-03T20:30:00Z' });
+    expect(journee.appareils[0]?.parcours?.find((e) => e.actif)?.mode).toBe('MORNING_LOCK');
+
+    const soiree = await enPhase('soiree');
+    expect(soiree.phase).toBe('soiree');
+    expect(soiree.appareils[0]).toMatchObject({ mode: 'WORK', sortie: { texte: 'Dès que les 2 tâches P1/P2 restantes sont faites', certaine: false } });
+    const evening = soiree.appareils[0]?.parcours?.find((e) => e.mode === 'EVENING_FREE');
+    expect(evening?.conditions.map((c) => [c.type, c.vraie, c.detail])).toEqual([
+      ['heure', true, 'report de 20 min compris'],
+      ['prioritaires', false, '2 restantes'],
+      ['recap', true, null],
+    ]);
+
+    const nuit = await enPhase('nuit');
+    expect(nuit.appareils[0]).toMatchObject({
+      mode: 'NIGHT_LOCK',
+      sortie: { texte: 'Au lever de 05:30', certaine: true, au_plus_tard: '2026-11-04T04:30:00Z' },
+    });
+  });
+
   it('refuse de retirer un engagement non annulable', async () => {
     const prix = await simulation().api.prixException({ demande: { type: 'retire', date: '2026-11-04', engagement: 'travail' } });
     expect(prix.admissible).toBe(false);

@@ -6,6 +6,7 @@ import type {
   AppBloquee,
   CorpsException,
   EngagementDemain,
+  EtapeParcours,
   Journee,
   Phase,
   PrixException,
@@ -14,6 +15,7 @@ import type {
   ReponseStatut,
   ReponseTaches,
   SessionOuverte,
+  SortieMode,
   StatutAppareil,
   TypeAppareil,
 } from './contrat';
@@ -64,7 +66,10 @@ export interface StatutFil {
     apps_bloquees?: AppBloquee[];
     dernier_ping: string | null;
     jusqua?: string | null;
+    parcours?: EtapeParcours[];
+    sortie?: SortieMode;
   }[];
+  appareil_principal?: string;
   sessions: SessionFil[];
   sessions_du_jour?: { cumul_min: number; plafond_min: number };
   nuits?: { nuit: string; dette_min: number }[];
@@ -127,6 +132,7 @@ export function statutDepuisFil(s: StatutFil): ReponseStatut {
     heure_serveur: s.heure_serveur,
     config_version: s.config_version,
     journee: journeeDepuisFil(s.journee),
+    ...(s.appareil_principal ? { appareil_principal: s.appareil_principal } : {}),
     appareils: s.appareils.map(
       (a): StatutAppareil => ({
         appareil: a.nom,
@@ -138,6 +144,8 @@ export function statutDepuisFil(s: StatutFil): ReponseStatut {
         session_motif: a.session_motif ?? null,
         vu_le: a.dernier_ping,
         ...(a.jusqua !== undefined ? { jusqua: a.jusqua } : {}),
+        ...(a.parcours ? { parcours: a.parcours } : {}),
+        ...(a.sortie ? { sortie: a.sortie } : {}),
         ...(a.actions ? { actions: a.actions } : {}),
         ...(a.apps_bloquees ? { apps_bloquees: a.apps_bloquees } : {}),
       }),
