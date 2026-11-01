@@ -1,4 +1,12 @@
-import { Check, CircleDashed, Clock, Dumbbell, Minus, TriangleAlert, X } from "lucide-react";
+import {
+  Check,
+  CircleDashed,
+  Clock,
+  Dumbbell,
+  Minus,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -258,22 +266,18 @@ export function CarteEngagements({ statut }: { statut: ReponseStatut }) {
           </section>
         ) : null}
 
-        <p
-          className={cn(
-            "text-sm",
-            sautes > 0
-              ? "text-avertissement font-medium"
-              : "text-muted-foreground",
-          )}
-        >
-          {sautesEnMots(sautes)}
-          <span className="text-muted-foreground font-normal">
-            {" "}
-            ·{" "}
-            {facultatives ? "séances facultatives non comptées ; " : ""}
-            pour information, rien n’est bloqué
-          </span>
-        </p>
+        {sautes > 0 ? (
+          <p
+            className={cn(
+              "text-sm",
+              sautes > 0
+                ? "text-avertissement font-medium"
+                : "text-muted-foreground",
+            )}
+          >
+            {sautesEnMots(sautes)}
+          </p>
+        ) : null}
         {cleRefusee ? (
           <p className="text-avertissement flex items-center gap-1.5 text-xs">
             <TriangleAlert className="size-3.5 shrink-0" /> La clé Hevy est

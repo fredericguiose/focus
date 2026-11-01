@@ -35,7 +35,7 @@ describe('carte « Engagements »', () => {
     expect(s.sautes_semaine).toBe(1);
     render(<CarteEngagements statut={s} />);
     expect(screen.getByLabelText('sam. 7 nov. : non faite (facultative)')).toBeTruthy();
-    expect(screen.getByText(/séances facultatives non comptées/)).toBeTruthy();
+    expect(screen.queryByText(/rien n’est bloqué|non comptées/)).toBeNull();
   });
 
   it('affiche l’état du jour, la semaine en cases et le compte des séances sautées', async () => {
