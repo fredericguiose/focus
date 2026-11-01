@@ -250,10 +250,17 @@ export async function leversPrevusFiges(db: D1Database, utilisateur: string, dep
   return Object.fromEntries(results.map((l) => [ajouterJours(l.nuit, 1), l.lever]));
 }
 
-/** Journal des levers (§3.1) : par jour, prévu et mesuré ; amplitude des mesurés face à la limite. */
+/** Journal des levers (§3.1) : par jour, prévu et mesuré (`ignore` : décalage horaire) ; amplitude des mesurés comptés face à la limite. */
 export function vueLevers(j: JournalDesLevers) {
   return {
-    jours: j.jours.map((x) => ({ date: x.date, prevu: x.prevu, prevu_fige: x.prevuFige, mesure: x.mesure, ecart_min: x.ecartMin })),
+    jours: j.jours.map((x) => ({
+      date: x.date,
+      prevu: x.prevu,
+      prevu_fige: x.prevuFige,
+      mesure: x.mesure,
+      ecart_min: x.ecartMin,
+      ...(x.ignore ? { ignore: x.ignore } : {}),
+    })),
     amplitude: j.amplitude
       ? { plus_tot: j.amplitude.plusTot, plus_tard: j.amplitude.plusTard, ecart_min: j.amplitude.ecartMin, mesures: j.amplitude.mesures }
       : null,

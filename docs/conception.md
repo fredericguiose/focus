@@ -193,7 +193,14 @@ prix_du_report:
      lever(i) ≤ lever(j) + `ecart_lever_max` (heures locales). On ne fait que baisser :
      L(D) = min(L(D), L(j) + X) pour |j − D| ≤ 6, jusqu'à stabilité (point fixe), en partant de
      B. Les jours **mesurés avant D** sont fixes (leur mesure) ; les autres bougent. Le plan d'un
-     jour n'utilise donc que les mesures d'avant lui : c'est le plan de la veille au soir ;
+     jour n'utilise donc que les mesures d'avant lui : c'est le plan de la veille au soir.
+     **Décalage horaire** (CDC §4, 01/11) : vu du fuseau F de la routine de D, la mesure d'un
+     jour j ne fixe rien (j est calculé comme un jour sans mesure) si (a) j est dans un autre
+     fuseau (écart non nul à sa date), ou (b) j suit de N jours ou moins un jour E dans un autre
+     fuseau, N = écart horaire entre le fuseau de E et F à la date de E (Intl), arrondi à l'heure.
+     (b) est testé sur les 26 jours avant j : avec plusieurs séjours, le plus contraignant gagne.
+     Ex. séjour à Paris du 09 au 30/10, vu de Cayenne (4 h fin octobre) : mesures du 09/10 au
+     03/11 ignorées, dès le 04/11 utilisées (`mesureIgnoree`, `core/test/levers.test.ts`) ;
   4. **plancher** : un jour sans engagement à heure ne descend jamais sous `lever_plancher`…
      sauf si la borne qui l'y pousse vient d'un engagement (directement ou par la régularité) :
      l'engagement gagne (ex. réveil 02:00 un samedi → dimanche 04:00, pas 04:30). Une borne venue
@@ -226,7 +233,8 @@ prix_du_report:
 - **Journal des levers** (`journalDesLevers`, information seulement, ne bloque rien) : pour
   chacun des 7 jours finissant à J, lever prévu (figé la veille au soir par la photo de la nuit,
   §4.4 ; à défaut, recalculé avec les seules mesures d'avant ce jour), lever mesuré et écart en
-  minutes (mesuré − prévu) ; sur la période, l'amplitude des levers mesurés (le plus tard − le
+  minutes (mesuré − prévu), `ignore: 'decalage_horaire'` si la mesure est ignorée (étape 3, vu
+  du fuseau de J) ; sur la période, l'amplitude des levers mesurés non ignorés (le plus tard − le
   plus tôt, en heures locales ; null sous 2 mesures) face à `ecart_lever_max`.
 
 ### 3.2 Choix du mode
@@ -529,7 +537,8 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   "sieste_tardive": { "fin": "…Z", "coucher": "…Z" } | null,
   "objectif_sommeil_min": number,
   "levers": { "jours": [ { "date": "YYYY-MM-DD", "prevu": "…Z", "prevu_fige": bool,
-                           "mesure": "…Z" | null, "ecart_min": number | null } ],
+                           "mesure": "…Z" | null, "ecart_min": number | null,
+                           "ignore"?: "decalage_horaire" } ],
               "amplitude": { "plus_tot": "…Z", "plus_tard": "…Z", "ecart_min": number, "mesures": number } | null,
               "limite_min": number },
   "sommeil_mesure": { "derniere_synchro": "…Z" | null, "erreur": string | null } | null,
@@ -654,7 +663,8 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   2 h) » (« écart 2 h 20, au-dessus de la limite de 2 h » en orange ; « pas encore assez de
   mesures » sous 2 mesures), puis une ligne par jour : heure mesurée, et « comme prévu » (à 5 min
   près), « 20 min plus tard que prévu (05:50) », « 8 min plus tôt que prévu (04:30) », ou
-  « prévu 04:30, pas de mesure » (« pas encore mesuré » aujourd'hui).
+  « prévu 04:30, pas de mesure » (« pas encore mesuré » aujourd'hui), ou « décalage horaire, non
+  compté » (heure grisée) ; le résumé finit alors par « · 2 jours exclus ».
 - **Engagements vérifiés** (§3.8) : `aujourdhui` = date civile de maintenant dans le fuseau de la
   journée courante ; `engagements_verifies` = `verifierEngagements` sur les séances mesurées, des 7
   derniers jours à la fin de la semaine en cours (dimanche) : les jours après aujourd'hui sont

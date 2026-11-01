@@ -528,6 +528,26 @@ describe('levers mesurés et journal des levers (§3.1)', () => {
     expect(r.corps.levers.amplitude).toBeNull();
   });
 
+  it('après un séjour dans un autre fuseau : mesures marquées « decalage_horaire », hors de l’amplitude', async () => {
+    // Séjour fictif à Cayenne (4 h d'écart avec Paris) du 28/10 au 01/11 : les levers du 02 au 05/11 sont ignorés.
+    const base = configExemple();
+    const config = {
+      ...base,
+      routines: { ...base.routines, sejour: { ...base.routines.semaine!, fuseau: 'America/Cayenne' } },
+      calendrier: [...base.calendrier, { routine: 'sejour', du: '2026-10-28', au: '2026-11-01' }],
+    };
+    await env.DB.prepare(`DELETE FROM config_versions`).run();
+    await installerConfig(config, 'c0ffee2');
+    await poser('n1', '2026-11-01T21:00:00Z', '2026-11-02T06:00:00Z', 500);
+    await poser('n2', '2026-11-02T21:00:00Z', '2026-11-03T05:00:00Z', 420);
+    const r = await api.get('/v1/statut', await creerJeton('interface', 'web'));
+    const par = Object.fromEntries(r.corps.levers.jours.map((j: { date: string }) => [j.date, j]));
+    expect(par['2026-11-02']).toMatchObject({ mesure: '2026-11-02T06:00:00Z', ignore: 'decalage_horaire' });
+    expect(par['2026-11-03']).toMatchObject({ mesure: '2026-11-03T05:00:00Z', ignore: 'decalage_horaire' });
+    expect(par['2026-11-01']).not.toHaveProperty('ignore');
+    expect(r.corps.levers.amplitude).toBeNull();
+  });
+
   it('sans mesure : journal sans mesure, lever prévu', async () => {
     const r = await api.get('/v1/statut', await creerJeton('interface', 'web'));
     expect(r.corps.journee.lever).toBe(MARDI.lever);

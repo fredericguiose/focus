@@ -19,6 +19,7 @@ import { prixDuReport } from './report';
 import {
   ajouterJours,
   dateLocale,
+  ecartDeFuseauxMin,
   ecartJours,
   ecrireInstant,
   instantLocal,
@@ -265,6 +266,33 @@ function minutesDuJour(date: DateLocale, instant: number, fuseau: string): numbe
   return Math.round((instant - instantLocal(date, 0, fuseau)) / MINUTE);
 }
 
+// ─── Décalage horaire (CDC §4, 01/11) ─────────────────────────────────────────
+//
+// Après un séjour dans un autre fuseau, les levers mesurés ne servent pas de référence le temps
+// que le corps se recale. Pour planifier un jour au fuseau F, la mesure du jour D est ignorée si :
+//   (a) D est dans un autre fuseau que F (écart non nul à la date de D) ;
+//   (b) D suit de N jours ou moins un jour E dans un autre fuseau, N = écart horaire entre le
+//       fuseau de E et F à la date de E, arrondi à l'heure (Paris → Cayenne fin octobre : 4 h,
+//       donc les 4 jours après le retour).
+// (b) vaut pour tout jour E des 26 jours précédents (écart maximal entre deux fuseaux) : avec
+// plusieurs séjours, c'est le plus contraignant qui l'emporte (le plus récent, sauf si un séjour
+// plus ancien a un écart assez grand pour durer plus longtemps).
+// Le jour ignoré est alors calculé comme un jour sans mesure ; sa mesure reste son lever.
+
+const RECALAGE_MAX_JOURS = 26;
+
+export type RaisonMesureIgnoree = 'decalage_horaire';
+
+/** Pourquoi la mesure du jour D ne sert pas de référence pour un jour au fuseau `fuseau`, ou null. */
+export function mesureIgnoree(config: Config, date: DateLocale, fuseau: string): RaisonMesureIgnoree | null {
+  const autre = (jour: DateLocale) => ecartDeFuseauxMin(jour, routineDuJour(config, jour).routine.fuseau, fuseau);
+  if (autre(date) !== 0) return 'decalage_horaire';
+  for (let n = 1; n <= RECALAGE_MAX_JOURS; n++) {
+    if (n <= Math.round(autre(ajouterJours(date, -n)) / 60)) return 'decalage_horaire';
+  }
+  return null;
+}
+
 /** La dernière date mesurée strictement avant `date`, ou '' : seules les mesures d'avant comptent. */
 function derniereMesureAvant(contexte: Contexte, date: DateLocale): DateLocale {
   let derniere = '';
@@ -274,14 +302,16 @@ function derniereMesureAvant(contexte: Contexte, date: DateLocale): DateLocale {
 
 /**
  * Série des levers prévus autour de `date`, avec pour jours fixes les levers mesurés avant
- * `date` : c'est le plan tel qu'il se calculait la veille au soir.
+ * `date` : c'est le plan tel qu'il se calculait la veille au soir. Les mesures ignorées pour
+ * décalage horaire (vu du fuseau de `date`) ne fixent rien.
  */
 function serieDeLevers(contexte: Contexte, date: DateLocale): SerieDeLevers {
   const rang = Math.floor(ecartJours(ORIGINE_DES_BLOCS, date) / BLOC_JOURS) * BLOC_JOURS;
   const debut = ajouterJours(ORIGINE_DES_BLOCS, rang - MARGE_JOURS);
   const coupure = derniereMesureAvant(contexte, date);
+  const fuseau = routineDuJour(contexte.config, date).routine.fuseau;
   const cache = cacheDe(contexte);
-  const cle = `serie|${debut}|${coupure}`;
+  const cle = `serie|${debut}|${coupure}|${fuseau}`;
   const deja = cache.get(cle) as SerieDeLevers | undefined;
   if (deja) return deja;
 
@@ -294,7 +324,7 @@ function serieDeLevers(contexte: Contexte, date: DateLocale): SerieDeLevers {
   const fixe = bornes.map(() => false);
   bornes.forEach((b, i) => {
     const mesure = contexte.leversMesures?.[b.date];
-    if (mesure === undefined || b.date > coupure) return;
+    if (mesure === undefined || b.date > coupure || mesureIgnoree(contexte.config, b.date, fuseau)) return;
     minutes[i] = minutesDuJour(b.date, lireInstant(mesure), b.fuseau);
     parEngagement[i] = false;
     fixe[i] = true;

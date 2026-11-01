@@ -363,11 +363,13 @@ export interface LeverJournalise {
   mesure: Instant | null;
   /** Mesuré − prévu, en minutes (positif : levé plus tard que prévu) ; null sans mesure. */
   ecartMin: number | null;
+  /** Mesure ignorée comme référence (et hors de l'amplitude) : décalage horaire (§3.1). */
+  ignore?: 'decalage_horaire';
 }
 
 export interface JournalDesLevers {
   jours: LeverJournalise[];
-  /** Lever mesuré le plus tôt et le plus tard de la période (heures locales) ; null sous 2 mesures. */
+  /** Lever mesuré le plus tôt et le plus tard de la période (heures locales, mesures ignorées exclues) ; null sous 2 mesures. */
   amplitude: { plusTot: Instant; plusTard: Instant; ecartMin: number; mesures: number } | null;
   /** sommeil.ecart_lever_max, en minutes. */
   limiteMin: number;

@@ -33,7 +33,8 @@ export const moteur: Moteur = {
 };
 
 export { validerConfig, lireConfig } from './config';
-export { journee, journeeCourante, routineDuJour, nuitDe, engagementsPrevus, lever, leverPrevu, leverMesure, coucherPrevu } from './journee';
+export { journee, journeeCourante, routineDuJour, nuitDe, engagementsPrevus, lever, leverPrevu, leverMesure, coucherPrevu, mesureIgnoree } from './journee';
+export type { RaisonMesureIgnoree } from './journee';
 export { journalDesLevers, JOURS_DU_JOURNAL_DES_LEVERS } from './levers';
 export { etat, actionsDuMode } from './etat';
 export { planifier } from './planning';

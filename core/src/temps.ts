@@ -120,6 +120,17 @@ function decalage(ms: number, fuseau: string): number {
 }
 
 /**
+ * Écart entre deux fuseaux le jour `date` (à midi UTC), en minutes, valeur absolue. Calculé avec
+ * Intl : l'heure d'été de chaque fuseau à cette date est comprise.
+ */
+export function ecartDeFuseauxMin(date: DateLocale, a: string, b: string): number {
+  if (a === b) return 0;
+  const [an, m, j] = partiesDate(date);
+  const midi = Date.UTC(an, m - 1, j, 12);
+  return Math.abs(decalage(midi, a) - decalage(midi, b)) / MINUTE;
+}
+
+/**
  * Instant d'une heure murale locale. `minutes` peut sortir de [0, 1440) : la date est décalée.
  * Au changement d'heure : une heure qui n'existe pas est repoussée d'autant (02:30 → 03:30) ;
  * une heure qui existe deux fois prend la première occurrence.

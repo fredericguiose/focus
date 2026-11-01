@@ -199,13 +199,15 @@ export interface LeverDuJour {
   mesure: Instant | null;
   /** Mesuré − prévu en minutes (positif : levé plus tard que prévu) ; null sans mesure. */
   ecart_min: number | null;
+  /** Mesure non comptée (référence du plan, amplitude) : retour d'un autre fuseau. Absent sinon. */
+  ignore?: 'decalage_horaire';
 }
 
 /** Régularité des levers : affichée, ne bloque rien. */
 export interface RegulariteLevers {
   /** 7 derniers jours (le dernier = la journée en cours), du plus ancien au plus récent. */
   jours: LeverDuJour[];
-  /** Lever mesuré le plus tôt et le plus tard (heures locales) ; null sous 2 mesures. */
+  /** Lever mesuré le plus tôt et le plus tard (heures locales, mesures ignorées exclues) ; null sous 2 mesures. */
   amplitude: { plus_tot: Instant; plus_tard: Instant; ecart_min: number; mesures: number } | null;
   /** Écart maximal voulu entre deux levers d'une même semaine (`sommeil.ecart_lever_max`). */
   limite_min: number;

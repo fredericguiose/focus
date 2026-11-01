@@ -38,6 +38,19 @@ describe('carte « Régularité des levers »', () => {
     expect(detailLever(jour({ mesure: null, ecart_min: null }), 'UTC', true)).toBe('prévu 04:30, pas encore mesuré');
   });
 
+  it('décalage horaire : la ligne le dit, le résumé compte les jours exclus', () => {
+    const ignore = 'decalage_horaire' as const;
+    expect(detailLever(jour({ mesure: '2026-11-02T09:00:00Z', ecart_min: 270, ignore }), 'UTC', false)).toBe('décalage horaire, non compté');
+    const levers: RegulariteLevers = {
+      jours: [jour({ ignore }), jour({ date: '2026-11-03', ignore }), jour({ date: '2026-11-04' }), jour({ date: '2026-11-05', mesure: null, ecart_min: null })],
+      amplitude: null,
+      limite_min: 120,
+    };
+    expect(resumeLevers(levers, 'UTC').texte).toBe('pas encore assez de mesures · 2 jours exclus');
+    const un = { ...levers, jours: levers.jours.slice(1), amplitude: { plus_tot: '2026-11-04T04:32:00Z', plus_tard: '2026-11-05T05:02:00Z', ecart_min: 30, mesures: 2 } };
+    expect(resumeLevers(un, 'UTC').morceaux).toEqual(['de 04:32 à 05:02', 'écart 30 min (limite 2 h)', '1 jour exclu']);
+  });
+
   it('mode simulé : une ligne de résumé et les 7 jours', async () => {
     const s = await statut();
     const { container } = render(<CarteRegularite statut={s} />);

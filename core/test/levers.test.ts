@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { lireConfig } from '../src/config';
 import { prixException } from '../src/exceptions';
-import { journee, journeeCourante, lever, leverPrevu } from '../src/journee';
+import { journee, journeeCourante, lever, leverPrevu, mesureIgnoree } from '../src/journee';
 import { journalDesLevers } from '../src/levers';
 import type { Contexte, Exception } from '../src/types';
+import { ecartDeFuseauxMin, instantLocal } from '../src/temps';
 import { contexte, EXEMPLE, exception, remplacer } from './aides';
 
 // Config fictive (fuseau UTC : heure locale = heure UTC) reprenant le cas du cahier des charges :
@@ -226,5 +227,79 @@ describe('config normalisée plus ancienne (gardée en base, sans les réglages 
     expect(heureDuLever(c, '2026-11-07')).toBe('06:30');
     expect(journee(c, '2026-11-08')).toMatchObject({ coucherPrevu: '2026-11-08T20:30:00Z', detteNuitMin: 0 });
     expect(journalDesLevers(c, '2026-11-08').limiteMin).toBe(120);
+  });
+});
+
+describe('décalage horaire : mesures ignorées après un séjour dans un autre fuseau', () => {
+  // Config fictive : routine par défaut en America/Cayenne, séjour en Europe/Paris du 09 au 30/10,
+  // aucun engagement, plafond 08:00 partout (lever prévu 08:00 local sans mesure).
+  const CAYENNE = 'America/Cayenne';
+  const PARIS = 'Europe/Paris';
+  const yaml = (() => {
+    const debut = EXEMPLE.indexOf('routines:');
+    const fin = EXEMPLE.indexOf('todoist:');
+    const routine = (fuseau: string) => `    fuseau: ${fuseau}\n    reveil_libre: "08:00"\n    modes: [NIGHT_LOCK, MORNING_LOCK, EVENING_FREE]\n    jours: {}\n`;
+    const routines = `routines:\n  maison:\n${routine(CAYENNE)}  sejour:\n${routine(PARIS)}\nroutine_par_defaut: maison\ncalendrier:\n  - { routine: sejour, du: "2026-10-09", au: "2026-10-30" }\n\n`;
+    return EXEMPLE.slice(0, debut) + routines + EXEMPLE.slice(fin);
+  })();
+  const cfg = lireConfig(yaml);
+  const jours = (du: string, n: number) => Array.from({ length: n }, (_, i) => new Date(Date.parse(`${du}T00:00:00Z`) + i * 86_400_000).toISOString().slice(0, 10));
+  const a5h = (date: string, fuseau: string) => new Date(instantLocal(date, 5 * 60, fuseau)).toISOString().replace('.000Z', 'Z');
+  const heure = (c: Contexte, date: string, fuseau: string, calcul = leverPrevu) =>
+    new Intl.DateTimeFormat('fr-FR', { timeZone: fuseau, hour: '2-digit', minute: '2-digit' }).format(calcul(c, date));
+
+  it('écart horaire calculé avec Intl, heure d’été comprise', () => {
+    expect(ecartDeFuseauxMin('2026-10-20', PARIS, CAYENNE)).toBe(300);
+    expect(ecartDeFuseauxMin('2026-10-30', PARIS, CAYENNE)).toBe(240);
+    expect(ecartDeFuseauxMin('2026-10-30', CAYENNE, CAYENNE)).toBe(0);
+  });
+
+  it('vu de Cayenne : 09 → 30/10 (autre fuseau) et 31/10 → 03/11 (4 jours) ignorés ; 08/10 et dès le 04/11 utilisés', () => {
+    expect(mesureIgnoree(cfg, '2026-10-08', CAYENNE)).toBeNull();
+    for (const d of jours('2026-10-09', 26)) expect([d, mesureIgnoree(cfg, d, CAYENNE)]).toEqual([d, 'decalage_horaire']);
+    for (const d of jours('2026-11-04', 30)) expect([d, mesureIgnoree(cfg, d, CAYENNE)]).toEqual([d, null]);
+  });
+
+  it('vu de Paris (pendant le séjour) : les 5 premiers jours après l’arrivée sont ignorés', () => {
+    for (const d of jours('2026-10-09', 5)) expect([d, mesureIgnoree(cfg, d, PARIS)]).toEqual([d, 'decalage_horaire']);
+    expect(mesureIgnoree(cfg, '2026-10-14', PARIS)).toBeNull();
+    expect(mesureIgnoree(cfg, '2026-10-08', PARIS)).toBe('decalage_horaire');
+  });
+
+  it('une mesure ignorée ne borne pas les levers suivants ; une mesure utilisée, si', () => {
+    const leversMesures = Object.fromEntries(
+      [...jours('2026-10-08', 23).map((d) => [d, a5h(d, d < '2026-10-09' || d > '2026-10-30' ? CAYENNE : PARIS)]), ['2026-11-01', a5h('2026-11-01', CAYENNE)], ['2026-11-04', a5h('2026-11-04', CAYENNE)]],
+    );
+    const c = contexte('2026-11-05T12:00:00Z', { config: cfg, leversMesures });
+    // Prévu du 12/10 (Paris) : mesures du 08/10 (Cayenne) au 11/10 ignorées → plafond.
+    expect(heure(c, '2026-10-12', PARIS)).toBe('08:00');
+    // Prévu du 20/10 (Paris) : les mesures du 14 au 19/10 comptent → 05:00 + 2 h.
+    expect(heure(c, '2026-10-20', PARIS)).toBe('07:00');
+    // Prévus des 02 et 03/11 (Cayenne) : mesures du séjour et du 01/11 ignorées → plafond.
+    expect(heure(c, '2026-11-02', CAYENNE)).toBe('08:00');
+    expect(heure(c, '2026-11-03', CAYENNE)).toBe('08:00');
+    // Prévu du 05/11 : la mesure du 04/11 compte.
+    expect(heure(c, '2026-11-05', CAYENNE)).toBe('07:00');
+    // Un jour ignoré garde sa mesure pour lever.
+    expect(heure(c, '2026-11-01', CAYENNE, lever)).toBe('05:00');
+  });
+
+  it('journal : la mesure reste affichée, marquée, hors de l’amplitude', () => {
+    const leversMesures = Object.fromEntries(jours('2026-10-29', 7).map((d, i) => [d, a5h(d, d <= '2026-10-30' ? PARIS : CAYENNE).replace('05:', `0${5 + (i % 2)}:`)]));
+    leversMesures['2026-11-04'] = a5h('2026-11-04', CAYENNE);
+    leversMesures['2026-11-05'] = new Date(instantLocal('2026-11-05', 6 * 60 + 10, CAYENNE)).toISOString().replace('.000Z', 'Z');
+    const c = contexte('2026-11-05T12:00:00Z', { config: cfg, leversMesures });
+    const j = journalDesLevers(c, '2026-11-05');
+    expect(j.jours.map((x) => [x.date, x.ignore ?? null])).toEqual([
+      ['2026-10-30', 'decalage_horaire'],
+      ['2026-10-31', 'decalage_horaire'],
+      ['2026-11-01', 'decalage_horaire'],
+      ['2026-11-02', 'decalage_horaire'],
+      ['2026-11-03', 'decalage_horaire'],
+      ['2026-11-04', null],
+      ['2026-11-05', null],
+    ]);
+    expect(j.jours[0]!.mesure).not.toBeNull();
+    expect(j.amplitude).toMatchObject({ ecartMin: 70, mesures: 2 });
   });
 });
