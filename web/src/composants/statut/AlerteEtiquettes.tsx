@@ -9,7 +9,7 @@ import type { ReponseStatut, UsageEtiquette } from '@/api/contrat';
  * trouvent jamais (le planning compte donc comme fait, à tort).
  */
 export function consequence(usages: UsageEtiquette[], modes: string[]): string {
-  if (usages.includes('planning')) return 'Le planning du matin comptera toujours comme fait.';
+  if (usages.includes('planning')) return 'Le planning du jour comptera toujours comme fait.';
   if (usages.includes('recap')) return 'Le récap comptera toujours comme fait.';
   if (usages.includes('condition')) {
     const ou = modes.length === 0 ? '' : ` (${modes.length > 1 ? 'modes' : 'mode'} ${modes.join(', ')})`;

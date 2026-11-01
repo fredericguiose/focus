@@ -247,26 +247,31 @@ describe('boutons', () => {
     const { enregistrer, api: a } = await rendre(SOIREE);
     const statut = vi.spyOn(a, 'statut');
     const succes = vi.spyOn(toast, 'success');
-    for (let i = 0; i < 6; i++) fireEvent.keyDown(curseur(), { key: 'ArrowLeft' });
+    for (let i = 0; i < 3; i++) fireEvent.keyDown(curseur(), { key: 'ArrowLeft' }); // 21:00 → 20:15
     await vider();
-    fireEvent.click(bouton('Je me couche à 20:00'));
+    fireEvent.click(bouton('Je me couche à 20:15'));
     await vider();
-    expect(enregistrer).toHaveBeenCalledWith({ demande: { type: 'coucher', nuit: '2026-11-03', heure: '20:00' } });
+    expect(enregistrer).toHaveBeenCalledWith({ demande: { type: 'coucher', nuit: '2026-11-03', heure: '20:15' } });
     expect(statut).toHaveBeenCalled();
     expect(fenetre()).toBeNull();
-    expect(succes).toHaveBeenCalledWith('Coucher avancé à 20:00', expect.anything());
+    expect(succes).toHaveBeenCalledWith('Coucher avancé à 20:15', expect.anything());
     // Le coucher appliqué a reculé : la proposition ne revient pas, même sans mémoire.
     oublierPropositions();
     localStorage.clear();
     await avancer(20_000);
     expect(fenetre()).toBeNull();
-    expect((await a.statut()).journee.coucherApplique).toBe('2026-11-03T19:00:00Z');
+    expect((await a.statut()).journee.coucherApplique).toBe('2026-11-03T19:15:00Z');
   });
 
-  it('« Me coucher maintenant » fait le même appel que « Je vais dormir »', async () => {
+  it('curseur tout à gauche : « Commencer la nuit », le même appel que le bouton « Je vais dormir »', async () => {
     const { enregistrer } = await rendre(SOIREE);
     const succes = vi.spyOn(toast, 'success');
-    fireEvent.click(bouton('Me coucher maintenant'));
+    expect(bouton('Plus tard')).toBeTruthy();
+    expect(within(fenetre()!).queryByRole('button', { name: 'Annuler' })).toBeNull();
+    fireEvent.keyDown(curseur(), { key: 'End' });
+    await vider();
+    expect(within(fenetre()!).getByText('maintenant', { selector: 'span.uppercase' })).toBeTruthy();
+    fireEvent.click(bouton('Commencer la nuit'));
     await vider();
     expect(enregistrer).toHaveBeenCalledWith({ demande: { type: 'avancer_coucher', nuit: '2026-11-03', a: '2026-11-03T19:00:00Z' } });
     expect(fenetre()).toBeNull();

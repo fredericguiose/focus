@@ -37,7 +37,7 @@ export type TypeCondition = 'toujours' | 'heure' | 'planning' | 'recap' | 'prior
 
 export interface ConditionParcours {
   type: TypeCondition;
-  /** Le fait, énoncé positivement (« Planning du matin »), même pour un mode `pas`. */
+  /** Le fait, énoncé positivement (« Planning du jour »), même pour un mode `pas`. */
   libelle: string;
   /** État réel du fait maintenant (fait / pas fait ; heure atteinte ou non). */
   vraie: boolean;
@@ -53,7 +53,7 @@ export interface ConditionParcours {
 export interface EtapeParcours {
   mode: string;
   nom: string;
-  /** Faux si le mode ne concerne pas cet appareil (ex. matin verrouillé sur l'iPhone). */
+  /** Faux si le mode ne concerne pas cet appareil (ex. journée verrouillée sur l'iPhone). */
   applicable: boolean;
   actif: boolean;
   logique: 'tous' | 'un_parmi' | 'pas' | 'simple';
@@ -382,6 +382,8 @@ export interface CorpsException {
  */
 export interface ApiFocus {
   statut(): Promise<ReponseStatut>;
+  /** POST /v1/actualiser : synchro Todoist forcée côté serveur, cache effacé, statut frais. */
+  actualiser(): Promise<ReponseStatut>;
   taches(): Promise<ReponseTaches>;
   /** Apps (id, nom) bloquées par le mode en vigueur : celles qu'une session peut débloquer. */
   appsBloquees(appareil: StatutAppareil): Promise<AppBloquee[]>;

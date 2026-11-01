@@ -148,7 +148,7 @@ describe('API simulée : phase et actions', () => {
     }
   });
 
-  it('chaque phase a ses faits : matin verrouillé, travail après l’ouverture, nuit certaine', async () => {
+  it('chaque phase a ses faits : journée verrouillée, travail après l’ouverture, nuit certaine', async () => {
     const enPhase = (phase: 'journee' | 'soiree' | 'nuit') =>
       creerApiSimulee({ maintenant: () => MARDI_15H, fuseau: 'Europe/Paris', phase }).statut();
     const journee = await enPhase('journee');
@@ -158,12 +158,12 @@ describe('API simulée : phase et actions', () => {
       ['pc_windows', 'MORNING_LOCK', false],
       ['iphone', 'WORK', false],
     ]);
-    expect(journee.appareils[0]?.sortie).toEqual({ texte: 'dès que le planning du matin est fait', certaine: false, au_plus_tard: '2026-11-03T20:30:00Z' });
+    expect(journee.appareils[0]?.sortie).toEqual({ texte: 'dès que le planning du jour est fait', certaine: false, au_plus_tard: '2026-11-03T20:30:00Z' });
     // Motif comme l'API : le mode et le fait qui manque, pas d'identifiant.
-    expect(journee.appareils[0]?.session_motif).toBe('Matin verrouillé : planning du matin à faire');
+    expect(journee.appareils[0]?.session_motif).toBe('Journée verrouillée : planning du jour à faire');
     // Le fait positif, son état réel, et `niee` pour le mode `pas`.
     expect(journee.appareils[0]?.parcours?.find((e) => e.mode === 'MORNING_LOCK')?.conditions).toEqual([
-      { type: 'planning', libelle: 'Planning du matin', vraie: false, detail: 'à faire', a: null, niee: true },
+      { type: 'planning', libelle: 'Planning du jour', vraie: false, detail: 'à faire', a: null, niee: true },
     ]);
     expect(journee.appareils[0]?.parcours?.find((e) => e.actif)?.mode).toBe('MORNING_LOCK');
 

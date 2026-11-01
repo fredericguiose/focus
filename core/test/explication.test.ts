@@ -16,7 +16,7 @@ describe('expliquer et sortie (§3.7)', () => {
     const parcours = expliquer(ctx, 'pc_linux');
     expect(parcours.map((m) => [m.mode, m.nom, m.applicable, m.actif])).toEqual([
       ['NIGHT_LOCK', 'Nuit', true, false],
-      ['MORNING_LOCK', 'Matin verrouillé', true, true],
+      ['MORNING_LOCK', 'Journée verrouillée', true, true],
       ['EVENING_FREE', 'Soirée libre', true, false],
       ['WORK', 'Travail', true, false],
     ]);
@@ -26,7 +26,7 @@ describe('expliquer et sortie (§3.7)', () => {
     expect(mode(parcours, 'MORNING_LOCK')).toMatchObject({
       logique: 'pas',
       // Le fait positif et son état réel (pas fait), la négation portée par `niee`.
-      conditions: [{ type: 'planning', libelle: 'Planning du matin', vraie: false, detail: 'à faire', a: null, niee: true }],
+      conditions: [{ type: 'planning', libelle: 'Planning du jour', vraie: false, detail: 'à faire', a: null, niee: true }],
     });
     expect(mode(parcours, 'EVENING_FREE')).toMatchObject({
       logique: 'tous',
@@ -38,7 +38,7 @@ describe('expliquer et sortie (§3.7)', () => {
     });
     expect(mode(parcours, 'WORK')).toMatchObject({ logique: 'simple', conditions: [{ type: 'toujours', vraie: true }] });
     expect(sortie(ctx, 'pc_linux')).toEqual({
-      texte: 'dès que le planning du matin est fait',
+      texte: 'dès que le planning du jour est fait',
       certaine: false,
       auPlusTard: '2026-11-02T21:30:00Z',
     });

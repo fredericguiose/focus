@@ -83,16 +83,56 @@ describe('actions selon la phase donnée par l’API', () => {
     expect(screen.getByText(/une seule par nuit/)).toBeTruthy();
   });
 
-  it('« Je vais dormir » : confirmation simple puis avancer_coucher maintenant', async () => {
+  it('« Je vais dormir » : la fenêtre s’ouvre sur maintenant, « Commencer la nuit » → avancer_coucher', async () => {
     const { enregistrer } = await rendre(SOIREE);
     fireEvent.click(bouton(/Je vais dormir/)!);
     await vider();
     const fenetre = screen.getByRole('dialog');
-    expect(within(fenetre).getByText("Le PC se verrouille dans moins d'une minute.")).toBeTruthy();
+    expect(within(fenetre).getByRole('heading', { name: 'Je vais dormir' })).toBeTruthy();
+    // 20:00 à Paris : de maintenant (gauche) au coucher 21:30 (droite).
+    const curseur = within(fenetre).getByRole('slider');
+    expect(curseur.getAttribute('aria-valuenow')).toBe(curseur.getAttribute('aria-valuemax'));
+    expect(within(fenetre).getByText('20:00')).toBeTruthy();
+    expect(within(fenetre).getByText('prévu 21:30')).toBeTruthy();
+    expect(within(fenetre).getByText('Lever demain inchangé :').textContent).toContain('05:30');
+    expect(within(fenetre).getByText('La nuit commence maintenant : le PC se verrouille dans moins d’une minute.')).toBeTruthy();
+    expect(within(fenetre).getByRole('button', { name: 'Annuler' })).toBeTruthy();
     fireEvent.click(within(fenetre).getByRole('button', { name: 'Commencer la nuit' }));
     await avancer(50);
     expect(enregistrer).toHaveBeenCalledWith({ demande: { type: 'avancer_coucher', nuit: '2026-11-03', a: '2026-11-03T19:00:00Z' } });
     expect(bouton(/Je vais dormir/)).toBeNull();
+  });
+
+  it('« Je vais dormir » : heure plus tôt que le coucher → exception `coucher`, lever inchangé', async () => {
+    const { enregistrer } = await rendre(SOIREE);
+    fireEvent.click(bouton(/Je vais dormir/)!);
+    await vider();
+    const fenetre = screen.getByRole('dialog');
+    const curseur = within(fenetre).getByRole('slider');
+    // Depuis maintenant (20:00) : 20:15, 20:30, 20:45.
+    for (let i = 0; i < 3; i++) fireEvent.keyDown(curseur, { key: 'ArrowRight' });
+    await vider();
+    expect(within(fenetre).getByText('20:45')).toBeTruthy();
+    expect(within(fenetre).getByText('Cette heure devient ton coucher : le PC se verrouille à ce moment-là.')).toBeTruthy();
+    fireEvent.click(within(fenetre).getByRole('button', { name: 'Je me couche à 20:45' }));
+    await avancer(50);
+    expect(enregistrer).toHaveBeenCalledWith({ demande: { type: 'coucher', nuit: '2026-11-03', heure: '20:45' } });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByText('20:45', { selector: 'span' })).toBeTruthy(); // carte : coucher à 20:45
+  });
+
+  it('« Je vais dormir » : au coucher prévu, rien à envoyer ; « Annuler » ferme sans appel', async () => {
+    const { enregistrer } = await rendre(SOIREE);
+    fireEvent.click(bouton(/Je vais dormir/)!);
+    await vider();
+    const fenetre = screen.getByRole('dialog');
+    fireEvent.keyDown(within(fenetre).getByRole('slider'), { key: 'Home' });
+    await vider();
+    expect(within(fenetre).getByRole<HTMLButtonElement>('button', { name: 'Je me couche à 21:30' }).disabled).toBe(true);
+    fireEvent.click(within(fenetre).getByRole('button', { name: 'Annuler' }));
+    await vider();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(enregistrer).not.toHaveBeenCalled();
   });
 });
 

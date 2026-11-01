@@ -9,7 +9,7 @@ export interface InfoMode {
 
 const MODES: Record<string, InfoMode> = {
   NIGHT_LOCK: { famille: 'nuit', libelle: 'Nuit' },
-  MORNING_LOCK: { famille: 'matin', libelle: 'Matin verrouillé' },
+  MORNING_LOCK: { famille: 'matin', libelle: 'Journée verrouillée' },
   WORK: { famille: 'travail', libelle: 'Travail' },
   EVENING_FREE: { famille: 'soiree', libelle: 'Soirée libre' },
 };

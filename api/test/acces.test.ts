@@ -138,6 +138,9 @@ describe('Cloudflare Access', () => {
       const r = await requete(WEB, '/v1/statut', { jwt });
       expect(r.statut).toBe(200);
       expect(r.corps.config_version).toBeTruthy();
+      const actualise = await requete(WEB, '/v1/actualiser', { jwt, methode: 'POST' });
+      expect(actualise.statut).toBe(200);
+      expect(actualise.corps.config_version).toBeTruthy();
       // Routes interface (et partagées) passent ; routes réservées aux appareils/config : jeton exigé.
       expect((await requete(WEB, '/v1/taches', { jwt })).statut).toBe(200);
       expect((await requete(WEB, '/v1/config/version', { jwt })).statut).toBe(200);
@@ -299,6 +302,7 @@ describe('Cloudflare Access', () => {
 
     it.each([
       ['GET', '/v1/statut'],
+      ['POST', '/v1/actualiser'],
       ['POST', '/v1/exceptions/prix'],
       ['POST', '/v1/exceptions'],
       ['POST', '/v1/dev/horloge'],

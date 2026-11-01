@@ -116,7 +116,7 @@ export interface Fermetures {
 
 /**
  * Ferme les sessions dont la question a expiré sans réponse, dont la tâche est terminée, dont
- * l'appareil est passé dans un mode qui interdit les sessions (nuit, matin verrouillé), ou qui
+ * l'appareil est passé dans un mode qui interdit les sessions (nuit, journée verrouillée), ou qui
  * ont atteint le plafond quotidien. Appelée par la tâche planifiée et avant chaque lecture : le
  * résultat ne dépend pas de qui passe en premier. Renvoie les sessions encore ouvertes et, pour
  * chacune, l'instant où elle sera fermée quoi qu'il arrive (`fin_au_plus_tard`).
@@ -285,7 +285,7 @@ export interface PossibiliteSession {
 }
 
 /**
- * Pourquoi le mode en vigueur interdit les sessions, en mots : « Matin verrouillé : planning du matin
+ * Pourquoi le mode en vigueur interdit les sessions, en mots : « Journée verrouillée : planning du jour
  * à faire » (mode `pas` : le fait qui manque), « Nuit jusqu'à 05:30 » (fin certaine), sinon la sortie.
  * L'heure vient de `sortie`, jamais du planning (qui suppose Todoist figé).
  */

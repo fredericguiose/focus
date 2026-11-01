@@ -10,7 +10,7 @@ dans le cahier des charges privé. Les exemples utilisent des horaires fictifs
 focus-config (privé) ──push──▶ GitHub Actions ──POST /v1/config──▶ API (Workers + D1)
                                                                      │  ▲
 Todoist ◀──── tâche planifiée chaque minute (faits mis en cache) ────┘  │
-                                                                        │ GET /v1/planning (chaque minute)
+                                                                        │ GET /v1/planning (toutes les 30 s)
              web app (React) ── /v1/statut, /v1/exceptions, /v1/sessions ┤
              extension (interface) ─────────────────────────────────────┤
              client PC (Go, service + agent) ───────────────────────────┘
@@ -311,7 +311,8 @@ engagement sans heure, `preparation` facultative, défaut celle de la config, si
   locale du coucher appliqué), sans friction demandée. Elle ne peut jamais repousser le coucher :
   pour coucher plus tard, c'est une exception `coucher` (desserrage, règles ci-dessus).
   Se coucher plus tôt ne déplace jamais le lever (lever fixe, 01/11) : la nuit s'allonge et
-  réduit la dette. La popup « rattraper le sommeil » (§4.6) envoie une exception `coucher` plus
+  réduit la dette. La fenêtre « Je vais dormir » de la web app (§4.6) envoie `avancer_coucher`
+  si l'heure choisie est maintenant (ou dans moins de 2 min), sinon une exception `coucher` plus
   tôt (resserrement, sans friction), car `avancer_coucher` prend toujours l'heure du serveur.
 - `prixException(contexte, demande, friction?)` renvoie : admissible ou non (et pourquoi),
   friction exigée (`aucune` | `raison` | `raison_phrase`), `frictionManquante` si seule la
@@ -345,7 +346,7 @@ Todoist. Pour l'interface, c'est `expliquer` et `sortie` (§3.7) qui font foi.
 `expliquer(contexte, appareil)` : pour chaque mode de la routine du jour courant, **dans l'ordre
 de priorité** (modes retirés compris) :
 ```ts
-{ mode, nom,            // nom : Nuit, Matin verrouillé, Soirée libre, Travail ; sinon l'identifiant
+{ mode, nom,            // nom : Nuit, Journée verrouillée, Soirée libre, Travail ; sinon l'identifiant
   applicable,           // faux si `appareils` exclut l'appareil ou si `retirer` l'enlève ce jour
   actif,                // le mode choisi (§3.2)
   logique: 'tous' | 'un_parmi' | 'pas' | 'simple',
@@ -359,10 +360,10 @@ de priorité** (modes retirés compris) :
 - `quand` + `conditions_en_plus` forment une conjonction (`tous`), aplatie d'un niveau. Une
   combinaison imbriquée tient sur une ligne, libellé composé.
 - **Toujours le fait positif**, jamais une formulation niée : sous `pas`, `libelle` reste
-  « Planning du matin », `vraie` est l'état du planning (faux tant qu'il n'est pas fait) et
+  « Planning du jour », `vraie` est l'état du planning (faux tant qu'il n'est pas fait) et
   `niee` = vrai. Le mode `pas` s'applique tant que son fait n'est pas vrai (l'interface titre la
   liste « Se lève quand c'est fait : »).
-- **Libellé court, le fait seul ; le reste en détail.** Libellés : « Planning du matin »,
+- **Libellé court, le fait seul ; le reste en détail.** Libellés : « Planning du jour »,
   « Récap d'hier » (selon `recap_tolerance_jours`), « Tâches P1/P2 faites » (priorités de
   `todoist.prioritaires`), « Retards rattrapés », « Par défaut ».
 - Heure : **une seule mention**, l'heure effective (report compris, comme `journee.ouverture`) :
@@ -383,7 +384,7 @@ conditions fausses peuvent devenir vraies (heure future, ou tâches à faire ; j
 comme l'ajout d'une tâche). `auPlusTard` = le plus tôt des changements certains : coucher (ou
 lever suivant si la nuit a commencé), ou heure d'un mode prioritaire qui ne dépend que de l'heure.
 S'il existe un chemin dépendant d'une action et possible avant `auPlusTard`, il donne le texte
-(« dès que le planning du matin est fait », « quand les tâches P1/P2 seront faites et
+(« dès que le planning du jour est fait », « quand les tâches P1/P2 seront faites et
 après 20:30 ») et `certaine` = faux ; sinon le texte est celui du changement certain (« au
 coucher, 22:30 », « au lever, 06:30 », « à 20:30 ») et `certaine` = vrai.
 
@@ -431,6 +432,7 @@ désactivé. En local, un seul hôte sert tout. Détails, routes par hôte et mi
 | POST | `/v1/accuses` | appareil | `{ action, pose_le }` : verrou posé ; `pose_le` à plus de 2 jours de l'heure du serveur : 400 |
 | POST | `/v1/evenements` | appareil | lot : `{ type: reconnexion \| acces, ... }` |
 | GET | `/v1/statut` | interface | mode par appareil et raison, journée (lever, coucher, ouverture), phase, actions possibles, engagements de demain, dette des 7 dernières nuits, régularité des couchers et des levers, sessions, dernier ping (§4.6) |
+| POST | `/v1/actualiser` | interface | bouton « actualiser » de la web app : synchro Todoist immédiate de l'utilisateur (code du cron, `rafraichirTodoist` ; elle compte pour la cadence `synchro.todoist`), cache des calculs effacé (statut et plannings), renvoie le statut frais (même corps que `GET /v1/statut`). Anti-abus : au plus une synchro forcée toutes les 15 s par utilisateur (verrou `synchro_forcee:<utilisateur>` à échéance), au-delà le cache est seulement effacé. Todoist en panne : 502 `todoist_indisponible` |
 | GET | `/v1/taches` | interface, appareil | tâches du jour éligibles à une session (`eligible_le` : création + 15 min) |
 | GET | `/v1/blocage?appareil=<nom>&domaine=<d>` | interface, appareil | pour l'extension : `{ bloque, app, mode, raison, sessions: autorisees \| interdites }` (`bloque` tient compte des sessions ouvertes ; un jeton appareil ne lit que son appareil) |
 | POST | `/v1/sessions` | interface, appareil | ouvrir : `{ appareil, tache_id, apps: [id] }` ; `apps` accepte des identifiants d'apps **ou de groupes** du catalogue (§4.5) |
@@ -572,8 +574,8 @@ relancée à la cadence suivante. La clé n'est jamais journalisée. Secrets abs
   `sessions: autorisees`, (2) ce mode bloque au moins une app sur l'appareil (domaines pour un
   PC, identifiants pour l'iPhone) et (3) pour un PC, l'appareil a au moins un compte de travail.
   Sinon, motif dans cet ordre : « aucun compte de travail sur ce PC » ; mode qui interdit les
-  sessions, nommé (jamais son identifiant) : pour un mode `pas`, le fait qui manque (« Matin
-  verrouillé : planning du matin à faire », « … en retard depuis le 8 oct. »), sinon la fin si elle
+  sessions, nommé (jamais son identifiant) : pour un mode `pas`, le fait qui manque (« Journée
+  verrouillée : planning du jour à faire », « … en retard depuis le 8 oct. »), sinon la fin si elle
   est certaine (« Nuit jusqu'à 05:30 », heure de `sortie`, jamais du planning qui suppose Todoist
   figé), sinon « <mode> : fin <sortie.texte> » ; « rien n'est bloqué en ce moment ». Ex. :
   `pc_windows` (aucun compte de travail) n'a jamais de session possible.
@@ -711,7 +713,7 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   non mesurée ne compte ni en dette ni en surplus (sa sieste du lendemain compte) ; elle se voit
   dans `nuits_mesurees` / `nuits_total`. `dette_semaine` : semaine de la nuit de ce soir (J → J +
   1 ; le dimanche soir, c'est déjà la semaine suivante, encore vide : pas de dette, pas de
-  popup), nuits finies (du dimanche soir d'ouverture à J − 1) et siestes jusqu'à aujourd'hui ;
+  proposition), nuits finies (du dimanche soir d'ouverture à J − 1) et siestes jusqu'à aujourd'hui ;
   `nuits_restantes` = de la nuit J (ce soir) à celle de samedi à dimanche, incluses (7 le
   dimanche soir, 6 le lundi, 1 le samedi). `bilans_semaines` : les 4 semaines closes, la
   plus récente d'abord (`non_rattrape_min` = reste). Rien n'est stocké : tout est recalculé à
@@ -722,18 +724,28 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   `core/src/dette.ts` (`lundiDeLaNuit`, `compteSemaine`, `dettesHebdomadaires`), partagé par l'API et le mode
   simulé de la web app. Remplace `dette_cumulee_reelle_min` (fenêtre glissante de 7 nuits, qui
   oubliait une dette au bout de 7 jours), supprimé.
-- **Popup « rattraper le sommeil »** (web app, facultative, CDC §4 01/11) : une fois par soir, à
-  la première ouverture du tableau de bord après l'ouverture de la soirée (phase `soiree`, avant
-  le coucher appliqué, coucher pas déjà avancé, pas de décision de nuit, au moins un quart d'heure
-  à gagner), si `dette_semaine.reste_min` > 5 min. Objectif du soir = reste ÷ `nuits_restantes`,
-  arrondi au quart d'heure supérieur, entre 15 min et 1 h. Titre « Ce soir : 45 min de sommeil en
-  plus », sous-titre « Cette semaine : 3 h à rattraper, sur 4 nuits » (« sur cette dernière
-  nuit » le samedi). Le curseur (heures de quart d'heure en quart d'heure, du coucher appliqué
-  à maintenant arrondi) démarre sur l'heure suggérée : la plus tardive qui atteint l'objectif
-  (coucher − objectif), sinon la plus tôt ; il se déplace dans les deux sens. Barre verte :
-  progression vers l'objectif du soir (0 → 100 %, pleine au-delà) ; texte « +30 min · objectif du
-  soir 45 min », puis « +45 min · objectif du soir atteint » (icône check). « Je me couche à
-  HH:MM » envoie l'exception `coucher` ; « Me coucher maintenant » = « Je vais dormir ».
+- **Fenêtre « Je vais dormir »** (web app, fusion du 01/11 avec la popup « rattraper le
+  sommeil ») : une seule fenêtre au curseur. Borne gauche = maintenant (elle glisse avec
+  l'horloge), puis les quarts d'heure exprimables, borne droite = coucher appliqué ; un quart
+  d'heure à moins de 2 min de maintenant se confond avec lui. Heure choisie en grand (« dans
+  1 h 15 » / « maintenant »), « Lever demain inchangé : HH:MM », et une phrase : l'heure choisie
+  devient le coucher, le PC se verrouille à ce moment-là. Bouton principal : « Commencer la
+  nuit » (`avancer_coucher`, heure du serveur) si l'heure choisie est maintenant ou dans moins
+  de 2 min, sinon « Je me couche à HH:MM » (exception `coucher`) ; désactivé au coucher prévu.
+  - **Ouverte par le bouton** « Je vais dormir » : titre « Je vais dormir », curseur sur
+    maintenant, bouton « Annuler ».
+  - **Ouverte seule** une fois par soir, à la première ouverture du tableau de bord après
+    l'ouverture de la soirée (phase `soiree`, avant le coucher appliqué, coucher pas déjà avancé,
+    pas de décision de nuit, au moins un quart d'heure à gagner), si `dette_semaine.reste_min`
+    > 5 min : titre « Ce soir : 45 min de sommeil en plus », curseur sur l'heure suggérée (la
+    plus tardive qui atteint l'objectif, coucher − objectif, sinon la plus tôt), bouton « Plus
+    tard » (elle ne revient pas ce soir-là).
+  - **Dette de la semaine** (`dette_semaine.reste_min` > 5 min), quelle que soit l'ouverture :
+    sous-titre « Cette semaine : 3 h à rattraper, sur 4 nuits » (« sur cette dernière nuit » le
+    samedi) ; objectif du soir = reste ÷ `nuits_restantes`, arrondi au quart d'heure supérieur,
+    entre 15 min et 1 h ; barre verte de progression vers l'objectif (0 → 100 %, pleine
+    au-delà), texte « +30 min · objectif du soir 45 min », puis « +45 min · objectif du soir
+    atteint » (icône check). Sans dette : « +1 h 30 de sommeil cette nuit ».
 - **Carte « Sommeil »** de la web app : temps dormi de la dernière nuit mesurée (« Cette nuit »
   si c'est J−1, sinon « Nuit du … »), écart à l'objectif en mots (« 29 min de moins que
   l'objectif », « … de plus … », « objectif atteint » à 5 min près), phases léger → REM → profond
@@ -855,8 +867,8 @@ minutes ça suffit ».
 
 Deux exécutables, un seul code : `focusd` (service, root/SYSTEM) et `focus-agent` (session de
 l'utilisateur, affiche les questions et l'ouverture de session). Ils se parlent en local.
-- Boucle de `focusd` : toutes les 60 s, `GET /v1/planning` ; garder le dernier planning en cache
-  sur disque ; appliquer le segment en vigueur ; envoyer les accusés.
+- Boucle de `focusd` : toutes les 30 s (`--rafraichir`), `GET /v1/planning` ; garder le dernier
+  planning en cache sur disque ; appliquer le segment en vigueur ; envoyer les accusés.
 - Fichier hosts : bibliothèque `txn2/txeh` ; lignes gérées entre deux balises
   (`# >>> focus` / `# <<< focus`) ; le reste du fichier n'est jamais touché ; vidage du cache DNS
   si nécessaire.

@@ -349,6 +349,21 @@ describe('conversion du statut : aucun champ de l’API perdu', () => {
     expect({ absentsDuFil, perdus }).toEqual({ absentsDuFil: [], perdus: [] });
   });
 
+  it('POST /v1/actualiser : sans corps ni jeton, même conversion que /v1/statut', async () => {
+    const recuperer = vi.fn<typeof fetch>(async () => reponse(200, JSON.stringify(fil)));
+    const actualise = await creerApiHttp(null, '', recuperer).actualiser();
+    const [url, init] = recuperer.mock.calls[0] ?? [];
+    expect(url).toBe('/v1/actualiser');
+    expect(init?.method).toBe('POST');
+    expect(init?.body).toBeUndefined();
+    expect(actualise).toEqual(statutDepuisFil(fil));
+  });
+
+  it('POST /v1/actualiser : Todoist en panne, l’erreur remonte telle quelle', async () => {
+    const recuperer = vi.fn<typeof fetch>(async () => reponse(502, '{"erreur":"todoist_indisponible","message":"Todoist ne répond pas : tâches non synchronisées."}'));
+    await expect(creerApiHttp(null, '', recuperer).actualiser()).rejects.toMatchObject({ erreur: 'todoist_indisponible', statutHttp: 502 });
+  });
+
   it('la journée et chaque appareil gardent tous leurs champs', () => {
     const converti = statutDepuisFil(fil);
     const journee = converti.journee as unknown as Record<string, unknown>;

@@ -21,7 +21,7 @@ describe('parcours de la journée', () => {
     // L'API les donne dans l'ordre de priorité : nuit, matin, soirée, travail.
     expect(pc?.parcours?.map((e) => e.mode)).toEqual(['NIGHT_LOCK', 'MORNING_LOCK', 'EVENING_FREE', 'WORK']);
     expect(cles(etapesDuJour(pc, statut.journee))).toEqual(['lever', 'MORNING_LOCK', 'WORK', 'EVENING_FREE', 'NIGHT_LOCK', 'lever_suivant']);
-    // Le matin verrouillé ne s'applique pas à l'iPhone : il n'apparaît pas.
+    // La journée verrouillée ne s'applique pas à l'iPhone : elle n'apparaît pas.
     const iphone = statut.appareils.find((a) => a.appareil === 'iphone');
     expect(cles(etapesDuJour(iphone, statut.journee))).toEqual(['lever', 'WORK', 'EVENING_FREE', 'NIGHT_LOCK', 'lever_suivant']);
   });
@@ -58,7 +58,7 @@ describe('parcours de la journée', () => {
 
   it('phrases de ce qui manque : date du retard pour planning et récap, heure sans doublon', () => {
     const c = (type: ConditionParcours['type'], libelle: string, detail: string | null) => ({ type, libelle, vraie: false, detail, a: null });
-    expect(phraseManque(c('planning', 'Planning du matin', 'pas de planning fait depuis le 8 oct.'))).toEqual({ texte: 'Planning à faire', detail: 'pas de planning fait depuis le 8 oct.' });
+    expect(phraseManque(c('planning', 'Planning du jour', 'pas de planning fait depuis le 8 oct.'))).toEqual({ texte: 'Planning à faire', detail: 'pas de planning fait depuis le 8 oct.' });
     expect(phraseManque(c('recap', "Récap d'hier", 'à faire'))).toEqual({ texte: 'Récap à faire', detail: null });
     expect(phraseManque(c('heure', 'Ouverture à 16:00', '+20 min de report'))).toEqual({ texte: 'Ouverture à 16:00', detail: '+20 min de report' });
     expect(phraseManque(c('toujours', 'Par défaut', null))).toBeNull();

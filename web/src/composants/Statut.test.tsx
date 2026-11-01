@@ -18,8 +18,8 @@ describe('carte du mode actuel', () => {
   it('sortie non certaine : pas de compte à rebours, ce qui manque et « au plus tard »', async () => {
     const { s, t } = await statut('journee');
     render(<CarteMode statut={s} maintenant={t} />);
-    expect(screen.getByText('Matin verrouillé')).toBeTruthy();
-    expect(screen.getByText('Se termine dès que le planning du matin est fait')).toBeTruthy();
+    expect(screen.getByText('Journée verrouillée')).toBeTruthy();
+    expect(screen.getByText('Se termine dès que le planning du jour est fait')).toBeTruthy();
     expect(screen.queryByTestId('compte-a-rebours')).toBeNull();
     const sortie = screen.getByTestId('sortie-incertaine');
     expect(within(sortie).getByText('Planning à faire')).toBeTruthy();
@@ -39,13 +39,13 @@ describe('carte du mode actuel', () => {
 });
 
 describe('parcours de la journée (rendu)', () => {
-  it('journée : Matin verrouillé dit le fait positif, « Se lève quand c’est fait », ✗ à faire', async () => {
+  it('journée : Journée verrouillée dit le fait positif, « Se lève quand c’est fait », ✗ à faire', async () => {
     const { s, t } = await statut('journee');
     render(<ParcoursJournee statut={s} maintenant={t} />);
     const actuelle = screen.getByRole('listitem', { current: 'step' });
-    expect(within(actuelle).getByText('Matin verrouillé')).toBeTruthy();
+    expect(within(actuelle).getByText('Journée verrouillée')).toBeTruthy();
     expect(within(actuelle).getByText("Se lève quand c'est fait :")).toBeTruthy();
-    expect(within(actuelle).getByText('Planning du matin')).toBeTruthy();
+    expect(within(actuelle).getByText('Planning du jour')).toBeTruthy();
     expect(within(actuelle).getByText(/à faire/, { selector: '.sr-only' })).toBeTruthy();
     expect(screen.queryByText(/pas encore fait/)).toBeNull();
   });

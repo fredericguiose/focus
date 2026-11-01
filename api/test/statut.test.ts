@@ -146,16 +146,16 @@ describe('GET /v1/statut : phase, actions, engagements de demain, nuits', () => 
     expect(r.corps.appareil_principal).toBe('pc_linux');
     const pc = r.corps.appareils.find((a: { nom: string }) => a.nom === 'pc_linux');
     expect(pc.mode).toBe('MORNING_LOCK');
-    expect(pc.session_motif).toBe('Matin verrouillé : planning du matin à faire');
-    expect(pc.sortie).toEqual({ texte: 'dès que le planning du matin est fait', certaine: false, au_plus_tard: MARDI.coucher });
+    expect(pc.session_motif).toBe('Journée verrouillée : planning du jour à faire');
+    expect(pc.sortie).toEqual({ texte: 'dès que le planning du jour est fait', certaine: false, au_plus_tard: MARDI.coucher });
     expect(pc.parcours[1]).toEqual({
       mode: 'MORNING_LOCK',
-      nom: 'Matin verrouillé',
+      nom: 'Journée verrouillée',
       applicable: true,
       actif: true,
       logique: 'pas',
       // Le fait positif et son état réel ; `niee` porte la négation du mode.
-      conditions: [{ type: 'planning', libelle: 'Planning du matin', vraie: false, detail: 'à faire', a: null, niee: true }],
+      conditions: [{ type: 'planning', libelle: 'Planning du jour', vraie: false, detail: 'à faire', a: null, niee: true }],
     });
     expect(pc.parcours.map((m: { mode: string }) => m.mode)).toEqual(['NIGHT_LOCK', 'MORNING_LOCK', 'EVENING_FREE', 'WORK']);
     const iphone = r.corps.appareils.find((a: { nom: string }) => a.nom === 'iphone');

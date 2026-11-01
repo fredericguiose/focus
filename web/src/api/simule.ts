@@ -188,14 +188,14 @@ export interface FaitsSimules {
 }
 
 const FAITS_PAR_DEFAUT: FaitsSimules = { planningFait: true, prioritairesRestantes: 0, recapFait: true };
-// Journée : planning pas encore fait (matin verrouillé sur les PC). Soirée : l'heure d'ouverture
+// Journée : planning pas encore fait (journée verrouillée sur les PC). Soirée : l'heure d'ouverture
 // est passée mais il reste 2 tâches prioritaires (travail). Nuit : tout est fait.
 const FAITS_PAR_PHASE: Record<Phase, FaitsSimules> = {
   journee: { planningFait: false, prioritairesRestantes: 2, recapFait: true },
   soiree: { planningFait: true, prioritairesRestantes: 2, recapFait: true },
   nuit: FAITS_PAR_DEFAUT,
 };
-/** Le matin verrouillé ne concerne que les PC, comme dans l'exemple de config. */
+/** La journée verrouillée ne concerne que les PC, comme dans l'exemple de config. */
 const APPAREILS_MATIN: TypeAppareil[] = ['pc_linux', 'pc_windows'];
 const APPAREIL_PRINCIPAL = 'pc_linux';
 
@@ -426,7 +426,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
     return versInstant(debut - 3 * 24 * 60 * MINUTE);
   }
 
-  /** Comme l'API : « Matin verrouillé : planning du matin à faire », « Nuit jusqu'à 05:30 ». */
+  /** Comme l'API : « Journée verrouillée : planning du jour à faire », « Nuit jusqu'à 05:30 ». */
   function motifInterdit(etat: Omit<StatutAppareil, 'session_possible' | 'session_motif'>): string {
     const actif = etat.parcours?.find((e) => e.actif);
     const nom = actif?.nom ?? etat.mode;
@@ -469,11 +469,11 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
       },
       {
         mode: 'MORNING_LOCK',
-        nom: 'Matin verrouillé',
+        nom: 'Journée verrouillée',
         applicable: APPAREILS_MATIN.includes(type),
         logique: 'pas',
         conditions: [
-          { type: 'planning', libelle: 'Planning du matin', vraie: faits.planningFait, detail: faits.planningFait ? null : 'à faire', a: null, niee: true },
+          { type: 'planning', libelle: 'Planning du jour', vraie: faits.planningFait, detail: faits.planningFait ? null : 'à faire', a: null, niee: true },
         ],
       },
       {
@@ -534,7 +534,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
         raison: 'MORNING_LOCK — planning du jour à faire',
         sessions: 'interdites',
         jusqua: versInstant(coucher),
-        sortie: { texte: 'dès que le planning du matin est fait', certaine: false, au_plus_tard: versInstant(coucher) },
+        sortie: { texte: 'dès que le planning du jour est fait', certaine: false, au_plus_tard: versInstant(coucher) },
         apps_bloquees: appsPour(type, Object.keys(CATALOGUE)),
       };
     }
@@ -829,7 +829,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
     return copie(calcul());
   }
 
-  return {
+  const api: ApiFocus = {
     statut: () =>
       servir((): ReponseStatut => {
         const t = maintenant();
@@ -1015,5 +1015,8 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
           pendantNuit: prix.friction === 'raison_phrase',
         });
       }),
+    // Rien à synchroniser en démonstration : le statut relu (late binding, comme le remplacerait un test).
+    actualiser: () => api.statut(),
   };
+  return api;
 }

@@ -4,7 +4,7 @@
 // l'API, celle que la carte Sommeil affiche) ; l'objectif du soir la répartit sur les nuits qui
 // restent, plafonné à 1 h. La phase et les heures viennent du statut.
 import type { ReponseStatut } from '@/api/contrat';
-import { ajouterJours, heureLocale, instantLocal } from './temps';
+import { ajouterJours, formaterDuree, heureLocale, instantLocal } from './temps';
 
 const MINUTE = 60_000;
 export const PAS_MIN = 15;
@@ -84,6 +84,56 @@ export function heureSuggeree(heures: number[], objectifMin: number): number | u
 export function bilan(coucherMs: number, choisiMs: number, objectifMin: number): { gainMin: number; progression: number } {
   const gainMin = Math.max(0, Math.round((coucherMs - choisiMs) / MINUTE));
   return { gainMin, progression: objectifMin > 0 ? Math.min(100, (gainMin / objectifMin) * 100) : 0 };
+}
+
+// ─── Fenêtre « Je vais dormir » ────────────────────────────────────────────────
+
+/** En deçà, une heure choisie se confond avec maintenant : la nuit commence tout de suite. */
+export const MARGE_MAINTENANT_MIN = 2;
+
+/** Un cran du curseur : une heure de coucher, ou « maintenant » (borne gauche, qui glisse avec l'horloge). */
+export type ChoixCoucher = number | 'maintenant';
+
+/**
+ * Crans du curseur de « Je vais dormir », de droite à gauche : le coucher appliqué, les quarts
+ * d'heure exprimables, puis maintenant. Les heures à moins de 2 min de maintenant se confondent
+ * avec lui. Vide si la nuit a commencé.
+ */
+export function choixCoucher(statut: ReponseStatut, maintenantMs: number): ChoixCoucher[] {
+  const coucher = Date.parse(statut.journee.coucherApplique);
+  if (maintenantMs >= coucher) return [];
+  const heures = heuresProposees(statut, maintenantMs);
+  const liste = (heures.length > 0 ? heures : [coucher]).filter((t) => t - maintenantMs >= MARGE_MAINTENANT_MIN * MINUTE);
+  return [...liste, 'maintenant'];
+}
+
+/** Le cran qui correspond au choix gardé : l'heure gardée telle quelle ; passée, c'est maintenant. */
+export function indexChoix(choix: ChoixCoucher[], choisi: ChoixCoucher): number {
+  const dernier = Math.max(0, choix.length - 1);
+  if (choisi === 'maintenant') return dernier;
+  const trouve = choix.findIndex((c) => c !== 'maintenant' && c <= choisi);
+  return trouve === -1 ? dernier : trouve;
+}
+
+/** Le choix commence-t-il la nuit tout de suite (maintenant, ou dans moins de 2 min) ? */
+export function commenceMaintenant(choisi: ChoixCoucher, maintenantMs: number): boolean {
+  return choisi === 'maintenant' || choisi - maintenantMs < MARGE_MAINTENANT_MIN * MINUTE;
+}
+
+/** « +30 min · objectif du soir 45 min », « +1 h · objectif du soir atteint ». */
+export function texteBilan(gainMin: number, objectifMin: number): string {
+  if (gainMin <= 0) return 'Glisse à gauche pour dormir plus.';
+  return `+${formaterDuree(gainMin)} · ${gainMin >= objectifMin ? 'objectif du soir atteint' : `objectif du soir ${formaterDuree(objectifMin)}`}`;
+}
+
+/** Sans dette à rattraper : « +45 min de sommeil cette nuit ». */
+export function texteGain(gainMin: number): string {
+  return gainMin <= 0 ? 'Glisse à gauche pour te coucher plus tôt.' : `+${formaterDuree(gainMin)} de sommeil cette nuit`;
+}
+
+/** « Cette semaine : 3 h à rattraper, sur 4 nuits » ; « …, sur cette dernière nuit » le samedi. */
+export function texteSemaine(resteMin: number, nuits: number): string {
+  return `Cette semaine : ${formaterDuree(resteMin)} à rattraper, sur ${nuits > 1 ? `${nuits} nuits` : 'cette dernière nuit'}`;
 }
 
 // ─── Une fois par soir ─────────────────────────────────────────────────────────

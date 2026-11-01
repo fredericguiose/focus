@@ -13,6 +13,11 @@ export interface ValeurFocus {
   /** Heure du serveur − horloge locale, mesurée à la dernière lecture du statut. */
   decalageMs: number;
   rafraichir: () => Promise<void>;
+  /**
+   * Bouton « actualiser » : synchro Todoist forcée côté serveur et statut recalculé. En cas
+   * d'échec, le statut est relu quand même et l'erreur est relancée (à afficher par l'appelant).
+   */
+  actualiser: () => Promise<void>;
   /** Absent quand l'API n'exige pas de jeton (Cloudflare Access en ligne, utilisateur local). */
   changerJeton?: () => void;
 }
@@ -47,6 +52,20 @@ export function FournisseurFocus({
     }
   }, [api]);
 
+  const actualiser = useCallback(async () => {
+    const numero = ++derniereDemande.current;
+    try {
+      const reponse = await api.actualiser();
+      if (numero !== derniereDemande.current) return;
+      setDecalageMs(Date.parse(reponse.heure_serveur) - Date.now());
+      setStatut(reponse);
+      setErreur(null);
+    } catch (e) {
+      await rafraichir();
+      throw versErreurFocus(e);
+    }
+  }, [api, rafraichir]);
+
   useEffect(() => {
     void rafraichir();
     const id = setInterval(() => void rafraichir(), PERIODE_STATUT_MS);
@@ -61,8 +80,8 @@ export function FournisseurFocus({
   }, [rafraichir]);
 
   const valeur = useMemo(
-    () => ({ api, statut, erreur, decalageMs, rafraichir, changerJeton }),
-    [api, statut, erreur, decalageMs, rafraichir, changerJeton],
+    () => ({ api, statut, erreur, decalageMs, rafraichir, actualiser, changerJeton }),
+    [api, statut, erreur, decalageMs, rafraichir, actualiser, changerJeton],
   );
   return <ContexteFocus value={valeur}>{children}</ContexteFocus>;
 }

@@ -466,3 +466,13 @@ func TestContinueNeSurvitPasAFinAuPlusTard(t *testing.T) {
 		t.Errorf("session terminée encore proposée à l'agent : %+v", e.Sessions)
 	}
 }
+
+// Sans intervalle donné, le démon relit le planning toutes les 30 s.
+func TestRafraichirParDefaut(t *testing.T) {
+	if d := Nouveau(Options{}); d.o.Rafraichir != 30*time.Second {
+		t.Fatalf("Rafraichir = %v, attendu 30s", d.o.Rafraichir)
+	}
+	if d := Nouveau(Options{Rafraichir: 5 * time.Second}); d.o.Rafraichir != 5*time.Second {
+		t.Fatalf("Rafraichir = %v, attendu 5s (option explicite)", d.o.Rafraichir)
+	}
+}

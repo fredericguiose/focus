@@ -39,7 +39,8 @@ Access filtre devant le Worker, mais le Worker ne lui fait pas une confiance ave
   `ACCES_EMAILS`, s'il est posé, restreint encore la liste (un e-mail doit être dans les deux) ;
   absent, les e-mails d'`ACCES_UTILISATEURS` sont les e-mails autorisés.
 - **Hôte API** : seulement `/v1/*` (sinon **404**). Les routes réservées au jeton `interface`
-  (`GET /v1/statut`, `POST /v1/exceptions/prix`, `POST /v1/exceptions`, `POST /v1/dev/horloge`)
+  (`GET /v1/statut`, `POST /v1/actualiser`, `POST /v1/exceptions/prix`, `POST /v1/exceptions`,
+  `POST /v1/dev/horloge`)
   y répondent **404** (elles n'existent pas sur cet hôte). Le jeton `interface` y est refusé
   partout (**403** `jeton_non_autorise`) : sans cela, un jeton d'interface volé ouvrirait des
   sessions sans passer par Access.
@@ -63,7 +64,7 @@ Sur l'hôte web, « interface » = sans en-tête `Authorization` (identité Acce
 | `GET /v1/taches`, `GET /v1/blocage`, `POST /v1/sessions`, `POST /v1/sessions/:id/apps`, `…/reponse`, `…/fermer` | interface, appareil | appareil |
 | `POST /v1/config` | config | config |
 | `GET /v1/config/version` | tous | appareil, config |
-| `GET /v1/statut`, `POST /v1/exceptions/prix`, `POST /v1/exceptions` | interface | — (404) |
+| `GET /v1/statut`, `POST /v1/actualiser`, `POST /v1/exceptions/prix`, `POST /v1/exceptions` | interface | — (404) |
 | web app (fichiers statiques) | oui | — (404) |
 
 ## Mise en service, pas à pas

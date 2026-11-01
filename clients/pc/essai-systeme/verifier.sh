@@ -238,7 +238,7 @@ principal() {
 
 	section "2 (suite). Hors ligne : rejeu du cache, fin de segment à l'heure"
 	tout_fermer
-	# Matin verrouillé pendant 45 s, puis soirée libre ; planning valable 2 h.
+	# Journée verrouillée pendant 45 s, puis soirée libre ; planning valable 2 h.
 	mode_planning essai-4 "{\"config\":\"essai-4\",\"segments\":[{\"mode\":\"MORNING_LOCK\",\"de\":-60,\"a\":45,\"bloquer\":[\"youtube.com\"],\"fermer\":true},{\"mode\":\"EVENING_FREE\",\"de\":45,\"a\":3600}]}"
 	local fin_matin
 	fin_matin=$(python3 -c "import json,datetime;p=json.load(open('$CACHE'))['planning'];print(datetime.datetime.fromisoformat(p['segments'][0]['fin'].replace('Z','+00:00')).timestamp())")

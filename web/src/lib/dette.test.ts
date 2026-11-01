@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ReponseStatut } from '@/api/contrat';
-import { texteBilan, texteSemaine } from '@/composants/actions/RattraperSommeil';
-import { bilan, detteARattraper, heureSuggeree, heuresProposees, objectifDuSoir, propositionPossible } from './dette';
+import { bilan, choixCoucher, commenceMaintenant, detteARattraper, heureSuggeree, heuresProposees, indexChoix, objectifDuSoir, propositionPossible, texteBilan, texteGain, texteSemaine } from './dette';
 import { heureLocale } from './temps';
 
 const FUSEAU = 'America/Cayenne';
@@ -95,5 +94,40 @@ describe('bilan', () => {
     expect(texteBilan(30, 45)).toBe('+30 min · objectif du soir 45 min');
     expect(texteBilan(45, 45)).toBe('+45 min · objectif du soir atteint');
     expect(texteBilan(0, 45)).toBe('Glisse à gauche pour dormir plus.');
+  });
+});
+
+describe('crans de « Je vais dormir »', () => {
+  const lisibles = (s: ReponseStatut, maintenant: string) =>
+    choixCoucher(s, Date.parse(maintenant)).map((c) => (c === 'maintenant' ? c : heureLocale(c, FUSEAU)));
+
+  it('du coucher appliqué à maintenant ; le quart d’heure à moins de 2 min se confond avec maintenant', () => {
+    const s = statut('2026-11-02T01:30:00Z', '2026-11-01T23:00:00Z');
+    expect(lisibles(s, '2026-11-02T00:52:10Z')).toEqual(['22:30', '22:15', '22:00', 'maintenant']);
+    expect(lisibles(s, '2026-11-02T00:58:30Z')).toEqual(['22:30', '22:15', 'maintenant']); // 22:00 dans 1 min 30
+    expect(lisibles(s, '2026-11-02T01:00:00Z')).toEqual(['22:30', '22:15', 'maintenant']);
+  });
+
+  it('coucher dans moins d’un quart d’heure : lui et maintenant ; dans moins de 2 min ou passé : maintenant ou rien', () => {
+    const s = statut('2026-11-02T01:30:00Z', '2026-11-01T23:00:00Z');
+    expect(lisibles(s, '2026-11-02T01:20:00Z')).toEqual(['22:30', 'maintenant']);
+    expect(lisibles(s, '2026-11-02T01:29:00Z')).toEqual(['maintenant']);
+    expect(lisibles(s, '2026-11-02T01:30:00Z')).toEqual([]);
+  });
+
+  it('le choix gardé suit l’horloge : une heure dépassée devient maintenant', () => {
+    const s = statut('2026-11-02T01:30:00Z', '2026-11-01T23:00:00Z');
+    const choix = choixCoucher(s, Date.parse('2026-11-02T00:52:10Z'));
+    expect(indexChoix(choix, 'maintenant')).toBe(3);
+    expect(indexChoix(choix, Date.parse('2026-11-02T01:15:00Z'))).toBe(1);
+    expect(indexChoix(choix, Date.parse('2026-11-02T00:45:00Z'))).toBe(3);
+    expect(commenceMaintenant('maintenant', 0)).toBe(true);
+    expect(commenceMaintenant(Date.parse('2026-11-02T01:00:00Z'), Date.parse('2026-11-02T00:58:30Z'))).toBe(true);
+    expect(commenceMaintenant(Date.parse('2026-11-02T01:00:00Z'), Date.parse('2026-11-02T00:57:59Z'))).toBe(false);
+  });
+
+  it('sans dette : le gain seul', () => {
+    expect(texteGain(90)).toBe('+1 h 30 de sommeil cette nuit');
+    expect(texteGain(0)).toBe('Glisse à gauche pour te coucher plus tôt.');
   });
 });

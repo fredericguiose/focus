@@ -93,6 +93,8 @@ export function creerApiHttp(jeton: string | null, base = '', recuperer: typeof 
 
   return {
     statut: async () => statutDepuisFil(await requete<StatutFil>('GET', '/v1/statut')),
+    // Même corps que GET /v1/statut, donc même conversion.
+    actualiser: async () => statutDepuisFil(await requete<StatutFil>('POST', '/v1/actualiser')),
     taches: async () => tachesDepuisFil(await requete<TachesFil>('GET', '/v1/taches')),
     appsBloquees,
     ouvrirSession: async (corps) => {

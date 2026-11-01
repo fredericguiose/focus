@@ -3,7 +3,7 @@
 Un système de focus personnel : **une API calcule, les appareils appliquent.**
 
 L'API décide, minute par minute, de ce qui est bloqué (sites, apps, session du PC) selon des
-règles écrites en YAML : horaires de nuit, planning du matin fait ou non, tâches prioritaires
+règles écrites en YAML : horaires de nuit, planning du jour fait ou non, tâches prioritaires
 du jour (Todoist), exceptions déclarées. Chaque appareil reçoit un planning, le garde en cache
 et l'applique, même hors ligne.
 

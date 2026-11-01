@@ -72,12 +72,17 @@ type Demon struct {
 	fond         sync.WaitGroup // rafraîchissements lancés en arrière-plan
 }
 
+// RafraichirParDefaut : intervalle entre deux GET /v1/planning (option --rafraichir de focusd).
+// 30 s : un changement fait ailleurs (Todoist, web app) arrive vite sur le PC ; l'API garde le
+// planning au plus 60 s mais efface ce résultat à chaque écriture d'état.
+const RafraichirParDefaut = 30 * time.Second
+
 func Nouveau(o Options) *Demon {
 	if o.Horloge == nil {
 		o.Horloge = time.Now
 	}
 	if o.Rafraichir == 0 {
-		o.Rafraichir = 60 * time.Second
+		o.Rafraichir = RafraichirParDefaut
 	}
 	if o.Application == 0 {
 		o.Application = 2 * time.Second

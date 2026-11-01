@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { gardeAcces, horsHoteApi } from './acces';
+import { actualiser } from './actualiser';
 import { TOUS, exigerJeton } from './auth';
 import { invaliderTout } from './cache';
 import { recevoirConfig, versionActive } from './config';
@@ -37,6 +38,12 @@ export function creerApp(deps: Dependances) {
   );
 
   app.get('/v1/statut', ...interfaceSeule, async (c) => c.json(await statut(deps, c.env.DB, c.get('jeton'))));
+
+  // Bouton « actualiser » : synchro Todoist forcée (au plus une toutes les 15 s), cache effacé, statut frais.
+  app.post('/v1/actualiser', ...interfaceSeule, async (c) => {
+    c.header('Cache-Control', 'no-store');
+    return c.json(await actualiser(c.env, deps, c.get('jeton')));
+  });
 
   app.get('/v1/taches', interfaceOuAppareil, async (c) => c.json(await tachesEligibles(deps, c.env.DB, c.get('jeton'))));
 

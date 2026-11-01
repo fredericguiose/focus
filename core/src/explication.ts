@@ -32,7 +32,7 @@ import { ajouterJours, dateCourte, ecrireInstant, jourSemaine, lireInstant, loca
 
 export const NOMS_DES_MODES: Record<string, string> = {
   NIGHT_LOCK: 'Nuit',
-  MORNING_LOCK: 'Matin verrouillé',
+  MORNING_LOCK: 'Journée verrouillée',
   EVENING_FREE: 'Soirée libre',
   WORK: 'Travail',
 };
@@ -40,7 +40,7 @@ export const NOMS_DES_MODES: Record<string, string> = {
 /** Condition jugée, avec ce qu'il faut pour raisonner sur la sortie. */
 interface Feuille {
   type: TypeConditionExpliquee;
-  /** Le fait, énoncé positivement, même sous `pas` (« Planning du matin »). */
+  /** Le fait, énoncé positivement, même sous `pas` (« Planning du jour »). */
   libelle: string;
   /** Vrai si le mode s'applique de ce côté-là (négation comprise) : sert à la sortie. */
   vraie: boolean;
@@ -181,9 +181,9 @@ function feuille(condition: Condition, env: Environnement, nie: boolean): Feuill
   if (condition === 'planning_fait') {
     const restant = planningRestant(config, faits, jour);
     return feuilleTaches('planning', restant.length, {
-      fait: 'Planning du matin',
-      present: 'le planning du matin est fait',
-      futur: 'le planning du matin sera fait',
+      fait: 'Planning du jour',
+      present: 'le planning du jour est fait',
+      futur: 'le planning du jour sera fait',
       detail: detailEcheance(restant, jour, 'planning'),
     }, nie);
   }

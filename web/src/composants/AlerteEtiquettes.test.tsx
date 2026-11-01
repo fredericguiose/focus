@@ -22,7 +22,7 @@ describe('alerte des étiquettes Todoist introuvables', () => {
     render(<AlerteEtiquettes statut={await statut(['planning'])} />);
     expect(screen.getByRole('alert')).toBeTruthy();
     expect(screen.getByText('Étiquette Todoist introuvable : @planning')).toBeTruthy();
-    expect(screen.getByText('Le planning du matin comptera toujours comme fait.')).toBeTruthy();
+    expect(screen.getByText('Le planning du jour comptera toujours comme fait.')).toBeTruthy();
     expect(screen.getByText(/^Créez-la dans Todoist/)).toBeTruthy();
   });
 

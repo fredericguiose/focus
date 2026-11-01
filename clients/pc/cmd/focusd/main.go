@@ -41,10 +41,7 @@ type options struct {
 
 func main() {
 	var o options
-	flag.StringVar(&o.config, "config", config.CheminParDefaut(), "fichier de configuration du client")
-	flag.StringVar(&o.hostsFichier, "hosts-fichier", "", "essai : écrire le bloc dans ce fichier au lieu du fichier hosts du système")
-	flag.BoolVar(&o.sansEffet, "sans-effet", false, "essai : ne verrouille rien, ne ferme aucun compte, n'envoie aucun accusé")
-	flag.DurationVar(&o.rafraichir, "rafraichir", 60*time.Second, "intervalle entre deux GET /v1/planning")
+	declarerOptions(flag.CommandLine, &o)
 	flag.Usage = func() {
 		fmt.Fprintln(flag.CommandLine.Output(), "Usage : focusd [options] [install|uninstall|start|stop|restart|status|lever]")
 		flag.PrintDefaults()
@@ -54,6 +51,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, "focusd :", err)
 		os.Exit(1)
 	}
+}
+
+func declarerOptions(fs *flag.FlagSet, o *options) {
+	fs.StringVar(&o.config, "config", config.CheminParDefaut(), "fichier de configuration du client")
+	fs.StringVar(&o.hostsFichier, "hosts-fichier", "", "essai : écrire le bloc dans ce fichier au lieu du fichier hosts du système")
+	fs.BoolVar(&o.sansEffet, "sans-effet", false, "essai : ne verrouille rien, ne ferme aucun compte, n'envoie aucun accusé")
+	fs.DurationVar(&o.rafraichir, "rafraichir", demon.RafraichirParDefaut, "intervalle entre deux GET /v1/planning")
 }
 
 func lancer(o options, commande string) error {

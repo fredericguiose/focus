@@ -2,7 +2,7 @@
 
 Deux exécutables (conception §5) :
 
-- `focusd` : service (root / SYSTEM). Toutes les 60 s, `GET /v1/planning` ; garde le dernier
+- `focusd` : service (root / SYSTEM). Toutes les 30 s, `GET /v1/planning` ; garde le dernier
   planning en cache ; applique le segment en vigueur (fichier hosts, verrouillage des sessions,
   comptes libres) ; envoie accusés et événements `reconnexion`. Il détient seul le jeton.
 - `focus-agent` : tourne dans la session de l'utilisateur. Pose les questions de session

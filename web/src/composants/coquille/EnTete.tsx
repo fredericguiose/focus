@@ -1,5 +1,6 @@
 import { RefreshCw } from 'lucide-react';
 import { useState } from 'react';
+import { toast } from 'sonner';
 
 import { Badge } from '@/components/ui/badge';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
@@ -14,7 +15,7 @@ import { cn } from '@/lib/utils';
 import { ECRANS, type Ecran } from './navigation';
 
 export function EnTete({ ecran }: { ecran: Ecran }) {
-  const { statut, rafraichir } = useFocus();
+  const { statut, actualiser } = useFocus();
   const maintenant = useHeureServeur();
   const [actualisation, setActualisation] = useState(false);
   const fuseau = statut?.journee.fuseau;
@@ -51,9 +52,16 @@ export function EnTete({ ecran }: { ecran: Ecran }) {
                 variant="ghost"
                 size="icon"
                 aria-label="Actualiser"
+                aria-busy={actualisation}
                 onClick={() => {
+                  if (actualisation) return;
+                  // Synchro Todoist immédiate côté serveur, puis statut recalculé.
                   setActualisation(true);
-                  void rafraichir().finally(() => setActualisation(false));
+                  actualiser()
+                    .catch((e: unknown) => {
+                      toast.error('Actualisation impossible', { description: e instanceof Error ? e.message : undefined, duration: 4000 });
+                    })
+                    .finally(() => setActualisation(false));
                 }}
               >
                 <RefreshCw className={cn(actualisation && 'animate-spin')} />

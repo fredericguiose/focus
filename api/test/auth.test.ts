@@ -37,6 +37,8 @@ describe('authentification', () => {
     ['POST', '/v1/accuses', 'web'],
     ['POST', '/v1/evenements', 'config'],
     ['GET', '/v1/statut', 'pc'],
+    ['POST', '/v1/actualiser', 'pc'],
+    ['POST', '/v1/actualiser', 'config'],
     ['GET', '/v1/taches', 'config'],
     ['POST', '/v1/sessions', 'config'],
     ['POST', '/v1/exceptions/prix', 'pc'],
