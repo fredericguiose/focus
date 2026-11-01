@@ -38,7 +38,7 @@
     {
       "binding": "DB",
       "database_name": "focus",
-      "database_id": "A-REMPLIR",
+      "database_id": "d49555e7-a819-4b76-99e2-2f569ea1ec11",
       "migrations_dir": "migrations"
     }
   ],
