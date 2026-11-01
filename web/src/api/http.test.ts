@@ -139,6 +139,8 @@ describe('format réel de l’API', () => {
       siestes_du_jour: [{ debut: '2026-11-03T18:00:00Z', fin: '2026-11-03T18:45:00Z', minutes: 40 }],
       siestes_du_jour_min: 40,
       sieste_tardive: { fin: '2026-11-03T18:45:00Z', coucher: '2026-11-04T01:00:00Z' },
+      levers: { jours: [{ date: '2026-11-03', prevu: '2026-11-03T09:30:00Z', prevu_fige: true, mesure: '2026-11-03T09:40:00Z', ecart_min: 10 }], amplitude_min: 0, limite_min: 120 },
+      couchers: { nuits: [{ nuit: '2026-11-02', prevu: '2026-11-03T01:00:00Z', prevu_fige: true, mesure: '2026-11-03T03:00:00Z', ecart_min: 120 }], amplitude_min: 0, limite_min: 120 },
     };
     const statut = await creerApiHttp('j', '', vi.fn<typeof fetch>(async () => reponse(200, JSON.stringify(corps)))).statut();
     expect(statut.phase).toBe('journee');
@@ -155,6 +157,9 @@ describe('format réel de l’API', () => {
     expect(statut.sommeil_mesure?.erreur).toBeNull();
     expect(statut).toMatchObject({ siestes_total_min: 40, siestes_du_jour_min: 40, sieste_tardive: { coucher: '2026-11-04T01:00:00Z' } });
     expect(statut.siestes_du_jour).toHaveLength(1);
+    // Oubliés un temps par la conversion : la carte Régularité restait vide avec la vraie API.
+    expect(statut.levers?.jours[0]).toMatchObject({ date: '2026-11-03', ecart_min: 10 });
+    expect(statut.couchers?.nuits[0]).toMatchObject({ nuit: '2026-11-02', ecart_min: 120 });
   });
 
   it('reprend apps_bloquees de /v1/statut sans interroger /v1/blocage', async () => {
