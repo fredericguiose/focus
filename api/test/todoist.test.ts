@@ -5,6 +5,7 @@ import {
   SANS_DATE,
   type TacheTodoist,
   creerClientTodoist,
+  dateEcheanceActivite,
   prioriteDepuisTodoist,
 } from '../src/todoist';
 
@@ -175,6 +176,26 @@ describe('adaptateur Todoist v1', () => {
       expect.objectContaining({ tacheId: '7', vers: SANS_DATE }),
       expect.objectContaining({ tacheId: '9', vers: '2026-11-05', documente: true }),
       expect.objectContaining({ tacheId: '10', documente: false }),
+    ]);
+  });
+
+  it('échéances de /activities au format réel : fin de journée du compte Todoist, en UTC', () => {
+    expect(dateEcheanceActivite('2026-10-31T02:59:59.000000Z', 'Europe/Paris')).toBe('2026-10-30');
+    expect(dateEcheanceActivite('2026-10-31T02:59:59.000000Z', 'America/Cayenne')).toBe('2026-10-30');
+    expect(dateEcheanceActivite('2027-01-04T22:59:59.000000Z', 'America/Cayenne')).toBe('2027-01-04');
+    expect(dateEcheanceActivite('2026-11-05T14:00:00.000000Z', 'Europe/Paris')).toBe('2026-11-05');
+    expect(dateEcheanceActivite('2026-11-03', 'Europe/Paris')).toBe('2026-11-03');
+  });
+
+  it('report vu dans /activities alors que le compte Todoist est à UTC−3 et la routine à Paris', async () => {
+    const { client } = fauxTodoist({
+      actives: [[]],
+      evenements: [report('20', '2026-11-04T02:59:59.000000Z', '2026-11-05T02:59:59.000000Z', '2026-11-03T09:00:00.123456Z')],
+      parIds: [brute({ id: '20', due: { date: '2026-11-04' } })],
+    });
+    const faits = await client.recupererFaits(PARAMS);
+    expect(faits.reports).toEqual([
+      expect.objectContaining({ tacheId: '20', le: '2026-11-03T09:00:00Z', de: '2026-11-03', vers: '2026-11-04' }),
     ]);
   });
 

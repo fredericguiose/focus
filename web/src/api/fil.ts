@@ -2,6 +2,7 @@
 // conversion vers le contrat de l'interface (contrat.ts). Tout écart avec l'API se corrige ici.
 import type { ActionsIphone, ActionsPc } from '../../../core/src/types';
 import type {
+  AppBloquee,
   CorpsException,
   Journee,
   PrixException,
@@ -54,6 +55,7 @@ export interface StatutFil {
     sessions: 'autorisees' | 'interdites';
     raison: string;
     actions?: ActionsPc | ActionsIphone;
+    apps_bloquees?: AppBloquee[];
     dernier_ping: string | null;
   }[];
   sessions: SessionFil[];
@@ -121,6 +123,7 @@ export function statutDepuisFil(s: StatutFil): ReponseStatut {
         sessions: a.sessions,
         vu_le: a.dernier_ping,
         ...(a.actions ? { actions: a.actions } : {}),
+        ...(a.apps_bloquees ? { apps_bloquees: a.apps_bloquees } : {}),
       }),
     ),
     sessions: s.sessions.filter((x) => !x.fermee_le).map(sessionDepuisFil),

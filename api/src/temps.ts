@@ -79,7 +79,7 @@ export function ajouterJours(date: DateLocale, n: number): DateLocale {
 }
 
 /** Écart (ms) entre l'heure murale du fuseau et l'UTC, à l'instant donné. */
-function decalageFuseau(t: number, fuseau: string): number {
+export function decalageFuseau(t: number, fuseau: string): number {
   const p = parties(new Date(t), fuseau);
   const mural = Date.UTC(p.year!, p.month! - 1, p.day!, p.hour!, p.minute!, p.second!);
   return mural - Math.floor(t / 1000) * 1000;

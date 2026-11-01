@@ -27,6 +27,8 @@ export interface AppBloquee {
   nom: string;
   /** Domaines exacts, tels qu'écrits dans le fichier hosts (vide pour l'iPhone). */
   domaines: string[];
+  /** Identifiant de l'app sur iPhone, s'il y en a un (donné par l'API réelle). */
+  iphone?: string | null;
 }
 
 export interface StatutAppareil {
@@ -43,7 +45,7 @@ export interface StatutAppareil {
   vu_le: Instant | null;
   /** Actions du mode en vigueur (domaines ou identifiants iPhone bloqués). */
   actions?: ActionsPc | ActionsIphone;
-  /** Donné par l'API simulée ; sinon `ApiFocus.appsBloquees` le reconstitue. */
+  /** Donné par l'API (`apps_bloquees`) ; absent d'une API plus ancienne, `ApiFocus.appsBloquees` le reconstitue. */
   apps_bloquees?: AppBloquee[];
 }
 

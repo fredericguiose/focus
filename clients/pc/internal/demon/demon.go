@@ -58,7 +58,9 @@ type Demon struct {
 	continues map[string]string // session → question pour laquelle « continue » a été accepté
 	fermees   map[string]bool   // sessions arrêtées ici, en attente du prochain planning
 	accuses   map[string]bool   // actions déjà accusées pour le segment en cours
-	segment   time.Time         // début du segment en cours
+	// segment : mode et fin du segment en cours. Pas son début : l'API fait commencer le
+	// premier segment à l'heure de la requête, il change à chaque rafraîchissement.
+	segment   string
 	enAttente struct {
 		accuses    []api.Accuse
 		evenements []api.Evenement
@@ -193,8 +195,8 @@ func (d *Demon) Appliquer() {
 		return
 	}
 	d.mu.Lock()
-	if !e.Segment.Debut.Equal(d.segment) {
-		d.segment = e.Segment.Debut
+	if cle := e.Segment.Mode + "|" + e.Segment.Fin.UTC().Format(time.RFC3339); cle != d.segment {
+		d.segment = cle
 		clear(d.accuses)
 		d.o.Journal.Info("segment en vigueur", "mode", e.Segment.Mode, "jusqua", e.Segment.Fin)
 	}

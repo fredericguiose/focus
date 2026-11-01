@@ -2,7 +2,7 @@
 // date. L'ancienne REST v2 répond 410 ; `postponed_count` n'est jamais lu (il compte les
 // changements de date dans les deux sens et s'efface) : le journal /activities fait foi.
 import type { DateLocale, Instant, Priorite, Report, Tache } from '../../core/src/types';
-import { ajouterJours, dateLocale, debutJourLocal, ms, versInstant } from './temps';
+import { ajouterJours, dateLocale, debutJourLocal, decalageFuseau, ms, versInstant } from './temps';
 
 export const BASE_TODOIST = 'https://api.todoist.com/api/v1/';
 const TAILLE_PAGE = 50;
@@ -108,6 +108,32 @@ export function dateDepuisTodoist(v: string, fuseau: string): DateLocale {
   return v.slice(0, 10);
 }
 
+const JOUR_MS = 86_400_000;
+const HEURE_MS = 3_600_000;
+
+/**
+ * Dans /activities, une échéance « journée entière » n'arrive pas en date seule : c'est la fin
+ * du jour (23:59:59) dans le fuseau du compte Todoist, en UTC. Le 30 octobre à UTC−3 donne
+ * "2026-10-31T02:59:59.000000Z". Ce fuseau n'est pas fourni : il se déduit de l'heure, seul
+ * un décalage entre −12 h et +14 h étant possible. Les échéances à heure fixe (secondes à 0)
+ * suivent la règle générale.
+ */
+export function dateEcheanceActivite(v: string, fuseau: string): DateLocale {
+  if (!/[Zz]$|[+-]\d{2}:?\d{2}$/.test(v)) return v.slice(0, 10);
+  const t = Date.parse(v);
+  const d = new Date(t);
+  if (d.getUTCSeconds() === 59 && d.getUTCMinutes() % 15 === 14) {
+    const ecart = (((JOUR_MS - 1000 - (t % JOUR_MS)) % JOUR_MS) + JOUR_MS) % JOUR_MS;
+    const candidats = [ecart, ecart - JOUR_MS].filter((o) => o >= -12 * HEURE_MS && o <= 14 * HEURE_MS);
+    if (candidats.length > 0) {
+      const local = decalageFuseau(t, fuseau);
+      const ecartRetenu = candidats.reduce((a, b) => (Math.abs(b - local) < Math.abs(a - local) ? b : a));
+      return new Date(t + ecartRetenu).toISOString().slice(0, 10);
+    }
+  }
+  return dateDepuisTodoist(v, fuseau);
+}
+
 function versTache(t: TacheTodoist, moi: string, fuseau: string): Tache {
   return {
     id: String(t.id),
@@ -152,10 +178,10 @@ export function detecterReports(evenements: EvenementTodoist[], moi: string, fus
     if (!ancienne) continue;
     const le = instantTodoist(e.event_date);
     const jour = dateLocale(new Date(ms(le)), fuseau);
-    const de = dateDepuisTodoist(ancienne, fuseau);
+    const de = dateEcheanceActivite(ancienne, fuseau);
     if (de > jour) continue;
     const nouvelle = typeof extra.due_date === 'string' ? extra.due_date : null;
-    const vers = nouvelle ? dateDepuisTodoist(nouvelle, fuseau) : SANS_DATE;
+    const vers = nouvelle ? dateEcheanceActivite(nouvelle, fuseau) : SANS_DATE;
     if (vers <= jour) continue;
     // L'interface émet parfois plusieurs événements pour un seul geste : un report par tâche et par jour.
     const tacheId = String(e.object_id);

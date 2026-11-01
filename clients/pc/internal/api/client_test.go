@@ -124,7 +124,7 @@ func TestAccusesEtEvenements(t *testing.T) {
 	if err := c.Evenements(context.Background(), lot); err != nil {
 		t.Fatal(err)
 	}
-	if got := string(f.recus["POST /v1/evenements"]); got != `[{"type":"reconnexion","le":"2026-11-03T23:30:00Z","compte":"alice","session":"3"}]` {
+	if got := string(f.recus["POST /v1/evenements"]); got != `{"evenements":[{"type":"reconnexion","debut":"2026-11-03T23:30:00Z","compte":"alice","session":"3"}]}` {
 		t.Errorf("corps des événements : %s", got)
 	}
 }

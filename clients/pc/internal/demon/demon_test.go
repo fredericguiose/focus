@@ -60,6 +60,7 @@ type apiFactice struct {
 	accuses    []api.Accuse
 	evenements []api.Evenement
 	reponses   []string
+	planning   []byte
 }
 
 func (f *apiFactice) serveur(t *testing.T) *httptest.Server {
@@ -67,6 +68,7 @@ func (f *apiFactice) serveur(t *testing.T) *httptest.Server {
 	if err != nil {
 		t.Fatal(err)
 	}
+	f.planning = planning
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
@@ -77,16 +79,18 @@ func (f *apiFactice) serveur(t *testing.T) *httptest.Server {
 		corps, _ := io.ReadAll(r.Body)
 		switch r.URL.Path {
 		case "/v1/planning":
-			w.Write(planning)
+			w.Write(f.planning)
 		case "/v1/accuses":
 			var a api.Accuse
 			json.Unmarshal(corps, &a)
 			f.accuses = append(f.accuses, a)
 			w.WriteHeader(http.StatusNoContent)
 		case "/v1/evenements":
-			var lot []api.Evenement
+			var lot struct {
+				Evenements []api.Evenement `json:"evenements"`
+			}
 			json.Unmarshal(corps, &lot)
-			f.evenements = append(f.evenements, lot...)
+			f.evenements = append(f.evenements, lot.Evenements...)
 			w.WriteHeader(http.StatusNoContent)
 		case "/v1/sessions/s_01/reponse":
 			f.reponses = append(f.reponses, string(corps))
@@ -183,6 +187,31 @@ func TestCycleEnLigne(t *testing.T) {
 	lu, err := os.ReadFile(b.cache)
 	if err != nil || !json.Valid(lu) {
 		t.Fatalf("cache : %v", err)
+	}
+}
+
+// L'API fait commencer le premier segment à l'heure de la requête : un rafraîchissement
+// ne doit pas faire renvoyer les accusés du même segment.
+func TestPasDeNouvelAccuseQuandSeulLeDebutBouge(t *testing.T) {
+	b := nouveauBanc(t, "")
+	ctx := context.Background()
+	if err := b.d.Rafraichir(ctx); err != nil {
+		t.Fatal(err)
+	}
+	b.horloge.avancer(10 * time.Minute)
+	b.d.Appliquer()
+	b.d.envoyerEnAttente(ctx)
+	b.api.mu.Lock()
+	b.api.planning = []byte(strings.Replace(string(b.api.planning),
+		`"debut": "2026-11-03T21:00:00Z"`, `"debut": "2026-11-03T21:10:00Z"`, 1))
+	b.api.mu.Unlock()
+	if err := b.d.Rafraichir(ctx); err != nil {
+		t.Fatal(err)
+	}
+	b.d.Appliquer()
+	b.d.envoyerEnAttente(ctx)
+	if len(b.api.accuses) != 2 {
+		t.Fatalf("accusés %+v", b.api.accuses)
 	}
 }
 

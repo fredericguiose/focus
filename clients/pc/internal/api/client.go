@@ -57,9 +57,11 @@ type Accuse struct {
 	PoseLe time.Time `json:"pose_le"`
 }
 
+// Evenement : forme lue par l'API (`{ type: "reconnexion", debut, duree_s? }`) ; compte et
+// session sont ignorés par l'API mais gardés pour le journal.
 type Evenement struct {
 	Type    string    `json:"type"`
-	Le      time.Time `json:"le"`
+	Le      time.Time `json:"debut"`
 	Compte  string    `json:"compte,omitempty"`
 	Session string    `json:"session,omitempty"`
 }
@@ -150,12 +152,14 @@ func (c *Client) Accuser(ctx context.Context, a Accuse) error {
 	return c.envoyer(ctx, http.MethodPost, "/v1/accuses", a, nil)
 }
 
-// Evenements envoie un lot (tableau JSON).
+// Evenements envoie un lot : `{ "evenements": [...] }`.
 func (c *Client) Evenements(ctx context.Context, lot []Evenement) error {
 	if len(lot) == 0 {
 		return nil
 	}
-	return c.envoyer(ctx, http.MethodPost, "/v1/evenements", lot, nil)
+	return c.envoyer(ctx, http.MethodPost, "/v1/evenements", struct {
+		Evenements []Evenement `json:"evenements"`
+	}{lot}, nil)
 }
 
 // Taches accepte un tableau ou un objet { taches: [...] } : la forme exacte de la réponse

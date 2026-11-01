@@ -1,5 +1,5 @@
 // Planning d'un appareil (§4.3), statut pour l'interface, tâches du jour, raison d'un blocage.
-import type { ActionsPc, Config, Contexte, Journee, Segment } from '../../core/src/types';
+import type { ActionsIphone, ActionsPc, Config, Contexte, Journee, Segment } from '../../core/src/types';
 import { CLES_CACHE, chargerContexte, lireCache } from './contexte';
 import type { Dependances, JetonAuthentifie } from './env';
 import { ErreurApi, requeteInvalide } from './erreurs';
@@ -84,6 +84,23 @@ function vueJournee(j: Journee) {
   };
 }
 
+/** Apps du catalogue touchées par les actions du mode : celles qu'une session peut débloquer. */
+export function appsBloquees(config: Config, actions: ActionsPc | ActionsIphone) {
+  const pc = 'bloquer_domaines' in actions;
+  const cibles = new Set(pc ? actions.bloquer_domaines : actions.bloquer_apps);
+  return Object.entries(config.apps)
+    .map(([id, app]) => ({
+      id,
+      nom: app.nom,
+      domaines: pc ? app.domaines.filter((d) => cibles.has(d)) : [],
+      iphone: app.iphone ?? null,
+      bloquee: pc ? app.domaines.some((d) => cibles.has(d)) : app.iphone !== undefined && cibles.has(app.iphone),
+    }))
+    .filter((a) => a.bloquee)
+    .map(({ bloquee: _, ...a }) => a)
+    .sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+}
+
 export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuthentifie) {
   const maintenant = deps.maintenant();
   const { contexte, version } = await chargerContexte(db, jeton.utilisateur, maintenant);
@@ -115,6 +132,7 @@ export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuth
         sessions: etat.sessions,
         raison: etat.raison,
         actions: etat.actions,
+        apps_bloquees: appsBloquees(config, etat.actions),
         dernier_ping: vuLe.get(nom) ?? null,
       };
     }),

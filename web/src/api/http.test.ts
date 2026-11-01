@@ -83,6 +83,35 @@ describe('format réel de l’API', () => {
     expect(statut.sessions_du_jour).toEqual({ cumul_min: 30, plafond_min: 180 });
   });
 
+  it('reprend apps_bloquees de /v1/statut sans interroger /v1/blocage', async () => {
+    const corps = {
+      heure_serveur: '2026-11-03T21:00:00Z',
+      config_version: 'abc1234',
+      journee: {
+        date: '2026-11-03', routine: 'cours', fuseau: 'America/Cayenne', engagements: [],
+        lever: '2026-11-03T09:00:00Z', lever_suivant: '2026-11-04T09:00:00Z', coucher_prevu: '2026-11-04T01:00:00Z',
+        coucher_applique: '2026-11-04T01:00:00Z', ouverture: '2026-11-03T23:20:00Z',
+        prix_du_report_min: 0, dette_nuit_min: 0, decision_de_nuit_prise: false,
+      },
+      appareils: [
+        {
+          nom: 'pc_linux', type: 'pc_linux', mode: 'WORK', sessions: 'autorisees', raison: 'WORK',
+          actions: { bloquer_domaines: ['youtube.com'], verrouiller_session: false, fermer_comptes_hors_travail: true },
+          apps_bloquees: [{ id: 'youtube', nom: 'YouTube', domaines: ['youtube.com'], iphone: 'com.google.ios.youtube' }],
+          dernier_ping: null,
+        },
+      ],
+      sessions: [],
+    };
+    const recuperer = vi.fn<typeof fetch>(async () => reponse(200, JSON.stringify(corps)));
+    const api = creerApiHttp('j', '', recuperer);
+    const statut = await api.statut();
+    expect(await api.appsBloquees(statut.appareils[0]!)).toEqual([
+      { id: 'youtube', nom: 'YouTube', domaines: ['youtube.com'], iphone: 'com.google.ios.youtube' },
+    ]);
+    expect(recuperer).toHaveBeenCalledTimes(1);
+  });
+
   it('envoie une exception à plat et lit le prix', async () => {
     const prix = {
       admissible: false,

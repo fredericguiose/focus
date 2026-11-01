@@ -106,6 +106,22 @@ describe('statut et tâches', () => {
     expect(r.corps.sessions_du_jour).toEqual({ cumul_min: 0, plafond_min: 180 });
   });
 
+  it('GET /v1/statut : apps bloquées par appareil, avec leurs domaines bloqués et leur identifiant iPhone', async () => {
+    const web = await creerJeton('interface', 'web');
+    const r = await client(horloge).get('/v1/statut', web);
+    type Vue = { nom: string; apps_bloquees: { id: string; nom: string; domaines: string[]; iphone: string | null }[] };
+    const parNom = Object.fromEntries((r.corps.appareils as Vue[]).map((a) => [a.nom, a.apps_bloquees]));
+    expect(parNom.pc_linux!.map((a) => a.id)).toEqual(['chatgpt', 'claude_ai', 'gemini', 'x', 'youtube']);
+    expect(parNom.pc_linux!.find((a) => a.id === 'x')).toEqual({
+      id: 'x',
+      nom: 'X',
+      domaines: ['x.com', 'twitter.com', 'www.x.com'],
+      iphone: 'com.atebits.Tweetie2',
+    });
+    expect(parNom.iphone!.map((a) => a.id)).toEqual(['chatgpt', 'claude_ai', 'gemini', 'safari', 'x', 'youtube']);
+    expect(parNom.iphone!.find((a) => a.id === 'safari')).toEqual({ id: 'safari', nom: 'Safari', domaines: [], iphone: 'com.apple.mobilesafari' });
+  });
+
   it("GET /v1/taches : tâches du jour à moi, avec eligible_le = création + 15 min", async () => {
     await poserTaches([
       tache({ id: '1', priorite: 'p2', contenu: 'B' }),
