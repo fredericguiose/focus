@@ -201,14 +201,22 @@ maintenant : « je vais dormir »).
 - **Desserrer** (coucher plus tard, engagement retiré ou repoussé) — pour la nuit D :
   | Moment de la demande | Friction | Plafond de sommeil | Limite |
   |---|---|---|---|
-  | avant ouverture(D) | aucune | sommeil prévu ≥ `minimum` | aucune |
+  | avant ouverture(D) | `raison` ≥ 50 caractères (sans phrase) | sommeil prévu ≥ `minimum` | aucune |
   | après ouverture(D), avant lever(D+1) | `raison` ≥ 50 caractères + `phrase` exacte `JE NE PEUX PAS DECALER` | sommeil ≥ `plancher_nuit` | **1 fois** par nuit |
+
+  Pas de desserrage sans raison (décision du 01/11, remplace « sans friction avant
+  l'ouverture » du 24/10). La raison est enregistrée avec l'exception. Raison trop courte :
+  refus « raison d'au moins 50 caractères exigée (N fournis) » (préfixé « décision de nuit : »
+  après l'ouverture).
 - **« Je vais dormir »** (`avancer_coucher`, `a` = maintenant) n'est admissible que si
   `a` < coucher appliqué de la nuit ; sinon refus « la nuit a déjà commencé à HH:MM » (heure
   locale du coucher appliqué), sans friction demandée. Elle ne peut jamais repousser le coucher :
   pour coucher plus tard, c'est une exception `coucher` (desserrage, règles ci-dessus).
-- `prixException(contexte, demande)` renvoie : admissible ou non (et pourquoi), friction
-  exigée, coucher avant/après, lever avant/après, dette de la nuit avant/après.
+- `prixException(contexte, demande, friction?)` renvoie : admissible ou non (et pourquoi),
+  friction exigée (`aucune` | `raison` | `raison_phrase`), `frictionManquante` si seule la
+  friction manque (tout le reste est admissible), coucher avant/après, lever avant/après, dette
+  de la nuit avant/après. L'API l'expose en `friction_manquante` : l'interface demande l'aperçu
+  sans la raison et n'affiche pas ce cas comme un refus.
 - Plusieurs exceptions de la même nuit s'appliquent dans l'ordre de création.
 
 ### 3.5 Prix du report (jour D)
@@ -443,7 +451,7 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   "phase": "journee" | "soiree" | "nuit",
   "actions": {
     "je_vais_dormir":  { "disponible": bool, "motif": string | null },
-    "decaler_coucher": { "mode": "libre" | "decision_de_nuit" | "indisponible", "motif": string | null }
+    "decaler_coucher": { "mode": "raison" | "decision_de_nuit" | "indisponible", "motif": string | null }
   },
   "engagements_demain": [
     { "id": "sport", "nom": "Sport", "reveil": "…Z" | null, "heure": "…Z" | null,
@@ -476,7 +484,8 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
 - `phase` : `nuit` si maintenant ≥ coucher appliqué(J) ; `soiree` si ≥ ouverture(J) ; sinon `journee`.
 - `je_vais_dormir` : disponible si maintenant < coucher appliqué(J) ; sinon motif « la nuit a
   déjà commencé à HH:MM » (même règle que le moteur, §3.4).
-- `decaler_coucher` : `libre` avant l'ouverture ; `decision_de_nuit` après, si elle n'a pas été
+- `decaler_coucher` : `raison` avant l'ouverture (desserrer demande une raison, resserrer reste
+  libre) ; `decision_de_nuit` après, si elle n'a pas été
   prise pour la nuit J (motif « soirée ouverte depuis HH:MM ») ; `indisponible` sinon (motif
   « décision de nuit déjà prise pour la nuit du 3 nov. (une seule par nuit) »). Indicatif : le prix exact passe par
   `/v1/exceptions/prix`.

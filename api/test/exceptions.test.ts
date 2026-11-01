@@ -18,11 +18,11 @@ describe('exceptions (§3.4)', () => {
   });
 
   it("l'aperçu calcule le prix sans rien enregistrer", async () => {
-    const r = await api.post('/v1/exceptions/prix', web, { type: 'coucher', nuit: '2026-11-03', heure: '22:00' });
+    const r = await api.post('/v1/exceptions/prix', web, { type: 'coucher', nuit: '2026-11-03', heure: '22:00', raison: RAISON });
     expect(r.statut).toBe(200);
     expect(r.corps.prix).toMatchObject({
       admissible: true,
-      friction: 'aucune',
+      friction: 'raison',
       resserre: false,
       coucher_avant: MARDI.coucher,
       coucher_apres: '2026-11-03T21:00:00Z',
@@ -30,17 +30,35 @@ describe('exceptions (§3.4)', () => {
     expect(await nombre()).toBe(0);
   });
 
-  it("l'enregistrement applique les mêmes règles et écrit ; la journée en tient compte", async () => {
-    const r = await api.post('/v1/exceptions', web, { type: 'coucher', nuit: '2026-11-03', heure: '22:00' });
+  it("avant l'ouverture, desserrer sans raison suffisante est refusé (422), sans écrire", async () => {
+    const demande = { type: 'coucher', nuit: '2026-11-03', heure: '22:00' };
+    const sans = await api.post('/v1/exceptions', web, demande);
+    expect(sans.statut).toBe(422);
+    expect(sans.corps).toMatchObject({
+      erreur: 'exception_refusee',
+      message: "raison d'au moins 50 caractères exigée (0 fournis)",
+      prix: { admissible: false, friction: 'raison', friction_manquante: true },
+    });
+    const courte = await api.post('/v1/exceptions', web, { ...demande, raison: 'trop court' });
+    expect(courte.corps.message).toBe("raison d'au moins 50 caractères exigée (10 fournis)");
+    expect(await nombre()).toBe(0);
+  });
+
+  it("l'enregistrement applique les mêmes règles et écrit la raison ; la journée en tient compte", async () => {
+    const r = await api.post('/v1/exceptions', web, { type: 'coucher', nuit: '2026-11-03', heure: '22:00', raison: RAISON });
     expect(r.statut).toBe(201);
     expect(r.corps.id).toMatch(/^e_/);
-    expect(await nombre()).toBe(1);
+    expect(r.corps.prix).toMatchObject({ friction: 'raison', friction_manquante: false });
+    expect(await env.DB.prepare('SELECT pendant_nuit, raison FROM exceptions').first()).toEqual({ pendant_nuit: 0, raison: RAISON });
+    // Sans limite par nuit : une seconde exception avant l'ouverture passe aussi.
+    expect((await api.post('/v1/exceptions', web, { type: 'coucher', nuit: '2026-11-03', heure: '22:10', raison: RAISON })).statut).toBe(201);
+    expect(await nombre()).toBe(2);
     const statut = await api.get('/v1/statut', web);
-    expect(statut.corps.journee.coucher_applique).toBe('2026-11-03T21:00:00Z');
+    expect(statut.corps.journee.coucher_applique).toBe('2026-11-03T21:10:00Z');
   });
 
   it('refuse (422) ce que le moteur juge inadmissible, sans écrire', async () => {
-    const demande = { type: 'coucher', nuit: '2026-11-03', heure: '23:30' };
+    const demande = { type: 'coucher', nuit: '2026-11-03', heure: '23:30', raison: RAISON };
     const apercu = await api.post('/v1/exceptions/prix', web, demande);
     expect(apercu.corps.prix.admissible).toBe(false);
     const r = await api.post('/v1/exceptions', web, demande);
@@ -78,7 +96,7 @@ describe('exceptions (§3.4)', () => {
   });
 
   it('retirer un engagement : le lever du lendemain recule', async () => {
-    const r = await api.post('/v1/exceptions/prix', web, { type: 'retire', date: '2026-11-04', engagement: 'sport' });
-    expect(r.corps.prix).toMatchObject({ admissible: true, lever_avant: '2026-11-04T04:30:00Z', lever_apres: '2026-11-04T05:30:00Z' });
+    const r = await api.post('/v1/exceptions/prix', web, { type: 'retire', date: '2026-11-04', engagement: 'sport', raison: RAISON });
+    expect(r.corps.prix).toMatchObject({ admissible: true, friction: 'raison', lever_avant: '2026-11-04T04:30:00Z', lever_apres: '2026-11-04T05:30:00Z' });
   });
 });

@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import type { DemandeException, EngagementDemain, ReponseStatut } from '@/api/contrat';
+import type { DemandeException, EngagementDemain, PrixException, ReponseStatut } from '@/api/contrat';
 import { type ErreurFocus, versErreurFocus } from '@/api/erreur';
 import { ApercuPrix } from '@/composants/ApercuPrix';
 import { ErreurAffichee } from '@/composants/ErreurAffichee';
@@ -195,9 +195,18 @@ function FormulaireOption({ option, decisionDeNuit, surTermine }: { option: Opti
   const apercu = useApercuPrix(demande ? JSON.stringify(demande) : null, () => demande);
   const prix = apercu.prix;
   // L'API reste juge (prix.friction) ; en décision de nuit, desserrer exige la friction d'emblée.
-  const frictionExigee = prix?.friction === 'raison_phrase' || (decisionDeNuit && option !== 'ajoute' && prix?.resserre !== true);
-  const friction = validerFriction(raison, phrase);
-  const peutValider = demande !== null && prix !== null && prix.admissible && !apercu.calcul && !envoi && (!frictionExigee || friction.valide);
+  const exigee: PrixException['friction'] =
+    prix?.friction === 'raison' || prix?.friction === 'raison_phrase'
+      ? prix.friction
+      : decisionDeNuit && option !== 'ajoute' && prix?.resserre !== true
+        ? 'raison_phrase'
+        : 'aucune';
+  const avecPhrase = exigee === 'raison_phrase';
+  const friction = validerFriction(raison, phrase, avecPhrase);
+  // L'aperçu est calculé sans la raison : un refus qui ne porte que sur elle reste recevable.
+  const recevable = prix !== null && (prix.admissible || prix.frictionManquante === true);
+  const afficherFriction = exigee !== 'aucune' && (prix === null || recevable);
+  const peutValider = demande !== null && recevable && !apercu.calcul && !envoi && (exigee === 'aucune' || friction.valide);
   const choisi = engagements.find((e) => e.id === engagement);
 
   async function valider() {
@@ -205,7 +214,8 @@ function FormulaireOption({ option, decisionDeNuit, surTermine }: { option: Opti
     setEnvoi(true);
     setErreur(null);
     try {
-      await api.enregistrerException({ demande, friction: frictionExigee ? { raison: raison.trim(), phrase } : undefined });
+      const fournie = exigee === 'aucune' ? undefined : avecPhrase ? { raison: raison.trim(), phrase } : { raison: raison.trim() };
+      await api.enregistrerException({ demande, friction: fournie });
       toast.success('Changement enregistré', { description: OPTIONS.find((o) => o.option === option)?.titre });
       await rafraichir();
       surTermine();
@@ -241,15 +251,17 @@ function FormulaireOption({ option, decisionDeNuit, surTermine }: { option: Opti
         {option === 'ajoute' ? <ChampsAjout champs={ajout} modifier={(p) => setAjout((c) => ({ ...c, ...p }))} demain={demain} /> : null}
       </fieldset>
 
-      <ApercuPrix prix={prix} calcul={apercu.calcul} fuseau={j.fuseau} maintenantMs={maintenant} />
+      <ApercuPrix prix={prix} calcul={apercu.calcul} fuseau={j.fuseau} maintenantMs={maintenant} frictionValide={friction.valide} />
       <ErreurAffichee erreur={apercu.erreur} />
 
-      {frictionExigee ? <FrictionNuit raison={raison} phrase={phrase} onRaison={setRaison} onPhrase={setPhrase} desactive={envoi} /> : null}
+      {afficherFriction ? (
+        <FrictionNuit raison={raison} phrase={phrase} onRaison={setRaison} onPhrase={setPhrase} desactive={envoi} avecPhrase={avecPhrase} />
+      ) : null}
 
       <ErreurAffichee erreur={erreur} />
       <Button type="submit" size="lg" disabled={!peutValider}>
         {envoi ? <Loader2 className="animate-spin" /> : null}
-        {frictionExigee ? 'Prendre la décision de nuit' : 'Valider'}
+        {avecPhrase ? 'Prendre la décision de nuit' : 'Valider'}
       </Button>
     </form>
   );
@@ -290,6 +302,11 @@ export function DecalerCoucher({ ouverte, surChangement }: { ouverte: boolean; s
       ) : (
         <>
           {decision ? <BandeauDecision motif={action.motif} /> : null}
+          {action.mode === 'raison' && option === null ? (
+            <p className="text-muted-foreground text-sm">
+              Coucher plus tard ou réveil repoussé : une raison d'au moins 50 caractères est demandée. Se coucher plus tôt reste libre.
+            </p>
+          ) : null}
           {option === null ? (
             <MenuOptions engagements={statut.engagements_demain ?? []} choisir={setChoisie} />
           ) : (

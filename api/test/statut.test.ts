@@ -18,12 +18,12 @@ describe('GET /v1/statut : phase, actions, engagements de demain, nuits', () => 
     web = await creerJeton('interface', 'web');
   });
 
-  it('journée : je_vais_dormir disponible, décalage libre', async () => {
+  it('journée : je_vais_dormir disponible, décalage sur raison', async () => {
     const r = await api.get('/v1/statut', web);
     expect(r.corps.phase).toBe('journee');
     expect(r.corps.actions).toEqual({
       je_vais_dormir: { disponible: true, motif: null },
-      decaler_coucher: { mode: 'libre', motif: null },
+      decaler_coucher: { mode: 'raison', motif: null },
     });
   });
 
@@ -86,7 +86,7 @@ describe('GET /v1/statut : phase, actions, engagements de demain, nuits', () => 
       { id: 'sport', nom: 'Sport', reveil: '2026-11-04T04:30:00Z', heure: '2026-11-04T05:00:00Z', annulable: true, decalable: true, origine: 'routine' },
       { id: 'travail', nom: 'Travail', reveil: '2026-11-04T05:30:00Z', heure: null, annulable: true, decalable: true, origine: 'routine' },
     ]);
-    await api.post('/v1/exceptions', web, { type: 'retire', date: '2026-11-04', engagement: 'travail' });
+    await api.post('/v1/exceptions', web, { type: 'retire', date: '2026-11-04', engagement: 'travail', raison: RAISON });
     await api.post('/v1/exceptions', web, { type: 'ajoute', date: '2026-11-04', libelle: 'Dentiste', heure: '08:00', preparation_min: 45 });
     expect((await api.get('/v1/statut', web)).corps.engagements_demain).toEqual([
       { id: 'sport', nom: 'Sport', reveil: '2026-11-04T04:30:00Z', heure: '2026-11-04T05:00:00Z', annulable: true, decalable: true, origine: 'routine' },
@@ -97,7 +97,7 @@ describe('GET /v1/statut : phase, actions, engagements de demain, nuits', () => 
   it('nuits : les 7 dernières nuits terminées, avec les exceptions enregistrées ; dette cumulée', async () => {
     // Dimanche 01/11, avant l'ouverture (14:00) : coucher 22:00 au lieu de 21:30 → 30 min de dette.
     horloge.regler('2026-11-01T10:00:00Z');
-    expect((await api.post('/v1/exceptions', web, { type: 'coucher', nuit: '2026-11-01', heure: '22:00' })).statut).toBe(201);
+    expect((await api.post('/v1/exceptions', web, { type: 'coucher', nuit: '2026-11-01', heure: '22:00', raison: RAISON })).statut).toBe(201);
     horloge.regler(MARDI.matin);
     const r = await api.get('/v1/statut', web);
     expect(r.corps.nuits.map((n: { nuit: string }) => n.nuit)).toEqual([

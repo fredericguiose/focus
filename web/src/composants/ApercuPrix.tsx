@@ -1,4 +1,4 @@
-import { ArrowRight, CircleCheck, CircleX, ShieldAlert } from 'lucide-react';
+import { ArrowRight, CircleCheck, CircleX, PenLine, ShieldAlert } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -28,16 +28,31 @@ function Comparaison({ terme, avant, apres, alerte = false }: { terme: string; a
   );
 }
 
+const BADGES_FRICTION = { raison: 'Raison exigée', raison_phrase: 'Raison et phrase exigées' } as const;
+
+/** Ce qui manque encore quand seule la justification fait défaut : rien n'est refusé. */
+function aJustifier(friction: PrixException['friction']): string {
+  return friction === 'raison_phrase'
+    ? "Pour valider, écrivez ci-dessous une raison d'au moins 50 caractères et recopiez la phrase."
+    : "Pour valider, écrivez ci-dessous une raison d'au moins 50 caractères.";
+}
+
+/**
+ * `frictionValide` : la raison (et la phrase) saisies suffisent. L'aperçu est demandé sans elles :
+ * un refus qui ne porte que sur la justification (`frictionManquante`) n'est donc pas un refus.
+ */
 export function ApercuPrix({
   prix,
   calcul,
   fuseau,
   maintenantMs,
+  frictionValide = false,
 }: {
   prix: PrixException | null;
   calcul: boolean;
   fuseau: string;
   maintenantMs: number;
+  frictionValide?: boolean;
 }) {
   if (!prix) {
     return (
@@ -58,26 +73,32 @@ export function ApercuPrix({
     );
   }
   const heure = (instant: string) => formaterHeureRelative(instant, fuseau, maintenantMs);
+  const enAttente = !prix.admissible && prix.frictionManquante === true;
+  const refuse = !prix.admissible && !enAttente;
   return (
     <section
       aria-label="Prix du changement"
       aria-live="polite"
-      className={cn('grid gap-3 rounded-xl border p-4', prix.admissible ? 'bg-muted/40' : 'border-destructive/40 bg-destructive/5')}
+      className={cn('grid gap-3 rounded-xl border p-4', refuse ? 'border-destructive/40 bg-destructive/5' : 'bg-muted/40')}
     >
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-semibold">Prix</span>
-        {prix.admissible ? (
+        {prix.admissible || (enAttente && frictionValide) ? (
           <Badge variant="outline" className="text-succes border-succes/40">
             <CircleCheck /> {prix.resserre ? 'Plus strict : toujours accepté' : 'Accepté'}
+          </Badge>
+        ) : enAttente ? (
+          <Badge variant="outline">
+            <PenLine /> À justifier
           </Badge>
         ) : (
           <Badge variant="destructive">
             <CircleX /> Refusé
           </Badge>
         )}
-        {prix.friction === 'raison_phrase' ? (
+        {prix.friction !== 'aucune' ? (
           <Badge variant="outline" className="text-avertissement border-avertissement/40">
-            <ShieldAlert /> Raison et phrase exigées
+            <ShieldAlert /> {BADGES_FRICTION[prix.friction]}
           </Badge>
         ) : (
           <Badge variant="secondary">Sans justification</Badge>
@@ -93,7 +114,8 @@ export function ApercuPrix({
           alerte={sommeil(prix.coucherApres, prix.leverApres) < sommeil(prix.coucherAvant, prix.leverAvant)}
         />
       </div>
-      {prix.admissible ? null : <p className="text-destructive text-sm font-medium">{prix.motifRefus ? `${phrase(prix.motifRefus.replace(/\.$/, ''))}.` : 'Changement refusé.'}</p>}
+      {enAttente && !frictionValide ? <p className="text-muted-foreground text-sm">{aJustifier(prix.friction)}</p> : null}
+      {refuse ? <p className="text-destructive text-sm font-medium">{prix.motifRefus ? `${phrase(prix.motifRefus.replace(/\.$/, ''))}.` : 'Changement refusé.'}</p> : null}
     </section>
   );
 }

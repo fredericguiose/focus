@@ -105,7 +105,7 @@ describe('intégration : vrai moteur + exemple.yaml', () => {
     expect(blocage.corps).toMatchObject({ bloque: false, mode: 'WORK', sessions: 'autorisees' });
 
     const prix = await appeler('POST', '/v1/exceptions/prix', web, { type: 'coucher', nuit: '2026-11-08', heure: '22:00' });
-    expect(prix.corps.prix.admissible).toBe(true);
+    expect(prix.corps.prix).toMatchObject({ admissible: false, friction: 'raison' });
 
     const accuse = await appeler('POST', '/v1/accuses', pc, { action: 'verrouiller_session', pose_le: '2026-11-08T20:31:00Z' });
     expect(accuse).toEqual({ statut: 201, corps: { enregistre: true, nuit: '2026-11-08' } });

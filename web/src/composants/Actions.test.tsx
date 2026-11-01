@@ -96,8 +96,8 @@ describe('actions selon la phase donnée par l’API', () => {
   });
 });
 
-describe('« Décaler le coucher » en mode libre', () => {
-  it('retirer : ne propose que les engagements annulables, avec le prix en direct', async () => {
+describe('« Décaler le coucher » avant l’ouverture : raison seule', () => {
+  it('retirer : ne propose que les engagements annulables, avec le prix en direct, et demande une raison', async () => {
     const { prix } = await rendre(JOURNEE);
     const fenetre = await ouvrirDecaler();
     fireEvent.click(within(fenetre).getByRole('button', { name: /Retirer un engagement de demain/ }));
@@ -109,6 +109,71 @@ describe('« Décaler le coucher » en mode libre', () => {
     expect(prix).toHaveBeenCalledWith({ demande: { type: 'retire', date: '2026-11-04', engagement: 'sport' } });
     const apercu = within(fenetre).getByRole('region', { name: 'Prix du changement' });
     expect(within(apercu).getByText('Lever')).toBeTruthy();
+    expect(within(fenetre).getByLabelText(/^Raison/)).toBeTruthy();
+    expect(within(fenetre).queryByLabelText(/^Recopiez/)).toBeNull();
+  });
+
+  it('choisir l’heure de coucher : champ raison sans phrase, « À justifier » en neutre puis enregistrement avec la raison', async () => {
+    const { enregistrer } = await rendre(JOURNEE);
+    const fenetre = await ouvrirDecaler();
+    expect(within(fenetre).getByText(/une raison d'au moins 50 caractères est demandée/)).toBeTruthy();
+    fireEvent.click(within(fenetre).getByRole('button', { name: /Choisir l'heure de coucher/ }));
+    await vider();
+    saisir('Heure de coucher', '22:00');
+    await avancer(DELAI_APERCU_MS);
+
+    const apercu = within(fenetre).getByRole('region', { name: 'Prix du changement' });
+    expect(within(apercu).getByText('Raison exigée')).toBeTruthy();
+    expect(within(apercu).getByText('À justifier')).toBeTruthy();
+    expect(within(apercu).queryByText('Refusé')).toBeNull();
+    expect(within(apercu).queryByText('Sans justification')).toBeNull();
+    expect(within(apercu).getByText("Pour valider, écrivez ci-dessous une raison d'au moins 50 caractères.")).toBeTruthy();
+    expect(within(fenetre).queryByText(/une fois par nuit/)).toBeNull();
+    expect(within(fenetre).queryByLabelText(/^Recopiez/)).toBeNull();
+
+    const valider = () => within(fenetre).getByRole<HTMLButtonElement>('button', { name: 'Valider' });
+    expect(valider().disabled).toBe(true);
+    saisir(/^Raison/, 'r'.repeat(49));
+    expect(within(fenetre).getByText('49 / 50 caractères')).toBeTruthy();
+    expect(valider().disabled).toBe(true);
+    saisir(/^Raison/, ` ${'r'.repeat(50)} `);
+    expect(within(apercu).getByText('Accepté')).toBeTruthy();
+    expect(valider().disabled).toBe(false);
+
+    fireEvent.click(valider());
+    await avancer(100);
+    expect(enregistrer).toHaveBeenCalledWith({
+      demande: { type: 'coucher', nuit: '2026-11-03', heure: '22:00' },
+      friction: { raison: 'r'.repeat(50) },
+    });
+  });
+
+  it('décaler un engagement plus tard : raison exigée ; plus tôt : libre', async () => {
+    await rendre(JOURNEE);
+    const fenetre = await ouvrirDecaler();
+    fireEvent.click(within(fenetre).getByRole('button', { name: /Décaler un engagement de demain/ }));
+    await vider();
+    saisir("Nouvelle heure de l'engagement", '06:30');
+    await avancer(DELAI_APERCU_MS);
+    expect(within(fenetre).getByText('Raison exigée')).toBeTruthy();
+    expect(within(fenetre).getByLabelText(/^Raison/)).toBeTruthy();
+
+    saisir("Nouvelle heure de l'engagement", '05:30');
+    await avancer(DELAI_APERCU_MS);
+    expect(within(fenetre).getByText('Sans justification')).toBeTruthy();
+    expect(within(fenetre).queryByLabelText(/^Raison/)).toBeNull();
+    expect(within(fenetre).getByRole<HTMLButtonElement>('button', { name: 'Valider' }).disabled).toBe(false);
+  });
+
+  it('sommeil sous le minimum : refus en rouge, sans champ raison', async () => {
+    await rendre(JOURNEE);
+    const fenetre = await ouvrirDecaler();
+    fireEvent.click(within(fenetre).getByRole('button', { name: /Choisir l'heure de coucher/ }));
+    await vider();
+    saisir('Heure de coucher', '23:00');
+    await avancer(DELAI_APERCU_MS);
+    expect(within(fenetre).getByText('Refusé')).toBeTruthy();
+    expect(within(fenetre).getByText(/sous le minimum/)).toBeTruthy();
     expect(within(fenetre).queryByLabelText(/^Raison/)).toBeNull();
   });
 

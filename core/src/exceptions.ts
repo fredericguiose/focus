@@ -1,5 +1,5 @@
 // Prix d'une exception (docs/conception.md §3.4). Resserrer est toujours permis ; desserrer
-// coûte de plus en plus cher à mesure que la nuit approche.
+// exige une raison, et coûte plus cher une fois la soirée ouverte.
 
 import type { Contexte, DemandeException, Exception, FrictionFournie, Journee, PrixException } from './types';
 import { engagementEffectif, engagementsDuJour, journee, nuitDe, routineDuJour } from './journee';
@@ -83,11 +83,15 @@ function resserre(contexte: Contexte, d: DemandeException, avant: Journee, apres
   }
 }
 
-function frictionManquante(friction: FrictionFournie | undefined): string | undefined {
+function raisonManquante(friction: FrictionFournie | undefined): string | undefined {
   const raison = friction?.raison?.trim() ?? '';
-  if (raison.length < RAISON_MIN_CARACTERES) {
-    return `décision de nuit : raison d'au moins ${RAISON_MIN_CARACTERES} caractères exigée (${raison.length} fournis)`;
-  }
+  if (raison.length >= RAISON_MIN_CARACTERES) return undefined;
+  return `raison d'au moins ${RAISON_MIN_CARACTERES} caractères exigée (${raison.length} fournis)`;
+}
+
+function frictionManquante(friction: FrictionFournie | undefined): string | undefined {
+  const raison = raisonManquante(friction);
+  if (raison) return `décision de nuit : ${raison}`;
   if (friction?.phrase !== PHRASE_DECISION_DE_NUIT) {
     return `décision de nuit : recopier exactement la phrase « ${PHRASE_DECISION_DE_NUIT} »`;
   }
@@ -96,8 +100,9 @@ function frictionManquante(friction: FrictionFournie | undefined): string | unde
 
 /**
  * Les contrôles sont ordonnés : si le motif de refus porte sur la friction, tout le reste est
- * admissible. Une décision de nuit acceptée (friction 'raison_phrase') doit être enregistrée
- * avec `pendantNuit: true`, et elle seule. Lève une erreur si la demande n'a pas de nuit.
+ * admissible. Avant l'ouverture, desserrer exige une raison (friction 'raison'). Une décision
+ * de nuit acceptée (friction 'raison_phrase') doit être enregistrée avec `pendantNuit: true`,
+ * et elle seule. Lève une erreur si la demande n'a pas de nuit.
  */
 export function prixException(contexte: Contexte, demande: DemandeException, friction?: FrictionFournie): PrixException {
   const { sommeil } = contexte.config;
@@ -119,10 +124,11 @@ export function prixException(contexte: Contexte, demande: DemandeException, fri
     detteApresMin: apres.detteNuitMin,
   };
   const accepte = (f: PrixException['friction']): PrixException => ({ admissible: true, friction: f, ...bilan });
-  const refuse = (motif: string, f: PrixException['friction'] = 'aucune'): PrixException => ({
+  const refuse = (motif: string, f: PrixException['friction'] = 'aucune', manquante = false): PrixException => ({
     admissible: false,
     motifRefus: motif,
     friction: f,
+    ...(manquante ? { frictionManquante: true } : {}),
     ...bilan,
   });
 
@@ -133,9 +139,10 @@ export function prixException(contexte: Contexte, demande: DemandeException, fri
   const sommeilApres = (lireInstant(apres.leverSuivant) - lireInstant(apres.coucherApplique)) / MINUTE;
   if (t < lireInstant(avant.ouverture)) {
     if (sommeilApres < sommeil.minimumMin) {
-      return refuse(`sommeil prévu ${duree(sommeilApres)}, sous le minimum de ${duree(sommeil.minimumMin)}`);
+      return refuse(`sommeil prévu ${duree(sommeilApres)}, sous le minimum de ${duree(sommeil.minimumMin)}`, 'raison');
     }
-    return accepte('aucune');
+    const manque = raisonManquante(friction);
+    return manque ? refuse(manque, 'raison', true) : accepte('raison');
   }
 
   if (avant.decisionDeNuitPrise) return refuse(`décision de nuit déjà prise pour la nuit du ${dateCourte(nuit)} (une seule par nuit)`, 'raison_phrase');
@@ -143,5 +150,5 @@ export function prixException(contexte: Contexte, demande: DemandeException, fri
     return refuse(`sommeil prévu ${duree(sommeilApres)}, sous le plancher de nuit de ${duree(sommeil.plancherNuitMin)}`, 'raison_phrase');
   }
   const manque = frictionManquante(friction);
-  return manque ? refuse(manque, 'raison_phrase') : accepte('raison_phrase');
+  return manque ? refuse(manque, 'raison_phrase', true) : accepte('raison_phrase');
 }

@@ -307,7 +307,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
         decaler_coucher: { mode: 'indisponible', motif: `décision de nuit déjà prise pour la nuit du ${dateCourte(date)} (une seule par nuit)` },
       };
     }
-    if (phase === 'journee') return { je_vais_dormir: jeVaisDormir, decaler_coucher: { mode: 'libre', motif: null } };
+    if (phase === 'journee') return { je_vais_dormir: jeVaisDormir, decaler_coucher: { mode: 'raison', motif: null } };
     return {
       je_vais_dormir: jeVaisDormir,
       decaler_coucher: {
@@ -610,7 +610,16 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
     }
   }
 
-  function calculerPrix(demande: DemandeException, t: number): PrixException {
+  /** Même ordre que le moteur : si seule la friction manque, tout le reste est admissible. */
+  function frictionManquante(friction: CorpsException['friction'], avecPhrase: boolean): string | undefined {
+    const longueur = longueurRaison(friction?.raison ?? '');
+    const prefixe = avecPhrase ? 'décision de nuit : ' : '';
+    if (longueur < RAISON_MIN) return `${prefixe}raison d'au moins ${RAISON_MIN} caractères exigée (${longueur} fournis)`;
+    if (avecPhrase && friction?.phrase !== PHRASE_NUIT) return `${prefixe}recopier exactement la phrase « ${PHRASE_NUIT} »`;
+    return undefined;
+  }
+
+  function calculerPrix(demande: DemandeException, t: number, friction?: CorpsException['friction']): PrixException {
     verifierDemande(demande);
     const nuit = nuitDe(demande);
     const apres = [...exceptions, { id: 'essai', demande, creeeLe: versInstant(t), pendantNuit: false }];
@@ -641,15 +650,23 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
     }
 
     const sommeil = (leverApres - coucherApres) / MINUTE;
-    if (t < ouverture(nuit, exceptions) && !decisionPrise(nuit)) {
-      const admissible = sommeil >= MINIMUM_MIN;
+    const avecFriction = (f: 'raison' | 'raison_phrase', motifRefus: string | undefined): PrixException => {
+      const manque = motifRefus === undefined ? frictionManquante(friction, f === 'raison_phrase') : undefined;
+      const refus = motifRefus ?? manque;
       return {
         ...base,
-        admissible,
-        motifRefus: admissible ? undefined : `sommeil prévu ${formaterDuree(sommeil)}, sous le minimum de ${formaterDuree(MINIMUM_MIN)}`,
-        friction: 'aucune',
+        admissible: refus === undefined,
+        ...(refus !== undefined ? { motifRefus: refus } : {}),
+        friction: f,
+        ...(manque !== undefined ? { frictionManquante: true } : {}),
         resserre: false,
       };
+    };
+    if (t < ouverture(nuit, exceptions) && !decisionPrise(nuit)) {
+      return avecFriction(
+        'raison',
+        sommeil < MINIMUM_MIN ? `sommeil prévu ${formaterDuree(sommeil)}, sous le minimum de ${formaterDuree(MINIMUM_MIN)}` : undefined,
+      );
     }
     if (t < leverAvant) {
       let motifRefus: string | undefined;
@@ -657,7 +674,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
       else if (sommeil < PLANCHER_NUIT_MIN) {
         motifRefus = `sommeil prévu ${formaterDuree(sommeil)}, sous le plancher de nuit de ${formaterDuree(PLANCHER_NUIT_MIN)}`;
       }
-      return { ...base, admissible: motifRefus === undefined, motifRefus, friction: 'raison_phrase', resserre: false };
+      return avecFriction('raison_phrase', motifRefus);
     }
     return { ...base, admissible: false, motifRefus: `la nuit du ${dateCourte(nuit)} est passée`, friction: 'aucune', resserre: false };
   }
@@ -846,23 +863,14 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
         sessions = sessions.filter((x) => x !== s);
       }),
 
-    prixException: (corps: CorpsException) => servir(() => calculerPrix(corps.demande, maintenant())),
+    prixException: (corps: CorpsException) => servir(() => calculerPrix(corps.demande, maintenant(), corps.friction)),
 
     enregistrerException: (corps) =>
       servir(() => {
         const t = maintenant();
-        const prix = calculerPrix(corps.demande, t);
+        const prix = calculerPrix(corps.demande, t, corps.friction);
+        if (prix.frictionManquante) throw new ErreurFocus('friction_requise', prix.motifRefus ?? 'Raison exigée.', 400);
         if (!prix.admissible) throw new ErreurFocus('exception_refusee', prix.motifRefus ?? 'Exception refusée.', 409);
-        if (prix.friction === 'raison_phrase') {
-          const raison = corps.friction?.raison ?? '';
-          if (longueurRaison(raison) < RAISON_MIN || corps.friction?.phrase !== PHRASE_NUIT) {
-            throw new ErreurFocus(
-              'friction_requise',
-              `Décision de nuit : une raison d'au moins ${RAISON_MIN} caractères et la phrase exacte « ${PHRASE_NUIT} » sont exigées.`,
-              400,
-            );
-          }
-        }
         compteur += 1;
         exceptions.push({
           id: `e_${compteur}`,

@@ -164,7 +164,7 @@ export type Phase = 'journee' | 'soiree' | 'nuit';
 /** Ce que l'interface peut proposer maintenant : l'API décide, l'interface suit. */
 export interface ActionsStatut {
   je_vais_dormir: { disponible: boolean; motif: string | null };
-  decaler_coucher: { mode: 'libre' | 'decision_de_nuit' | 'indisponible'; motif: string | null };
+  decaler_coucher: { mode: 'raison' | 'decision_de_nuit' | 'indisponible'; motif: string | null };
 }
 
 /** Engagement du lendemain (jour du prochain lever), tel que la config et les exceptions le donnent. */

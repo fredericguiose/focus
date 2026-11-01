@@ -11,6 +11,11 @@ describe('validerFriction', () => {
     expect(validerFriction(raison50, '').valide).toBe(false);
   });
 
+  it('avant l’ouverture, la raison suffit : la phrase n’est pas demandée', () => {
+    expect(validerFriction(raison50, '', false)).toEqual({ longueur: 50, raisonOk: true, phraseOk: true, valide: true });
+    expect(validerFriction('x'.repeat(49), '', false).valide).toBe(false);
+  });
+
   it('ne compte pas les espaces de bord', () => {
     expect(longueurRaison(`   ${'x'.repeat(49)}   `)).toBe(49);
   });

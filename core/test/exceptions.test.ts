@@ -10,6 +10,7 @@ const AVANT_OUVERTURE = '2026-11-02T14:00:00Z';
 const APRES_OUVERTURE = '2026-11-02T20:00:00Z';
 const RAISON = 'Exposé de groupe à rendre demain matin, la partie commune arrive ce soir.';
 const FRICTION = { raison: RAISON, phrase: PHRASE_DECISION_DE_NUIT };
+const MOTIF = { raison: RAISON };
 const coucher = (heure: string, nuit = NUIT) => ({ type: 'coucher' as const, nuit, heure });
 
 describe('exceptions — resserrer', () => {
@@ -27,6 +28,7 @@ describe('exceptions — resserrer', () => {
       detteApresMin: -60,
     });
     expect(prixException(contexte('2026-11-02T22:00:00Z'), coucher('22:00')).admissible).toBe(true);
+    expect(prixException(contexte(AVANT_OUVERTURE), coucher('21:30'))).toMatchObject({ admissible: true, friction: 'aucune' });
   });
 
   it('ajouter un engagement plus tôt avance le lever et le coucher', () => {
@@ -39,18 +41,34 @@ describe('exceptions — resserrer', () => {
 });
 
 describe('exceptions — desserrer avant l\'ouverture', () => {
-  it('sans friction si le sommeil reste ≥ 7 h', () => {
-    const p = prixException(contexte(AVANT_OUVERTURE), coucher('23:30'));
+  it('sans raison : refusé, avec le nombre de caractères fournis', () => {
+    const sans = prixException(contexte(AVANT_OUVERTURE), coucher('23:30'));
+    expect(sans).toMatchObject({ admissible: false, friction: 'raison', frictionManquante: true, resserre: false });
+    expect(sans.motifRefus).toBe("raison d'au moins 50 caractères exigée (0 fournis)");
+    const courte = prixException(contexte(AVANT_OUVERTURE), coucher('23:30'), { raison: `  ${'x'.repeat(49)}  ` });
+    expect(courte.motifRefus).toBe("raison d'au moins 50 caractères exigée (49 fournis)");
+  });
+
+  it('avec une raison, sans phrase et sans limite par nuit, si le sommeil reste ≥ 7 h', () => {
+    const p = prixException(contexte(AVANT_OUVERTURE), coucher('23:30'), MOTIF);
     expect(p.admissible).toBe(true);
-    expect(p.friction).toBe('aucune');
+    expect(p.friction).toBe('raison');
     expect(p.resserre).toBe(false);
     expect(p.coucherApres).toBe('2026-11-02T22:30:00Z');
     expect(p.detteApresMin).toBe(60);
   });
 
-  it('refusé sous 7 h', () => {
-    const p = prixException(contexte(AVANT_OUVERTURE), coucher('23:45'));
+  it('sans limite par nuit : une exception déjà enregistrée ne bloque pas la suivante', () => {
+    const deja = exception(coucher('23:00'), '2026-11-02T13:00:00Z', false);
+    const p = prixException(contexte(AVANT_OUVERTURE, { exceptions: [deja] }), coucher('23:30'), MOTIF);
+    expect(p).toMatchObject({ admissible: true, friction: 'raison' });
+  });
+
+  it('refusé sous 7 h, même avec une raison', () => {
+    const p = prixException(contexte(AVANT_OUVERTURE), coucher('23:45'), MOTIF);
     expect(p.admissible).toBe(false);
+    expect(p.friction).toBe('raison');
+    expect(p.frictionManquante).toBeUndefined();
     expect(p.motifRefus).toBe('sommeil prévu 6h45, sous le minimum de 7h00');
   });
 });
@@ -60,6 +78,7 @@ describe('exceptions — décision de nuit (après l\'ouverture)', () => {
     const sans = prixException(contexte(APRES_OUVERTURE), coucher('23:30'));
     expect(sans.admissible).toBe(false);
     expect(sans.friction).toBe('raison_phrase');
+    expect(sans.frictionManquante).toBe(true);
     expect(sans.motifRefus).toMatch(/raison d'au moins 50 caractères/);
 
     const courte = prixException(contexte(APRES_OUVERTURE), coucher('23:30'), { raison: 'x'.repeat(49), phrase: PHRASE_DECISION_DE_NUIT });
@@ -114,10 +133,12 @@ describe('exceptions — engagements', () => {
   });
 
   it('retirer le sport du mercredi : desserrer, lever et coucher reculent ensemble', () => {
-    const p = prixException(contexte('2026-11-03T14:00:00Z'), { type: 'retire', date: '2026-11-04', engagement: 'sport' });
+    const retire = { type: 'retire' as const, date: '2026-11-04', engagement: 'sport' };
+    expect(prixException(contexte('2026-11-03T14:00:00Z'), retire)).toMatchObject({ admissible: false, friction: 'raison' });
+    const p = prixException(contexte('2026-11-03T14:00:00Z'), retire, MOTIF);
     expect(p).toMatchObject({
       admissible: true,
-      friction: 'aucune',
+      friction: 'raison',
       resserre: false,
       leverAvant: '2026-11-04T04:30:00Z',
       leverApres: '2026-11-04T05:30:00Z',
@@ -147,13 +168,13 @@ describe('exceptions — engagements', () => {
   });
 
   it('décaler : plus tard = desserrer, plus tôt = resserrer', () => {
-    const tard = prixException(contexte(AVANT_OUVERTURE), { type: 'decale', date: '2026-11-03', engagement: 'travail', heure: '06:50' });
-    expect(tard).toMatchObject({ admissible: true, resserre: false, leverApres: '2026-11-03T05:50:00Z', coucherApres: '2026-11-02T21:50:00Z' });
+    const tard = prixException(contexte(AVANT_OUVERTURE), { type: 'decale', date: '2026-11-03', engagement: 'travail', heure: '06:50' }, MOTIF);
+    expect(tard).toMatchObject({ admissible: true, friction: 'raison', resserre: false, leverApres: '2026-11-03T05:50:00Z', coucherApres: '2026-11-02T21:50:00Z' });
     // Le lever ne dépasse jamais le réveil libre (07:00).
-    const tresTard = prixException(contexte(AVANT_OUVERTURE), { type: 'decale', date: '2026-11-03', engagement: 'travail', heure: '07:30' });
+    const tresTard = prixException(contexte(AVANT_OUVERTURE), { type: 'decale', date: '2026-11-03', engagement: 'travail', heure: '07:30' }, MOTIF);
     expect(tresTard.leverApres).toBe('2026-11-03T06:00:00Z');
     const tot = prixException(contexte(APRES_OUVERTURE), { type: 'decale', date: '2026-11-04', engagement: 'sport', heure: '05:30' });
-    expect(tot).toMatchObject({ admissible: true, resserre: true, leverApres: '2026-11-04T04:00:00Z' }); // réveil 05:00
+    expect(tot).toMatchObject({ admissible: true, friction: 'aucune', resserre: true, leverApres: '2026-11-04T04:00:00Z' }); // réveil 05:00
   });
 });
 

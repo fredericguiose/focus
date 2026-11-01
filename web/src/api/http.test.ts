@@ -125,7 +125,7 @@ describe('format réel de l’API', () => {
       appareils: [{ nom: 'pc_linux', type: 'pc_linux', mode: 'WORK', sessions: 'autorisees', raison: 'WORK', dernier_ping: null, jusqua: '2026-11-03T23:20:00Z' }],
       sessions: [],
       phase: 'journee',
-      actions: { je_vais_dormir: { disponible: true, motif: null }, decaler_coucher: { mode: 'libre', motif: null } },
+      actions: { je_vais_dormir: { disponible: true, motif: null }, decaler_coucher: { mode: 'raison', motif: null } },
       engagements_demain: [
         { id: 'salle', nom: 'Salle', reveil: '2026-11-04T08:30:00Z', heure: '2026-11-04T09:00:00Z', annulable: true, decalable: false, origine: 'routine' },
       ],
@@ -141,7 +141,7 @@ describe('format réel de l’API', () => {
     };
     const statut = await creerApiHttp('j', '', vi.fn<typeof fetch>(async () => reponse(200, JSON.stringify(corps)))).statut();
     expect(statut.phase).toBe('journee');
-    expect(statut.actions?.decaler_coucher.mode).toBe('libre');
+    expect(statut.actions?.decaler_coucher.mode).toBe('raison');
     expect(statut.engagements_demain?.[0]).toMatchObject({ id: 'salle', annulable: true, decalable: false });
     expect(statut.appareils[0]?.jusqua).toBe('2026-11-03T23:20:00Z');
     // API sans session_possible : repli sur `sessions`.
@@ -213,6 +213,14 @@ describe('format réel de l’API', () => {
       phrase: 'p',
     });
     expect(resultat).toMatchObject({ admissible: false, motifRefus: 'Sommeil trop court.', detteApresMin: 60 });
+    expect(resultat.frictionManquante).toBeUndefined();
+    recuperer.mockResolvedValueOnce(
+      reponse(200, JSON.stringify({ demande: {}, prix: { ...prix, friction: 'raison', friction_manquante: true, motif_refus: 'raison manquante' } })),
+    );
+    expect(await api.prixException({ demande: { type: 'coucher', nuit: '2026-11-03', heure: '22:00' } })).toMatchObject({
+      friction: 'raison',
+      frictionManquante: true,
+    });
   });
 
   it('retrouve les apps bloquées par /v1/blocage', async () => {

@@ -101,7 +101,8 @@ export interface TachesFil {
 export interface PrixFil {
   admissible: boolean;
   motif_refus: string | null;
-  friction: 'aucune' | 'raison_phrase';
+  friction: 'aucune' | 'raison' | 'raison_phrase';
+  friction_manquante?: boolean;
   resserre: boolean;
   coucher_avant: string;
   coucher_apres: string;
@@ -195,6 +196,7 @@ export function prixDepuisFil(p: PrixFil): PrixException {
     admissible: p.admissible,
     ...(p.motif_refus ? { motifRefus: p.motif_refus } : {}),
     friction: p.friction,
+    ...(p.friction_manquante ? { frictionManquante: true } : {}),
     resserre: p.resserre,
     coucherAvant: p.coucher_avant,
     coucherApres: p.coucher_apres,

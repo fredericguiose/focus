@@ -1,4 +1,5 @@
-// Friction de la décision de nuit (conception §3.4). L'API reste juge ; l'interface désactive
+// Friction d'un desserrage (conception §3.4) : raison seule avant l'ouverture, raison et phrase
+// pour la décision de nuit. L'API reste juge ; l'interface désactive
 // seulement le bouton tant que la demande serait refusée à coup sûr.
 
 export const PHRASE_NUIT = 'JE NE PEUX PAS DECALER';
@@ -20,9 +21,9 @@ export interface ValidationFriction {
   valide: boolean;
 }
 
-export function validerFriction(raison: string, phrase: string): ValidationFriction {
+export function validerFriction(raison: string, phrase: string, avecPhrase = true): ValidationFriction {
   const longueur = longueurRaison(raison);
   const raisonOk = longueur >= RAISON_MIN;
-  const phraseOk = phrase === PHRASE_NUIT;
+  const phraseOk = !avecPhrase || phrase === PHRASE_NUIT;
   return { longueur, raisonOk, phraseOk, valide: raisonOk && phraseOk };
 }

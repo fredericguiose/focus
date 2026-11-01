@@ -211,7 +211,10 @@ export interface FrictionFournie {
 export interface PrixException {
   admissible: boolean;
   motifRefus?: string;
-  friction: 'aucune' | 'raison_phrase';
+  /** 'raison' : desserrer avant l'ouverture ; 'raison_phrase' : décision de nuit. */
+  friction: 'aucune' | 'raison' | 'raison_phrase';
+  /** Vrai si seule la friction manque : tout le reste est admissible. */
+  frictionManquante?: boolean;
   resserre: boolean;
   coucherAvant: Instant;
   coucherApres: Instant;

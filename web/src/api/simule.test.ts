@@ -66,12 +66,12 @@ describe('API simulée : statut', () => {
 });
 
 describe('API simulée : phase et actions', () => {
-  it('journée : les deux actions sont libres ; engagements de demain avec leurs droits', async () => {
+  it('journée : « Je vais dormir » libre, décalage sur raison ; engagements de demain avec leurs droits', async () => {
     const statut = await simulation().api.statut();
     expect(statut.phase).toBe('journee');
     expect(statut.actions).toEqual({
       je_vais_dormir: { disponible: true, motif: null },
-      decaler_coucher: { mode: 'libre', motif: null },
+      decaler_coucher: { mode: 'raison', motif: null },
     });
     expect(statut.engagements_demain).toEqual([
       { id: 'sport', nom: 'Sport', reveil: '2026-11-04T04:30:00Z', heure: '2026-11-04T05:00:00Z', annulable: true, decalable: true, origine: 'routine' },
@@ -235,16 +235,27 @@ describe('API simulée : sessions', () => {
 });
 
 describe('API simulée : exceptions', () => {
-  it('avant l’ouverture : sans friction, plafonné par le sommeil minimum', async () => {
+  it('avant l’ouverture : raison seule, plafonné par le sommeil minimum', async () => {
     const { api } = simulation();
-    const refuse = await api.prixException({ demande: { type: 'coucher', nuit: '2026-11-03', heure: '23:00' } });
-    expect(refuse).toMatchObject({ admissible: false, friction: 'aucune', resserre: false });
+    const raison = { raison: 'r'.repeat(50) };
+    const refuse = await api.prixException({ demande: { type: 'coucher', nuit: '2026-11-03', heure: '23:00' }, friction: raison });
+    expect(refuse).toMatchObject({ admissible: false, friction: 'raison', resserre: false });
+    expect(refuse.frictionManquante).toBeUndefined();
     expect(refuse.motifRefus).toContain('minimum');
 
-    const accepte = await api.prixException({ demande: { type: 'coucher', nuit: '2026-11-03', heure: '22:00' } });
+    const demande = { type: 'coucher', nuit: '2026-11-03', heure: '22:00' } as const;
+    expect(await api.prixException({ demande })).toMatchObject({
+      admissible: false,
+      friction: 'raison',
+      frictionManquante: true,
+      motifRefus: "raison d'au moins 50 caractères exigée (0 fournis)",
+    });
+    expect((await erreurDe(api.enregistrerException({ demande }))).erreur).toBe('friction_requise');
+
+    const accepte = await api.prixException({ demande, friction: raison });
     expect(accepte).toMatchObject({
       admissible: true,
-      friction: 'aucune',
+      friction: 'raison',
       coucherAvant: '2026-11-03T20:30:00Z',
       coucherApres: '2026-11-03T21:00:00Z',
       detteAvantMin: 0,
@@ -263,7 +274,7 @@ describe('API simulée : exceptions', () => {
     const sim = simulation();
     sim.regler('2026-11-03T19:00:00Z');
     const demande = { type: 'coucher', nuit: '2026-11-03', heure: '22:30' } as const;
-    expect(await sim.api.prixException({ demande })).toMatchObject({ admissible: true, friction: 'raison_phrase' });
+    expect(await sim.api.prixException({ demande })).toMatchObject({ admissible: false, friction: 'raison_phrase', frictionManquante: true });
 
     const sansFriction = await erreurDe(sim.api.enregistrerException({ demande }));
     expect(sansFriction.erreur).toBe('friction_requise');

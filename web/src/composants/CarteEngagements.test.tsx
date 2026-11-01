@@ -25,7 +25,7 @@ describe('carte « Engagements »', () => {
 
   it('annuler la séance de demain la marque « annulée à l’avance »', async () => {
     const a = api();
-    await a.enregistrerException({ demande: { type: 'retire', date: '2026-11-08', engagement: 'sport' } });
+    await a.enregistrerException({ demande: { type: 'retire', date: '2026-11-08', engagement: 'sport' }, friction: { raison: 'r'.repeat(50) } });
     const s = await a.statut();
     expect(s.engagements_verifies!.at(-1)!.statut).toBe('saute_declare');
   });

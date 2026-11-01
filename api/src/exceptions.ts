@@ -56,6 +56,7 @@ function vuePrix(p: PrixException) {
     admissible: p.admissible,
     motif_refus: p.motifRefus ?? null,
     friction: p.friction,
+    friction_manquante: p.frictionManquante === true,
     resserre: p.resserre,
     coucher_avant: p.coucherAvant,
     coucher_apres: p.coucherApres,
@@ -89,6 +90,9 @@ export async function enregistrerException(deps: Dependances, db: D1Database, je
   // Garde-fou : le moteur vérifie le contenu de la friction ; on refuse au moins son absence.
   if (prix.friction === 'raison_phrase' && (!friction.raison || !friction.phrase)) {
     throw new ErreurApi(422, 'friction_manquante', 'Cette exception demande une raison et la phrase exacte.', { prix: vuePrix(prix) });
+  }
+  if (prix.friction === 'raison' && !friction.raison) {
+    throw new ErreurApi(422, 'friction_manquante', 'Cette exception demande une raison.', { prix: vuePrix(prix) });
   }
   const id = nouvelIdentifiant('e');
   const jour = demande.type === 'coucher' || demande.type === 'avancer_coucher' ? demande.nuit : demande.date;

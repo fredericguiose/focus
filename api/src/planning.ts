@@ -167,7 +167,7 @@ export function actionsPossibles(j: Journee, phase: Phase) {
         : { disponible: true, motif: null },
     decaler_coucher:
       phase === 'journee'
-        ? { mode: 'libre' as const, motif: null }
+        ? { mode: 'raison' as const, motif: null }
         : j.decisionDeNuitPrise
           ? { mode: 'indisponible' as const, motif: `décision de nuit déjà prise pour la nuit du ${dateCourte(j.date)} (une seule par nuit)` }
           : { mode: 'decision_de_nuit' as const, motif: `soirée ouverte depuis ${ouverture}` },
