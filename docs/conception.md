@@ -412,10 +412,15 @@ Création par un script local (`npm run jeton:creer -- <appareil|interface|confi
 affiche le jeton une fois.
 
 Production (01/11) : deux hôtes servis par le même Worker. `focus.fredericguiose.com` (web app et
-ses appels, jeton `interface`) est derrière **Cloudflare Access**, et le Worker revérifie le JWT
-Access sur toute requête, fichiers statiques compris ; `api-focus.fredericguiose.com` (clients)
-n'a pas d'Access, refuse le jeton `interface` (403) et n'a ni les routes réservées à l'interface
-ni la web app (404). Tout autre hôte, workers.dev compris, est refusé ; workers.dev est
+ses appels) est derrière **Cloudflare Access**, et le Worker revérifie le JWT Access sur toute
+requête, fichiers statiques compris. **Plus de jeton pour la web app en ligne** : l'identité est
+l'e-mail vérifié par Access, traduit en utilisateur par le secret `ACCES_UTILISATEURS`
+(`email=utilisateur`) ; une requête `/v1/*` sans `Authorization` vaut jeton `interface` de cet
+utilisateur (sans ligne en base, donc sans `vu_le`), un Bearer d'un autre utilisateur est refusé
+(403). En local, même chose avec `FOCUS_UTILISATEUR_LOCAL` (posée par `npm run local`), le
+Bearer gardant son comportement ; sans elle, jeton exigé. `api-focus.fredericguiose.com` (clients)
+n'a pas d'Access (jetons seuls), refuse le jeton `interface` (403) et n'a ni les routes réservées
+à l'interface ni la web app (404). Tout autre hôte, workers.dev compris, est refusé ; workers.dev est
 désactivé. En local, un seul hôte sert tout. Détails, routes par hôte et mise en service :
 [mise-en-ligne.md](mise-en-ligne.md).
 
@@ -869,7 +874,8 @@ l'utilisateur, affiche les questions et l'ouverture de session). Ils se parlent 
 - Web app (React + Vite, composants shadcn/ui), servie comme fichiers statiques par le Worker,
   derrière Cloudflare Access (§4.1) ; elle appelle l'API en relatif (même origine).
   Écrans v2.0 : statut, exceptions (avec aperçu du prix), décision de nuit, sessions, dernier
-  ping. Installable en PWA. Jeton `interface` saisi une fois.
+  ping. Installable en PWA. Pas de jeton en ligne ni via `npm run local` (§4.1) : au démarrage,
+  seul un 401 `jeton_absent` à `/v1/statut` sans jeton fait demander le jeton `interface`.
 - Une seule règle de couleurs pour un fait (parcours, carte du mode, tableau des appareils) :
   ✓ vert = fait ; ✗ orange = à faire, c'est ce qui bloque ; horloge grise = heure pas encore
   atteinte (rien à faire). Les motifs de l'API (minuscule initiale, sans point) prennent une

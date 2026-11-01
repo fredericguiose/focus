@@ -31,7 +31,7 @@ npm run local:heure -- 18:00   # régler l'horloge locale (ou +3h, reel)
 npm run local:reset            # repartir de zéro
 ```
 
-Le jeton `interface` est copié dans le presse-papiers ; le coller dans la web app. Détails et
+La web app s'ouvre sans jeton (utilisateur de la config chargée). Détails et
 essai du client PC : [docs/essai-local.md](docs/essai-local.md). Mise en ligne (deux hôtes,
 Cloudflare Access) : [docs/mise-en-ligne.md](docs/mise-en-ligne.md).
 

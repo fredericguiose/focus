@@ -40,8 +40,18 @@ export interface Liaisons {
   ACCES_EQUIPE?: string;
   /** Tag d'audience (AUD) de l'application Access de la web app. */
   ACCES_AUD?: string;
-  /** E-mails autorisés sur l'hôte web, séparés par des virgules ou des espaces. */
+  /**
+   * Secret : correspondance e-mail Access → utilisateur Focus, « a@x.fr=alice,b@y.fr=bob ».
+   * Obligatoire en production (hôte web fermé sinon) ; ses e-mails sont les e-mails autorisés.
+   */
+  ACCES_UTILISATEURS?: string;
+  /** Facultatif : restreint encore les e-mails autorisés (virgules ou espaces). */
   ACCES_EMAILS?: string;
+  /**
+   * Local seulement (posée par scripts/local.mjs) : sans en-tête Authorization, /v1/* vaut jeton
+   * « interface » de cet utilisateur. Absente : jeton exigé.
+   */
+  FOCUS_UTILISATEUR_LOCAL?: string;
 }
 
 export type TypeJeton = 'appareil' | 'interface' | 'config';
@@ -78,5 +88,13 @@ export interface Dependances {
 
 export interface EnvApp {
   Bindings: Liaisons;
-  Variables: { jeton: JetonAuthentifie; hote: Hote };
+  Variables: {
+    jeton: JetonAuthentifie;
+    hote: Hote;
+    /**
+     * Utilisateur établi sans jeton : e-mail Access vérifié (hôte web) ou FOCUS_UTILISATEUR_LOCAL
+     * (local). Absent sur l'hôte de l'API.
+     */
+    utilisateurImplicite?: string;
+  };
 }

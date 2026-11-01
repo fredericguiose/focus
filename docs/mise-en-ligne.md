@@ -5,7 +5,7 @@ par Cloudflare sur le même compte que wrangler. Deux noms d'hôte :
 
 | Hôte | Pour qui | Protection |
 |---|---|---|
-| `focus.fredericguiose.com` | la web app et les appels qu'elle fait (jeton `interface`) | **Cloudflare Access** (connexion de l'utilisateur seul) **+** jeton |
+| `focus.fredericguiose.com` | la web app et les appels qu'elle fait (sans jeton : identité = e-mail vérifié par Access) | **Cloudflare Access** (connexion de l'utilisateur seul), vérifié aussi par le Worker |
 | `api-focus.fredericguiose.com` | les clients : PC (Go), extension, raccourcis iPhone, GitHub Action d'envoi de la config | jetons `appareil` et `config`, sans Access |
 
 L'adresse `*.workers.dev` et les URL de prévisualisation sont désactivées (`workers_dev: false`,
@@ -21,23 +21,43 @@ Access filtre devant le Worker, mais le Worker ne lui fait pas une confiance ave
   repli. Vérifiés : signature RS256 avec les clés publiques de
   `<ACCES_EQUIPE>/cdn-cgi/access/certs` (gardées 1 h, relues si le `kid` est inconnu, au plus une
   fois par minute), `aud` = `ACCES_AUD`, `iss` = `ACCES_EQUIPE`, `exp`/`nbf` (tolérance 60 s),
-  e-mail dans `ACCES_EMAILS`. Refus : **403** `acces_refuse` ; certificats injoignables : **503**
-  `acces_indisponible`. Le jeton `interface` reste exigé en plus sur `/v1/*`.
+  e-mail autorisé (voir ci-dessous). Refus : **403** `acces_refuse` ; certificats injoignables :
+  **503** `acces_indisponible`.
+- **Identité sur l'hôte web = e-mail Access** (depuis le 01/11) : le secret `ACCES_UTILISATEURS`
+  (`email=utilisateur`, séparés par des virgules, ex. `alice@example.com=alice`) donne
+  l'utilisateur Focus de l'e-mail vérifié. Un e-mail autorisé sans correspondance : **403**
+  `utilisateur_inconnu`, partout. Sur `/v1/*`, une requête **sans** en-tête `Authorization` vaut
+  jeton `interface` de cet utilisateur (mêmes droits qu'avant : statut, exceptions, sessions,
+  tâches, blocage, version de config). La web app n'a donc plus de jeton en ligne.
+  Un `Bearer` envoyé quand même est vérifié comme avant **et** doit appartenir au même
+  utilisateur, sinon **403** `jeton_non_autorise` ; invalide, **401**. Un Bearer ne change donc
+  jamais l'identité : il peut seulement donner les droits de son propre type (un jeton `appareil`
+  du même utilisateur sur `/v1/planning`, par exemple). Les routes sans `interface` (planning,
+  accusés, événements, `POST /v1/config`) exigent toujours leur jeton.
+  Pas de « dernier ping » pour cette interface sans jeton : aucune ligne dans `appareils`, aucun
+  `vu_le` écrit (le statut n'affiche de toute façon que celui des jetons `appareil`).
+  `ACCES_EMAILS`, s'il est posé, restreint encore la liste (un e-mail doit être dans les deux) ;
+  absent, les e-mails d'`ACCES_UTILISATEURS` sont les e-mails autorisés.
 - **Hôte API** : seulement `/v1/*` (sinon **404**). Les routes réservées au jeton `interface`
   (`GET /v1/statut`, `POST /v1/exceptions/prix`, `POST /v1/exceptions`, `POST /v1/dev/horloge`)
   y répondent **404** (elles n'existent pas sur cet hôte). Le jeton `interface` y est refusé
   partout (**403** `jeton_non_autorise`) : sans cela, un jeton d'interface volé ouvrirait des
   sessions sans passer par Access.
 - **Tout autre hôte** (workers.dev, IP…) : **403** `hote_inconnu`.
-- **Fail closed** : en production, si `ACCES_EQUIPE`, `ACCES_AUD` ou `ACCES_EMAILS` manque (ou
-  vaut encore `A-REMPLIR`), l'hôte web refuse tout (**403** `acces_non_configure`) et les journaux
+- **Fail closed** : en production, si `ACCES_EQUIPE`, `ACCES_AUD` ou `ACCES_UTILISATEURS` manque
+  (ou vaut encore `A-REMPLIR`, ou une entrée d'`ACCES_UTILISATEURS` est mal formée), l'hôte web refuse tout (**403** `acces_non_configure`) et les journaux
   du Worker disent quelle variable manque. Sans `HOTE_WEB` ou `HOTE_API`, tout est refusé.
 - **En local** (`FOCUS_ENVIRONNEMENT=local`, posé par `npm run local`) : rien de tout cela, un
-  seul hôte `127.0.0.1:8799` sert tout, comme avant.
+  seul hôte `127.0.0.1:8799` sert tout. Sans `Authorization`, `/v1/*` vaut interface de
+  `FOCUS_UTILISATEUR_LOCAL` (posée par `npm run local`) ; sans cette variable, jeton exigé
+  (docs/essai-local.md).
 
 Routes par hôte (jeton accepté) :
 
-| Route | Hôte web (Access + jeton) | Hôte API (jeton seul) |
+Sur l'hôte web, « interface » = sans en-tête `Authorization` (identité Access) ou jeton
+`interface` du même utilisateur ; tout jeton d'un autre utilisateur est refusé.
+
+| Route | Hôte web (Access) | Hôte API (jeton seul) |
 |---|---|---|
 | `GET /v1/planning`, `POST /v1/accuses`, `POST /v1/evenements` | appareil | appareil |
 | `GET /v1/taches`, `GET /v1/blocage`, `POST /v1/sessions`, `POST /v1/sessions/:id/apps`, `…/reponse`, `…/fermer` | interface, appareil | appareil |
@@ -105,16 +125,21 @@ JWT) :
 "ACCES_AUD": "<tag AUD de l'étape 3>"                       // remplacer A-REMPLIR
 ```
 
-L'e-mail autorisé n'est **pas** écrit dans le dépôt (public) : c'est un secret du Worker.
+L'e-mail autorisé n'est **pas** écrit dans le dépôt (public) : la correspondance e-mail →
+utilisateur est un secret du Worker, à passer par l'entrée standard pour qu'elle n'apparaisse
+nulle part :
 
 ```sh
 cd api
-npx wrangler secret put ACCES_EMAILS     # coller l'adresse (plusieurs : séparées par des virgules)
+printf '%s' 'alice@example.com=alice' | npx wrangler secret put ACCES_UTILISATEURS
 ```
 
-Exemple de valeur : `alice@example.com`. Mettre la **même** adresse que dans la politique Access :
-le Worker refuse un JWT dont l'e-mail n'est pas dans cette liste, même si Access l'a laissé
-passer.
+Format : `email=utilisateur`, plusieurs séparés par des virgules ; `utilisateur` = champ
+`utilisateur` de la config. Mettre la **même** adresse que dans la politique Access : le Worker
+refuse un JWT dont l'e-mail n'est pas dans cette liste, même si Access l'a laissé passer.
+`ACCES_EMAILS` (première mise en ligne, liste d'e-mails seule) reste lu s'il est posé : il
+restreint alors encore la liste. Il peut rester ou être supprimé
+(`npx wrangler secret delete ACCES_EMAILS`) ; ACCES_UTILISATEURS suffit.
 
 ### 5. Domaines personnalisés et déploiement
 
@@ -136,7 +161,7 @@ cd ../api && npx wrangler deploy
 Dans un navigateur privé :
 
 1. `https://focus.fredericguiose.com` → page de connexion Access ; code reçu par e-mail ; la web
-   app s'ouvre, demande le jeton `interface`.
+   app s'ouvre directement sur le statut, sans écran de jeton.
 2. Sans connexion : `curl -s -o /dev/null -w '%{http_code}\n' https://focus.fredericguiose.com/`
    → `302` vers `<équipe>.cloudflareaccess.com` (Access, devant le Worker).
 3. Hôte API : `curl -s -o /dev/null -w '%{http_code}\n' https://api-focus.fredericguiose.com/v1/config/version`
@@ -157,7 +182,10 @@ Dans un navigateur privé :
   est refusé sur cet hôte, extension/README.md).
 - **GitHub Action** du dépôt de config : secret `FOCUS_API_URL` =
   `https://api-focus.fredericguiose.com`.
-- **Web app** : rien à régler, elle appelle l'API en relatif (même origine).
+- **Web app** : rien à régler, elle appelle l'API en relatif (même origine, cookie
+  `CF_Authorization` joint), sans jeton. Au démarrage, elle lit `/v1/statut` sans jeton : seul un
+  **401** `jeton_absent` (local lancé sans `FOCUS_UTILISATEUR_LOCAL`) ramène à l'écran de jeton ;
+  le jeton éventuellement gardé (`focus.jeton`) est effacé sinon. Mode simulé inchangé.
 
 ## Limites connues
 

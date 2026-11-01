@@ -21,9 +21,25 @@ interface LigneJeton {
 
 const NOMS: Record<TypeJeton, string> = { appareil: 'appareil', interface: 'interface', config: 'config' };
 
+/** Nom de l'interface sans jeton (identité Access ou utilisateur local) ; aucune ligne en base. */
+export const NOM_INTERFACE_IMPLICITE = 'appli_web';
+
+/**
+ * Sans en-tête Authorization, sur l'hôte web (e-mail Access vérifié) ou en local avec
+ * FOCUS_UTILISATEUR_LOCAL : la requête vaut jeton « interface » de cet utilisateur. Pas de ligne
+ * dans `appareils`, donc pas de `vu_le` (le statut ne lit que celui des appareils).
+ * Avec un en-tête : vérification du jeton comme avant ; sur l'hôte web, il doit appartenir au même
+ * utilisateur que l'e-mail Access, sinon 403 (un Bearer ne change jamais l'identité).
+ */
+
 export function exigerJeton(deps: Dependances, ...autorises: TypeJeton[]): MiddlewareHandler<EnvApp> {
   return async (c, suite) => {
     const entete = c.req.header('Authorization') ?? '';
+    const implicite = c.get('utilisateurImplicite');
+    if (entete.trim() === '' && implicite && autorises.includes('interface')) {
+      c.set('jeton', { id: 0, utilisateur: implicite, nom: NOM_INTERFACE_IMPLICITE, typeJeton: 'interface', typeAppareil: null });
+      return suite();
+    }
     const trouve = /^Bearer\s+(\S+)\s*$/i.exec(entete);
     if (!trouve) {
       c.header('WWW-Authenticate', 'Bearer realm="focus"');
@@ -52,6 +68,9 @@ export function exigerJeton(deps: Dependances, ...autorises: TypeJeton[]): Middl
         'jeton_non_autorise',
         "Le jeton « interface » ne s'utilise que sur l'hôte de la web app (derrière Cloudflare Access).",
       );
+    }
+    if (c.get('hote') === 'web' && ligne.utilisateur !== implicite) {
+      throw new ErreurApi(403, 'jeton_non_autorise', "Ce jeton n'appartient pas à l'utilisateur connecté par Cloudflare Access.");
     }
     const maintenant = deps.maintenant();
     await c.env.DB.prepare(`UPDATE appareils SET vu_le = ? WHERE id = ? AND (vu_le IS NULL OR vu_le < ?)`)

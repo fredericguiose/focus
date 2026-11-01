@@ -1,5 +1,6 @@
-// Cloudflare Access vérifié par le Worker (src/acces.ts) : hôte web (JWT exigé partout), hôte de
-// l'API (sans Access, sans routes ni jeton d'interface), hôte inconnu refusé, local inchangé.
+// Cloudflare Access vérifié par le Worker (src/acces.ts) : hôte web (JWT exigé partout, identité =
+// e-mail Access, sans jeton), hôte de l'API (sans Access, sans routes ni jeton d'interface), hôte
+// inconnu refusé, local (jeton, ou utilisateur local sans jeton si FOCUS_UTILISATEUR_LOCAL).
 import { env } from 'cloudflare:workers';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { moteur } from '../../core/src/index';
@@ -55,7 +56,8 @@ describe('Cloudflare Access', () => {
     HOTE_API: API,
     ACCES_EQUIPE: EQUIPE,
     ACCES_AUD: AUD,
-    ACCES_EMAILS: 'bob@example.com, Alice@Example.com',
+    ACCES_UTILISATEURS: 'Alice@Example.com=alice, bob@example.com=bob, carol@example.com=carol',
+    ACCES_EMAILS: 'bob@example.com, Alice@Example.com, dave@example.com',
     ASSETS: { fetch: async () => new Response('<!doctype html><title>Focus</title>', { headers: { 'Content-Type': 'text/html' } }) } as unknown as Fetcher,
   };
 
@@ -131,10 +133,75 @@ describe('Cloudflare Access', () => {
       expect(r.statut).toBe(200);
     });
 
-    it('le jeton d’interface reste exigé en plus du JWT', async () => {
-      const r = await requete(WEB, '/v1/statut', { jwt: await jwtValide() });
-      expect(r.statut).toBe(401);
-      expect(r.corps.erreur).toBe('jeton_absent');
+    it('JWT valide sans Bearer : interface de l’utilisateur de l’e-mail, sans écrire de vu_le', async () => {
+      const jwt = await jwtValide();
+      const r = await requete(WEB, '/v1/statut', { jwt });
+      expect(r.statut).toBe(200);
+      expect(r.corps.config_version).toBeTruthy();
+      // Routes interface (et partagées) passent ; routes réservées aux appareils/config : jeton exigé.
+      expect((await requete(WEB, '/v1/taches', { jwt })).statut).toBe(200);
+      expect((await requete(WEB, '/v1/config/version', { jwt })).statut).toBe(200);
+      const prix = await requete(WEB, '/v1/exceptions/prix', { jwt, methode: 'POST', corps: {} });
+      expect([200, 400, 422]).toContain(prix.statut);
+      const planning = await requete(WEB, '/v1/planning', { jwt });
+      expect(planning.statut).toBe(401);
+      expect(planning.corps.erreur).toBe('jeton_absent');
+      const vus = await env.DB.prepare(`SELECT COUNT(*) AS n FROM appareils WHERE vu_le IS NOT NULL`).first<{ n: number }>();
+      expect(vus?.n).toBe(0);
+    });
+
+    it('identité = utilisateur de l’e-mail : un autre e-mail donne un autre utilisateur', async () => {
+      // bob n'a pas de config : son statut ne peut pas être celui d'alice.
+      const bob = await requete(WEB, '/v1/statut', { jwt: await jwtValide({ email: 'bob@example.com' }) });
+      expect(bob.statut).not.toBe(200);
+      expect(bob.corps.erreur).not.toBe('jeton_absent');
+    });
+
+    it('Bearer d’un autre utilisateur ou d’un autre type ne change pas l’identité', async () => {
+      const jwt = await jwtValide();
+      const autres = {
+        webBob: await creerJeton('interface', 'web-bob', null, 'bob'),
+        pcBob: await creerJeton('appareil', 'pc_linux', null, 'bob'),
+      };
+      for (const jeton of [autres.webBob, autres.pcBob]) {
+        for (const chemin of ['/v1/statut', '/v1/taches', '/v1/planning']) {
+          const r = await requete(WEB, chemin, { jwt, jeton });
+          expect(r.statut).toBe(403);
+          expect(r.corps.erreur).toBe('jeton_non_autorise');
+        }
+      }
+      // Jeton invalide envoyé quand même : refusé, pas ignoré.
+      expect((await requete(WEB, '/v1/statut', { jwt, jeton: 'inconnu' })).statut).toBe(401);
+      // Bearer valide du même utilisateur : accepté comme avant.
+      expect((await requete(WEB, '/v1/statut', { jwt, jeton: jetons.web })).statut).toBe(200);
+      expect((await requete(WEB, '/v1/planning', { jwt, jeton: jetons.pc })).statut).toBe(200);
+      // Un jeton d'appareil ne donne pas accès aux routes de l'interface.
+      expect((await requete(WEB, '/v1/statut', { jwt, jeton: jetons.pc })).statut).toBe(403);
+    });
+
+    it('e-mail autorisé sans correspondance : 403 partout', async () => {
+      const jwt = await jwtValide({ email: 'dave@example.com' });
+      for (const chemin of ['/', '/v1/statut']) {
+        const r = await requete(WEB, chemin, { jwt });
+        expect(r.statut).toBe(403);
+        expect(r.corps.erreur).toBe('utilisateur_inconnu');
+      }
+    });
+
+    it('ACCES_EMAILS restreint la correspondance ; absent, les e-mails d’ACCES_UTILISATEURS suffisent', async () => {
+      // carol a une correspondance mais n'est pas dans ACCES_EMAILS.
+      expect((await requete(WEB, '/', { jwt: await jwtValide({ email: 'carol@example.com' }) })).corps.erreur).toBe('acces_refuse');
+      const variables = { ACCES_EMAILS: undefined };
+      expect((await requete(WEB, '/', { jwt: await jwtValide({ email: 'carol@example.com' }), variables })).statut).toBe(200);
+      expect((await requete(WEB, '/v1/statut', { jwt: await jwtValide(), variables })).statut).toBe(200);
+      expect((await requete(WEB, '/', { jwt: await jwtValide({ email: 'dave@example.com' }), variables })).corps.erreur).toBe('acces_refuse');
+    });
+
+    it('ACCES_UTILISATEURS mal formé : hôte web fermé', async () => {
+      for (const ACCES_UTILISATEURS of ['alice@example.com', 'alice@example.com=', '=alice', 'alice@example.com=al ice=x', 'alice@example.com=a/b']) {
+        const r = await requete(WEB, '/', { jwt: await jwtValide(), variables: { ACCES_UTILISATEURS } });
+        expect(r.corps.erreur).toBe('acces_non_configure');
+      }
     });
 
     it('fichier statique sans JWT : 403, rien n’est servi', async () => {
@@ -197,7 +264,7 @@ describe('Cloudflare Access', () => {
       expect(r.corps.erreur).toBe('acces_indisponible');
     });
 
-    it.each(['ACCES_EQUIPE', 'ACCES_AUD', 'ACCES_EMAILS'] as const)(
+    it.each(['ACCES_EQUIPE', 'ACCES_AUD', 'ACCES_UTILISATEURS'] as const)(
       'production sans %s : hôte web fermé (fail closed), message dans les journaux ; hôte API ouvert',
       async (variable) => {
         const variables = { [variable]: undefined };
@@ -287,6 +354,34 @@ describe('Cloudflare Access', () => {
       expect((await requete('127.0.0.1:8799', '/v1/planning', { jeton: jetons.pc, variables })).statut).toBe(200);
       expect((await requete(WEB, '/v1/statut', { jeton: jetons.web, variables })).statut).toBe(200);
       expect(appelsCerts).toHaveLength(0);
+    });
+
+    it('sans FOCUS_UTILISATEUR_LOCAL : jeton exigé (fail closed)', async () => {
+      const r = await requete('127.0.0.1:8799', '/v1/statut', { variables: { FOCUS_ENVIRONNEMENT: 'local' } });
+      expect(r.statut).toBe(401);
+      expect(r.corps.erreur).toBe('jeton_absent');
+      const malForme = await requete('127.0.0.1:8799', '/v1/statut', { variables: { FOCUS_ENVIRONNEMENT: 'local', FOCUS_UTILISATEUR_LOCAL: 'a b' } });
+      expect(malForme.statut).toBe(401);
+    });
+
+    it('avec FOCUS_UTILISATEUR_LOCAL : sans Authorization, interface de cet utilisateur ; Bearer inchangé', async () => {
+      const variables = { FOCUS_ENVIRONNEMENT: 'local', FOCUS_UTILISATEUR_LOCAL: 'alice' };
+      expect((await requete('127.0.0.1:8799', '/v1/statut', { variables })).statut).toBe(200);
+      expect((await requete('127.0.0.1:8799', '/v1/planning', { variables })).statut).toBe(401);
+      // Un Bearer garde son comportement : appareil sur ses routes, refus sur celles de l'interface.
+      expect((await requete('127.0.0.1:8799', '/v1/planning', { jeton: jetons.pc, variables })).statut).toBe(200);
+      expect((await requete('127.0.0.1:8799', '/v1/statut', { jeton: jetons.pc, variables })).statut).toBe(403);
+      expect((await requete('127.0.0.1:8799', '/v1/statut', { jeton: 'inconnu', variables })).statut).toBe(401);
+      // Sans config pour cet utilisateur : pas le statut d'alice.
+      const autre = await requete('127.0.0.1:8799', '/v1/statut', { variables: { ...variables, FOCUS_UTILISATEUR_LOCAL: 'bob' } });
+      expect(autre.statut).not.toBe(200);
+    });
+
+    it('la variable locale est sans effet hors local', async () => {
+      const variables = { FOCUS_UTILISATEUR_LOCAL: 'alice' };
+      const r = await requete(API, '/v1/taches', { variables, jwt: await jwtValide() });
+      expect(r.statut).toBe(401);
+      expect(r.corps.erreur).toBe('jeton_absent');
     });
   });
 });

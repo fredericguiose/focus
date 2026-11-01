@@ -23,7 +23,8 @@ function etiquettesManquantesDemandees(): string[] | undefined {
   return valeur ? valeur.split(',').filter(Boolean) : undefined;
 }
 
-export function creerApi(jeton: string): ApiFocus {
+/** `jeton` null : sans jeton (identité donnée par Cloudflare Access en ligne, ou utilisateur local). */
+export function creerApi(jeton: string | null): ApiFocus {
   return API_SIMULEE
     ? creerApiSimulee({ phase: phaseDemandee(), scenario: scenarioDemande(), etiquettesManquantes: etiquettesManquantesDemandees() })
     : creerApiHttp(jeton);

@@ -24,8 +24,10 @@
   "workers_dev": false,
   "preview_urls": false,
   // Variables non secrètes. HOTE_* : noms d'hôte seuls. ACCES_EQUIPE et ACCES_AUD sont à lire
-  // dans Zero Trust après création de l'application Access ; ACCES_EMAILS (e-mails autorisés,
-  // séparés par des virgules) n'est pas mis ici (dépôt public) : `wrangler secret put ACCES_EMAILS`.
+  // dans Zero Trust après création de l'application Access. La correspondance e-mail Access →
+  // utilisateur (`email=utilisateur`, séparés par des virgules ; ses e-mails sont les e-mails
+  // autorisés) n'est pas mise ici (dépôt public) : `wrangler secret put ACCES_UTILISATEURS`.
+  // ACCES_EMAILS (ancien secret, liste d'e-mails), s'il est posé, restreint encore la liste.
   // Une variable d'Access manquante ou « A-REMPLIR » : l'hôte web refuse tout (fail closed).
   // En local, `--var FOCUS_ENVIRONNEMENT:local` (npm run local) les rend sans effet.
   "vars": {

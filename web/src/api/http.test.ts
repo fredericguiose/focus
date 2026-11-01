@@ -4,6 +4,7 @@ import { CLES_APPAREIL, CLES_JOURNEE, CLES_STATUT } from '../../../api/src/cles-
 import { ErreurFocus } from './erreur';
 import { type StatutFil, statutDepuisFil } from './fil';
 import { creerApiHttp } from './http';
+import { modeAuthentification } from './mode';
 
 function reponse(statut: number, corps: string) {
   return new Response(corps, { status: statut, headers: { 'Content-Type': 'application/json' } });
@@ -354,5 +355,30 @@ describe('conversion du statut : aucun champ de l’API perdu', () => {
     expect(CLES_JOURNEE.filter((k) => !(k in fil.journee) || !(camel(k) in journee))).toEqual([]);
     const a = converti.appareils[0] as unknown as Record<string, unknown>;
     expect(CLES_APPAREIL.filter((k) => !(k in appareil) || !((RENOMMES_APPAREIL[k] ?? k) in a))).toEqual([]);
+  });
+});
+
+describe('sans jeton (Cloudflare Access ou utilisateur local)', () => {
+  it('n’envoie pas d’en-tête Authorization et envoie les cookies de même origine', async () => {
+    const recuperer = vi.fn<typeof fetch>(async () => reponse(200, '{"ok":true}'));
+    await creerApiHttp(null, '', recuperer).fermerSession('s1');
+    const [, init] = recuperer.mock.calls[0] ?? [];
+    expect((init?.headers as Record<string, string>).Authorization).toBeUndefined();
+    expect(init?.credentials).toBe('same-origin');
+  });
+
+  it('modeAuthentification : seul un 401 jeton_absent demande la saisie du jeton', async () => {
+    const api = (r: () => Promise<Response>) => creerApiHttp(null, '', vi.fn<typeof fetch>(r));
+    const absent = () => Promise.resolve(reponse(401, '{"erreur":"jeton_absent","message":"m"}'));
+    expect(await modeAuthentification(api(absent))).toBe('jeton');
+    const invalide = () => Promise.resolve(reponse(401, '{"erreur":"jeton_invalide","message":"m"}'));
+    expect(await modeAuthentification(api(invalide))).toBe('sans_jeton');
+    const refuse = () => Promise.resolve(reponse(403, '{"erreur":"utilisateur_inconnu","message":"m"}'));
+    expect(await modeAuthentification(api(refuse))).toBe('sans_jeton');
+    const reseau = () => Promise.reject(new TypeError('Failed to fetch'));
+    expect(await modeAuthentification(api(reseau))).toBe('sans_jeton');
+    // Un succès suffit : le contenu n'est pas lu au-delà de la conversion.
+    const ok = { statut: async () => ({}) } as unknown as Parameters<typeof modeAuthentification>[0];
+    expect(await modeAuthentification(ok)).toBe('sans_jeton');
   });
 });

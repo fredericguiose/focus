@@ -1,12 +1,15 @@
 // Cloudflare Access, vérifié aussi par le Worker (défense en profondeur, docs/mise-en-ligne.md).
 // Deux hôtes en production :
 //   - HOTE_WEB (web app + API) : toute requête, fichiers statiques compris, porte un JWT Access
-//     valide (signature RS256, aud, iss, exp/nbf, e-mail autorisé) ; le jeton Bearer reste exigé
-//     en plus sur /v1/*.
+//     valide (signature RS256, aud, iss, exp/nbf, e-mail autorisé). L'e-mail vérifié donne
+//     l'utilisateur Focus (ACCES_UTILISATEURS) : sur /v1/*, sans en-tête Authorization, la requête
+//     vaut jeton « interface » de cet utilisateur (src/auth.ts). Un Bearer envoyé quand même doit
+//     appartenir au même utilisateur.
 //   - HOTE_API (clients : PC, extension, iPhone, GitHub Actions) : pas d'Access ; seulement /v1/*,
 //     sans les routes réservées au jeton d'interface ni le jeton d'interface lui-même.
 // Tout autre hôte (dont l'adresse workers.dev) est refusé. En local (FOCUS_ENVIRONNEMENT=local),
-// rien de tout cela : un seul hôte sert tout, comme avant.
+// rien de tout cela : un seul hôte sert tout ; sans Authorization, /v1/* vaut interface de
+// FOCUS_UTILISATEUR_LOCAL si cette variable est posée (scripts/local.mjs), sinon le jeton est exigé.
 import type { MiddlewareHandler } from 'hono';
 import { getCookie } from 'hono/cookie';
 import type { Dependances, EnvApp, Liaisons } from './env';
@@ -20,27 +23,53 @@ const RECHARGEMENT_MIN_MS = 60 * 1000;
 /** Tolérance d'horloge sur exp et nbf. */
 const TOLERANCE_S = 60;
 
+const FORMAT_UTILISATEUR = /^[A-Za-z0-9_.-]{1,100}$/;
+
 export interface ReglagesAcces {
   equipe: string;
   aud: string;
+  /** E-mails acceptés par le vérificateur : ACCES_EMAILS s'il est posé, sinon ceux d'ACCES_UTILISATEURS. */
   emails: Set<string>;
+  /** E-mail (minuscules) → utilisateur Focus. */
+  utilisateurs: Map<string, string>;
+}
+
+/** « a@x.fr=alice, b@y.fr=bob » ; une entrée mal formée invalide tout (fail closed). */
+function lireUtilisateurs(brut: string | undefined): Map<string, string> | null {
+  const table = new Map<string, string>();
+  for (const entree of (brut ?? '').split(/[\s,;]+/).filter(Boolean)) {
+    const i = entree.lastIndexOf('=');
+    const email = entree.slice(0, i).trim().toLowerCase();
+    const utilisateur = entree.slice(i + 1).trim();
+    if (i <= 0 || !email.includes('@') || !FORMAT_UTILISATEUR.test(utilisateur)) return null;
+    table.set(email, utilisateur);
+  }
+  return table.size > 0 ? table : null;
 }
 
 /** Réglages complets, ou la liste des variables manquantes. */
 export function lireReglagesAcces(env: Liaisons): ReglagesAcces | { manquantes: string[] } {
   const equipe = (env.ACCES_EQUIPE ?? '').trim().replace(/\/+$/, '');
   const aud = (env.ACCES_AUD ?? '').trim();
-  const emails = new Set(
-    (env.ACCES_EMAILS ?? '')
-      .split(/[\s,;]+/)
-      .map((e) => e.trim().toLowerCase())
-      .filter(Boolean),
-  );
+  const utilisateurs = lireUtilisateurs(env.ACCES_UTILISATEURS);
+  // ACCES_EMAILS, facultatif, restreint encore la liste (compatibilité avec la première mise en ligne).
+  const listeEmails = (env.ACCES_EMAILS ?? '')
+    .split(/[\s,;]+/)
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
   const manquantes: string[] = [];
   if (!/^https:\/\/[a-z0-9-]+\.cloudflareaccess\.com$/i.test(equipe)) manquantes.push('ACCES_EQUIPE');
   if (!aud || aud === 'A-REMPLIR') manquantes.push('ACCES_AUD');
-  if (emails.size === 0) manquantes.push('ACCES_EMAILS');
-  return manquantes.length > 0 ? { manquantes } : { equipe: equipe.toLowerCase(), aud, emails };
+  if (!utilisateurs) manquantes.push('ACCES_UTILISATEURS');
+  if (manquantes.length > 0 || !utilisateurs) return { manquantes };
+  const emails = new Set(listeEmails.length > 0 ? listeEmails : utilisateurs.keys());
+  return { equipe: equipe.toLowerCase(), aud, emails, utilisateurs };
+}
+
+/** Utilisateur local de la web app (FOCUS_UTILISATEUR_LOCAL), s'il est posé et bien formé. */
+function utilisateurLocal(env: Liaisons): string | undefined {
+  const u = (env.FOCUS_UTILISATEUR_LOCAL ?? '').trim();
+  return FORMAT_UTILISATEUR.test(u) ? u : undefined;
 }
 
 function base64urlVersOctets(texte: string): Uint8Array<ArrayBuffer> {
@@ -162,6 +191,8 @@ export function gardeAcces(deps: Dependances): MiddlewareHandler<EnvApp> {
   return async (c, suite) => {
     if (c.env.FOCUS_ENVIRONNEMENT === 'local') {
       c.set('hote', 'local');
+      const local = utilisateurLocal(c.env);
+      if (local) c.set('utilisateurImplicite', local);
       return suite();
     }
     const nom = new URL(c.req.url).hostname.toLowerCase();
@@ -179,8 +210,14 @@ export function gardeAcces(deps: Dependances): MiddlewareHandler<EnvApp> {
         console.warn('Access : requête sans JWT sur l’hôte web.');
         throw new ErreurApi(403, 'acces_refuse', 'Accès refusé : connexion Cloudflare Access absente ou invalide.');
       }
-      await verifier(jwt, reglages);
+      const email = await verifier(jwt, reglages);
+      const utilisateur = reglages.utilisateurs.get(email);
+      if (!utilisateur) {
+        console.warn('Access : e-mail autorisé sans utilisateur Focus (ACCES_UTILISATEURS).');
+        throw new ErreurApi(403, 'utilisateur_inconnu', 'Accès refusé : aucun utilisateur Focus pour ce compte.');
+      }
       c.set('hote', 'web');
+      c.set('utilisateurImplicite', utilisateur);
       return suite();
     }
 

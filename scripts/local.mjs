@@ -271,15 +271,10 @@ async function tachePlanifiee() {
   }
 }
 
-function presentationJeton(utilisateur, discret) {
-  const jeton = lireJeton('interface', utilisateur);
-  if (discret) return info(`Jeton interface : ${fichierJeton('interface', utilisateur).replace(homedir(), '~')}`);
-  const wl = spawnSync('sh', ['-c', 'command -v wl-copy'], { stdio: 'ignore' }).status === 0 && process.env.WAYLAND_DISPLAY;
-  if (wl) {
-    const r = spawnSync('wl-copy', [], { input: jeton, stdio: ['pipe', 'ignore', 'ignore'] });
-    if (r.status === 0) return info('Jeton interface copié dans le presse-papiers : le coller dans la web app.');
-  }
-  info(`Jeton interface, à coller dans la web app :\n\n  ${jeton}\n`);
+function presentationJeton(utilisateur) {
+  // La web app locale n'a plus besoin du jeton : sans en-tête Authorization, l'API la traite comme
+  // l'interface de FOCUS_UTILISATEUR_LOCAL. Le jeton reste pour les scripts (local:heure, curl).
+  info(`Web app sans jeton (utilisateur « ${utilisateur} »). Jeton interface pour les scripts : ${fichierJeton('interface', utilisateur).replace(homedir(), '~')}`);
 }
 
 async function local(options) {
@@ -298,7 +293,9 @@ async function local(options) {
   const wrangler = spawn(
     WRANGLER,
     ['dev', '--local', '--persist-to', PERSIST, '--port', String(PORT), '--ip', '127.0.0.1',
-      '--show-interactive-dev-session=false', '--var', 'FOCUS_ENVIRONNEMENT:local'],
+      '--show-interactive-dev-session=false', '--var', 'FOCUS_ENVIRONNEMENT:local',
+      // Sans Authorization, /v1/* vaut interface de cet utilisateur (la web app n'a plus de jeton).
+      '--var', `FOCUS_UTILISATEUR_LOCAL:${choix.utilisateur}`],
     { cwd: API, env: ENV, stdio: ['ignore', 'inherit', 'inherit'], detached: true },
   );
   const fini = new Promise((ok) => wrangler.once('exit', ok));
@@ -341,7 +338,7 @@ async function local(options) {
   if (!(await attendrePret(wrangler))) return arreterTout(1);
   await config(choix);
   await tachePlanifiee();
-  presentationJeton(choix.utilisateur, options.includes('--discret'));
+  presentationJeton(choix.utilisateur);
   if (!options.includes('--discret')) spawn('xdg-open', [`${URL_API}/`], { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
   info(`Prêt : ${URL_API}/   ·   web app reconstruite à chaque modification   ·   heure : npm run local:heure -- 18:00|+3h|reel   ·   arrêt : Ctrl-C`);
 }

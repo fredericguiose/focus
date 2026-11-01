@@ -18,7 +18,8 @@ La commande est idempotente : relancée, elle ne refait que ce qui manque ou a c
 2. Applique les migrations dans la base locale dédiée `api/.wrangler/local`.
 3. Crée, s'ils n'existent pas, un jeton `interface` et un jeton `config` pour l'utilisateur de la
    config chargée, gardés dans `~/.config/focus/local/` (dossier 700, fichiers 600), et inscrit
-   leur empreinte dans la base locale.
+   leur empreinte dans la base locale. La web app n'en a plus besoin (étape 6) ; ils servent aux
+   scripts (`local:heure`, envoi de la config, `curl`).
 4. Config : `../focus-config/focus.yaml` s'il existe, sinon `config/exemple.yaml` ; renvoyée à
    l'API seulement si le fichier a changé (empreinte gardée dans `~/.config/focus/local/`).
 5. Si `~/.config/focus/secrets.env` contient `TODOIST_TOKEN` et/ou les lignes `XIAOMI_*`
@@ -31,12 +32,16 @@ La commande est idempotente : relancée, elle ne refait que ce qui manque ou a c
    `HEVY_API_KEY` (séances Hevy) est recopié de même, avec `HEVY_UTILISATEUR` (même règle que
    `XIAOMI_UTILISATEUR`), et `TODOIST_TOKEN` avec `TODOIST_UTILISATEUR` (même règle : le jeton
    Todoist ne sert qu'à son propriétaire, sans lui pas de synchro Todoist).
-6. Lance `wrangler dev --local` sur le port 8799 avec `FOCUS_ENVIRONNEMENT=local` (horloge
-   réglable), puis déclenche une première tâche planifiée. À côté, `vite build --watch`
+6. Lance `wrangler dev --local` sur le port 8799 (écoute sur 127.0.0.1 seulement) avec
+   `FOCUS_ENVIRONNEMENT=local` (horloge réglable) et `FOCUS_UTILISATEUR_LOCAL=<utilisateur de la
+   config chargée>` : une requête `/v1/*` **sans** en-tête `Authorization` vaut alors jeton
+   `interface` de cet utilisateur (la web app n'affiche plus l'écran de jeton) ; un `Bearer`
+   envoyé quand même garde son comportement (client PC, extension, scripts). Sans cette variable
+   (wrangler lancé à la main, ci-dessous), le jeton reste exigé. Puis déclenche une première tâche planifiée. À côté, `vite build --watch`
    reconstruit `web/dist` à chaque modification du code de la web app (ou de `core/src`) :
    recharger la page suffit, sans relancer l'instance (« Web app reconstruite » dans le terminal).
-7. Copie le jeton `interface` dans le presse-papiers (`wl-copy`, sinon l'affiche) et ouvre le
-   navigateur. `--discret` : ni presse-papiers, ni navigateur.
+7. Indique où est le jeton `interface` (pour les scripts) et ouvre le navigateur. `--discret` :
+   pas de navigateur.
 8. Ctrl-C arrête wrangler et la reconstruction automatique, et efface `api/.dev.vars`.
 
 La suite détaille les mêmes étapes à la main (base `api/.wrangler/essai`, à part), plus le
@@ -110,7 +115,7 @@ Contrôles (autre terminal) :
 
 ```sh
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8799/            # 200 : web app
-curl -s http://127.0.0.1:8799/v1/statut                                      # 401 jeton_absent
+curl -s http://127.0.0.1:8799/v1/statut                                      # 401 jeton_absent (sans FOCUS_UTILISATEUR_LOCAL)
 ```
 
 ## 5. Envoyer la config d'exemple
@@ -217,7 +222,9 @@ hosts. Pour ne pas attendre 25 min, avancer la question dans la base locale :
 
 ## 9. Web app
 
-Ouvrir `http://127.0.0.1:8799/`, coller le jeton `interface`. L'écran Statut doit afficher la
+Ouvrir `http://127.0.0.1:8799/`, coller le jeton `interface` (lancé à la main sans
+`--var FOCUS_UTILISATEUR_LOCAL:<utilisateur>`, l'API exige le jeton ; avec, ou via `npm run
+local`, pas d'écran de jeton). L'écran Statut doit afficher la
 version de config envoyée (pas le mode simulé, qui n'existe qu'avec `npm run dev:simule`).
 L'onglet Sessions liste les apps de `apps_bloquees` sans appeler `/v1/blocage`.
 

@@ -13,7 +13,8 @@ export interface ValeurFocus {
   /** Heure du serveur − horloge locale, mesurée à la dernière lecture du statut. */
   decalageMs: number;
   rafraichir: () => Promise<void>;
-  changerJeton: () => void;
+  /** Absent quand l'API n'exige pas de jeton (Cloudflare Access en ligne, utilisateur local). */
+  changerJeton?: () => void;
 }
 
 const ContexteFocus = createContext<ValeurFocus | null>(null);
@@ -24,7 +25,7 @@ export function FournisseurFocus({
   children,
 }: {
   api: ApiFocus;
-  changerJeton: () => void;
+  changerJeton?: () => void;
   children: ReactNode;
 }) {
   const [statut, setStatut] = useState<ReponseStatut | null>(null);

@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { creerApi } from '@/api';
+import { API_SIMULEE, creerApi } from '@/api';
+import { modeAuthentification } from '@/api/mode';
 import { BarreLaterale } from '@/composants/coquille/BarreLaterale';
 import { EnTete } from '@/composants/coquille/EnTete';
 import { type Ecran, estEcran } from '@/composants/coquille/navigation';
@@ -58,7 +59,7 @@ function Coquille() {
               <AlertTitle>{erreur.statutHttp === 401 ? 'Jeton refusé' : 'Statut indisponible'}</AlertTitle>
               <AlertDescription>
                 <p>{erreur.message}</p>
-                {erreur.statutHttp === 401 ? (
+                {erreur.statutHttp === 401 && changerJeton ? (
                   <Button variant="outline" size="sm" className="mt-2" onClick={changerJeton}>
                     Saisir un autre jeton
                   </Button>
@@ -83,8 +84,25 @@ function Coquille() {
 }
 
 export function App() {
+  // Mode simulé : saisie du jeton comme avant. Sinon : à déterminer auprès de l'API.
+  const [mode, setMode] = useState<'verification' | 'sans_jeton' | 'jeton'>(API_SIMULEE ? 'jeton' : 'verification');
   const [jeton, setJeton] = useState<string | null>(() => lireJeton());
-  const api = useMemo(() => (jeton ? creerApi(jeton) : null), [jeton]);
+  useEffect(() => {
+    if (mode !== 'verification') return;
+    let actif = true;
+    void modeAuthentification().then((m) => {
+      if (!actif) return;
+      if (m === 'sans_jeton') effacerJeton();
+      setMode(m);
+    });
+    return () => {
+      actif = false;
+    };
+  }, [mode]);
+  const api = useMemo(() => {
+    if (mode === 'sans_jeton') return creerApi(null);
+    return mode === 'jeton' && jeton ? creerApi(jeton) : null;
+  }, [mode, jeton]);
   const changerJeton = useCallback(() => {
     effacerJeton();
     setJeton(null);
@@ -93,8 +111,8 @@ export function App() {
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange storageKey="focus.theme">
       <TooltipProvider delayDuration={200}>
-        {api ? (
-          <FournisseurFocus api={api} changerJeton={changerJeton}>
+        {mode === 'verification' ? null : api ? (
+          <FournisseurFocus api={api} changerJeton={mode === 'jeton' ? changerJeton : undefined}>
             <Coquille />
           </FournisseurFocus>
         ) : (

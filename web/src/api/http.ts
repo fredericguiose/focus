@@ -18,10 +18,14 @@ const REQUETES_PARALLELES = 4;
 
 type Methode = 'GET' | 'POST';
 
-/** Client réel. `base` vide = même origine que la web app (le Worker sert les deux). */
-export function creerApiHttp(jeton: string, base = '', recuperer: typeof fetch = fetch): ApiFocus {
+/**
+ * Client réel. `base` vide = même origine que la web app (le Worker sert les deux).
+ * `jeton` null : pas d'en-tête Authorization ; l'API identifie alors l'utilisateur par le cookie
+ * Cloudflare Access (en ligne) ou par l'utilisateur local (essai local).
+ */
+export function creerApiHttp(jeton: string | null, base = '', recuperer: typeof fetch = fetch): ApiFocus {
   async function requete<T>(methode: Methode, chemin: string, corps?: unknown): Promise<T> {
-    const entetes: Record<string, string> = { Authorization: `Bearer ${jeton}` };
+    const entetes: Record<string, string> = jeton ? { Authorization: `Bearer ${jeton}` } : {};
     if (corps !== undefined) entetes['Content-Type'] = 'application/json';
 
     let reponse: Response;
@@ -29,6 +33,8 @@ export function creerApiHttp(jeton: string, base = '', recuperer: typeof fetch =
       reponse = await recuperer(base + chemin, {
         method: methode,
         headers: entetes,
+        // Cookie CF_Authorization envoyé avec chaque appel (même origine).
+        credentials: 'same-origin',
         body: corps === undefined ? undefined : JSON.stringify(corps),
       });
     } catch {

@@ -106,34 +106,38 @@ export function BarreLaterale({ ecran, allerA, indicateurs }: { ecran: Ecran; al
         <div className="group-data-[collapsible=icon]:hidden rounded-lg border bg-background/60 p-3">
           <BasculeTheme />
         </div>
-        <SidebarSeparator className="mx-0" />
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <SidebarMenuButton size="lg" tooltip="Accès">
-                  <Avatar className="size-8 rounded-lg">
-                    <AvatarFallback className="rounded-lg">
-                      <KeyRound className="size-4" />
-                    </AvatarFallback>
-                  </Avatar>
-                  <span className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-medium">Jeton</span>
-                    <span className="text-muted-foreground truncate text-xs">{API_SIMULEE ? 'démonstration' : 'enregistré ici'}</span>
-                  </span>
-                  <ChevronsUpDown className="ml-auto size-4" />
-                </SidebarMenuButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="top" align="start" className="w-(--radix-dropdown-menu-trigger-width) min-w-56">
-                <DropdownMenuLabel>Jeton de l'interface</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={changerJeton}>
-                  <KeyRound /> Changer de jeton
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </SidebarMenuItem>
-        </SidebarMenu>
+        {changerJeton ? (
+          <>
+            <SidebarSeparator className="mx-0" />
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <SidebarMenuButton size="lg" tooltip="Accès">
+                      <Avatar className="size-8 rounded-lg">
+                        <AvatarFallback className="rounded-lg">
+                          <KeyRound className="size-4" />
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="grid flex-1 text-left text-sm leading-tight">
+                        <span className="truncate font-medium">Jeton</span>
+                        <span className="text-muted-foreground truncate text-xs">{API_SIMULEE ? 'démonstration' : 'enregistré ici'}</span>
+                      </span>
+                      <ChevronsUpDown className="ml-auto size-4" />
+                    </SidebarMenuButton>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent side="top" align="start" className="w-(--radix-dropdown-menu-trigger-width) min-w-56">
+                    <DropdownMenuLabel>Jeton de l'interface</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={changerJeton}>
+                      <KeyRound /> Changer de jeton
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </>
+        ) : null}
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
