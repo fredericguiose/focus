@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { Horloge, MARDI, client, creerJeton, installerConfig } from './aides';
+import { appareilPrincipal } from '../src/planning';
+import { Horloge, MARDI, client, configExemple, creerJeton, installerConfig, poserTaches, tache } from './aides';
 
 const RAISON = 'Une raison suffisamment longue pour dépasser les cinquante caractères.';
 const PHRASE = 'JE NE PEUX PAS DECALER';
@@ -127,5 +128,43 @@ describe('GET /v1/statut : phase, actions, engagements de demain, nuits', () => 
       engagements_demain: [{ id: 'sport' }, { id: 'travail' }],
     });
     expect(r.corps.appareils.map((a: { jusqua: string }) => a.jusqua)).toEqual([MARDI.coucher, MARDI.coucher, MARDI.coucher]);
+  });
+
+  it('parcours et sortie : MORNING_LOCK à 18:00, planning pas fait ; appareil principal', async () => {
+    await poserTaches([tache({ id: 'plan', etiquettes: ['planning'], priorite: 'p4' })]);
+    horloge.regler('2026-11-03T17:00:00Z');
+    const r = await api.get('/v1/statut', web);
+    expect(r.corps.appareil_principal).toBe('pc_linux');
+    const pc = r.corps.appareils.find((a: { nom: string }) => a.nom === 'pc_linux');
+    expect(pc.mode).toBe('MORNING_LOCK');
+    expect(pc.sortie).toEqual({ texte: 'dès que le planning du matin est fait', certaine: false, au_plus_tard: MARDI.coucher });
+    expect(pc.parcours[1]).toEqual({
+      mode: 'MORNING_LOCK',
+      nom: 'Matin verrouillé',
+      applicable: true,
+      actif: true,
+      logique: 'pas',
+      conditions: [{ type: 'planning', libelle: 'planning du matin pas encore fait', vraie: true, detail: '1 à faire', a: null }],
+    });
+    expect(pc.parcours.map((m: { mode: string }) => m.mode)).toEqual(['NIGHT_LOCK', 'MORNING_LOCK', 'EVENING_FREE', 'WORK']);
+    const iphone = r.corps.appareils.find((a: { nom: string }) => a.nom === 'iphone');
+    expect(iphone.mode).toBe('WORK');
+    expect(iphone.parcours[1]).toMatchObject({ mode: 'MORNING_LOCK', applicable: false, actif: false });
+    expect(iphone.sortie).toEqual({ texte: 'à 19:30', certaine: true, au_plus_tard: MARDI.ouverture });
+  });
+
+  it('sortie : nuit, certaine au lever', async () => {
+    horloge.regler('2026-11-03T21:00:00Z');
+    const pc = (await api.get('/v1/statut', web)).corps.appareils[0];
+    expect(pc.mode).toBe('NIGHT_LOCK');
+    expect(pc.sortie).toEqual({ texte: 'au lever, 05:30', certaine: true, au_plus_tard: '2026-11-04T04:30:00Z' });
+  });
+
+  it('appareil principal : premier appareil si aucun PC n\'a de compte de travail', () => {
+    const config = configExemple();
+    config.appareils.pc_linux!.comptesDeTravail = [];
+    expect(appareilPrincipal(config)).toBe('pc_linux');
+    config.appareils.pc_windows!.comptesDeTravail = ['alice'];
+    expect(appareilPrincipal(config)).toBe('pc_windows');
   });
 });

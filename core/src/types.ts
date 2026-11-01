@@ -278,6 +278,40 @@ export interface Segment {
   actions: ActionsPc | ActionsIphone;
 }
 
+export type TypeConditionExpliquee = 'toujours' | 'heure' | 'planning' | 'recap' | 'prioritaires' | 'retard' | 'taches';
+
+/** Une condition d'un mode, jugée à l'instant du contexte. Libellé lisible, sans identifiant. */
+export interface ConditionExpliquee {
+  type: TypeConditionExpliquee;
+  libelle: string;
+  vraie: boolean;
+  /** Ce qui reste, ex. « 2 restantes » ; null si rien à signaler. */
+  detail: string | null;
+  /** Condition d'heure : l'instant où elle devient vraie (null sinon). */
+  a: Instant | null;
+}
+
+/** Un mode de la routine du jour, dans l'ordre de priorité, et pourquoi il gagne ou non. */
+export interface ModeExplique {
+  mode: string;
+  nom: string;
+  /** Faux si `appareils` exclut l'appareil ou si `retirer` l'enlève ce jour. */
+  applicable: boolean;
+  actif: boolean;
+  conditions: ConditionExpliquee[];
+  /** `pas` : les conditions sont déjà énoncées sous forme niée (vraie = le mode s'applique). */
+  logique: 'tous' | 'un_parmi' | 'pas' | 'simple';
+}
+
+/** Comment on sort du mode actuel. */
+export interface SortieMode {
+  texte: string;
+  /** Vrai seulement si la sortie ne dépend que de l'heure. */
+  certaine: boolean;
+  /** Le prochain changement certain (coucher, lever, ou heure d'un mode prioritaire). */
+  auPlusTard: Instant;
+}
+
 // ─── Fonctions exposées par le moteur (core/src/index.ts) ─────────────────────
 
 export interface Moteur {
@@ -287,6 +321,9 @@ export interface Moteur {
   engagementsPrevus(contexte: Contexte, date: DateLocale): EngagementPrevu[];
   etat(contexte: Contexte, appareil: string): EtatAppareil;
   planifier(contexte: Contexte, appareil: string, horizonH?: number): Segment[];
+  /** Les modes du jour et leurs conditions jugées maintenant (§3.7). */
+  expliquer(contexte: Contexte, appareil: string): ModeExplique[];
+  sortie(contexte: Contexte, appareil: string): SortieMode;
   prixException(contexte: Contexte, demande: DemandeException, friction?: FrictionFournie): PrixException;
   /** Secondes d'attente exigées pour le n-ième « continue » (n commence à 0). */
   attenteContinue(config: Config, n: number): number;

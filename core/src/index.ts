@@ -3,6 +3,7 @@
 import type { Config, Moteur } from './types';
 import { validerConfig } from './config';
 import { etat } from './etat';
+import { expliquer, sortie } from './explication';
 import { prixException } from './exceptions';
 import { engagementsPrevus, journee, journeeCourante } from './journee';
 import { planifier } from './planning';
@@ -21,6 +22,8 @@ export const moteur: Moteur = {
   engagementsPrevus,
   etat,
   planifier,
+  expliquer,
+  sortie,
   prixException,
   attenteContinue,
 };
@@ -29,6 +32,7 @@ export { validerConfig, lireConfig } from './config';
 export { journee, journeeCourante, routineDuJour, nuitDe, engagementsPrevus } from './journee';
 export { etat, actionsDuMode } from './etat';
 export { planifier } from './planning';
+export { expliquer, sortie, NOMS_DES_MODES } from './explication';
 export { prixException, PHRASE_DECISION_DE_NUIT, RAISON_MIN_CARACTERES } from './exceptions';
 export { prixDuReport } from './report';
 export {

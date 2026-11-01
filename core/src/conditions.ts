@@ -66,7 +66,7 @@ export function tachesFiltrees(faits: FaitsTodoist, jour: DateLocale, filtre: Fi
 
 // ─── Heures ───────────────────────────────────────────────────────────────────
 
-function repere(env: Environnement): Repere {
+export function repere(env: Environnement): Repere {
   return {
     date: env.journee.date,
     fuseau: env.journee.fuseau,
@@ -76,9 +76,9 @@ function repere(env: Environnement): Repere {
   };
 }
 
-type ConditionHeure = Extract<Condition, { heure: unknown }>['heure'];
+export type ConditionHeure = Extract<Condition, { heure: unknown }>['heure'];
 
-function bornes(h: ConditionHeure, env: Environnement): { apres?: number; avant?: number } {
+export function bornes(h: ConditionHeure, env: Environnement): { apres?: number; avant?: number } {
   const r = repere(env);
   const decalage = h.decalePar === 'prix_du_report' ? env.journee.prixDuReportMin * MINUTE : 0;
   return {

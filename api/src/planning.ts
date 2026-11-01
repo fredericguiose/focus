@@ -1,5 +1,5 @@
 // Planning d'un appareil (§4.3), statut pour l'interface, tâches du jour, raison d'un blocage.
-import type { ActionsIphone, ActionsPc, Config, Contexte, EngagementPrevu, Journee, Moteur, Segment } from '../../core/src/types';
+import type { ActionsIphone, ActionsPc, Config, Contexte, EngagementPrevu, Journee, Moteur, Segment, SortieMode } from '../../core/src/types';
 import { CLES_CACHE, chargerContexte, lireCache } from './contexte';
 import type { Dependances, JetonAuthentifie } from './env';
 import { ErreurApi, requeteInvalide } from './erreurs';
@@ -102,6 +102,17 @@ export function appsBloquees(config: Config, actions: ActionsPc | ActionsIphone)
     .sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
 }
 
+function vueSortie(s: SortieMode) {
+  return { texte: s.texte, certaine: s.certaine, au_plus_tard: s.auPlusTard };
+}
+
+/** Le premier PC qui a un compte de travail, sinon le premier appareil. */
+export function appareilPrincipal(config: Config): string | null {
+  const appareils = Object.entries(config.appareils);
+  const pc = appareils.find(([, a]) => a.type !== 'iphone' && a.comptesDeTravail.length > 0);
+  return (pc ?? appareils[0])?.[0] ?? null;
+}
+
 export const NUITS_DU_STATUT = 7;
 
 export type Phase = 'journee' | 'soiree' | 'nuit';
@@ -187,9 +198,13 @@ export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuth
         actions: etat.actions,
         apps_bloquees: appsBloquees(config, etat.actions),
         dernier_ping: vuLe.get(nom) ?? null,
+        // Suppose les faits Todoist constants : à lire avec `sortie`, pas comme une certitude.
         jusqua: segment?.fin ?? decaler(maintenant, HORIZON_H * 3600),
+        parcours: deps.moteur.expliquer(contexte, nom),
+        sortie: vueSortie(deps.moteur.sortie(contexte, nom)),
       };
     }),
+    appareil_principal: appareilPrincipal(config),
     sessions,
     sessions_du_jour: { cumul_min: Math.floor(cumulS / 60), plafond_min: config.sessions.plafondQuotidienMin },
     todoist: {

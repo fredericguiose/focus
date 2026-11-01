@@ -222,6 +222,41 @@ Total = min(n × `par_report`, `plafond`).
 en segments de mode constant, **en supposant les faits Todoist inchangés**. Points de rupture
 candidats : levers, couchers, ouvertures, toutes les heures `apres`/`avant` résolues. Segments
 contigus de même mode et mêmes actions fusionnés.
+Les segments sont une projection, pas une promesse : un mode conditionnel (MORNING_LOCK,
+EVENING_FREE) y apparaît avec des bornes horaires qui ne tiennent que si personne ne touche à
+Todoist. Pour l'interface, c'est `expliquer` et `sortie` (§3.7) qui font foi.
+
+### 3.7 Explication de la décision
+`expliquer(contexte, appareil)` : pour chaque mode de la routine du jour courant, **dans l'ordre
+de priorité** (modes retirés compris) :
+```ts
+{ mode, nom,            // nom : Nuit, Matin verrouillé, Soirée libre, Travail ; sinon l'identifiant
+  applicable,           // faux si `appareils` exclut l'appareil ou si `retirer` l'enlève ce jour
+  actif,                // le mode choisi (§3.2)
+  logique: 'tous' | 'un_parmi' | 'pas' | 'simple',
+  conditions: [{ type: 'toujours'|'heure'|'planning'|'recap'|'prioritaires'|'retard'|'taches',
+                 libelle, vraie, detail /* « 2 restantes », « 1 à faire » ou null */,
+                 a /* condition d'heure : instant où elle devient vraie, sinon null */ }] }
+```
+- `quand` + `conditions_en_plus` forment une conjonction (`tous`), aplatie d'un niveau. Une
+  combinaison imbriquée tient sur une ligne, libellé composé.
+- `pas` : la condition est énoncée **niée** (« planning du matin pas encore fait ») et `vraie`
+  dit si le mode s'applique de ce côté-là.
+- Heure : `decale_par: prix_du_report` s'écrit « après 20:30 (+20 min de report) », `a` portant
+  l'instant décalé ; `$coucher` s'écrit « dès le coucher 22:30 ».
+- Libellés : « planning du matin fait », « récap d'hier fait », « tâches P1/P2 du jour faites »
+  (priorités de `todoist.prioritaires`), « aucun retard (photo de 00:00) ».
+
+`sortie(contexte, appareil)` → `{ texte, certaine, auPlusTard }` : comment on quitte le mode
+actif. Chemins examinés : une condition vraie du mode actif qui cessera de l'être (heure `avant`,
+ou tâches faites pour une condition niée), et chaque mode prioritaire applicable dont les
+conditions fausses peuvent devenir vraies (heure future, ou tâches à faire ; jamais une régression
+comme l'ajout d'une tâche). `auPlusTard` = le plus tôt des changements certains : coucher (ou
+lever suivant si la nuit a commencé), ou heure d'un mode prioritaire qui ne dépend que de l'heure.
+S'il existe un chemin dépendant d'une action et possible avant `auPlusTard`, il donne le texte
+(« dès que le planning du matin est fait », « quand les tâches P1/P2 du jour seront faites et
+après 20:30 ») et `certaine` = faux ; sinon le texte est celui du changement certain (« au
+coucher, 22:30 », « au lever, 06:30 », « à 20:30 ») et `certaine` = vrai.
 
 ## 4. L'API
 
@@ -329,7 +364,10 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   "dette_cumulee_min": number,
   "appareils": [ { "nom", "type", "mode", "sessions", "session_possible": bool,
                    "session_motif": string | null, "raison", "actions", "apps_bloquees",
-                   "dernier_ping", "jusqua": "…Z" } ],
+                   "dernier_ping", "jusqua": "…Z",
+                   "parcours": [ /* expliquer(), §3.7 */ ],
+                   "sortie": { "texte": string, "certaine": bool, "au_plus_tard": "…Z" } } ],
+  "appareil_principal": "pc_linux" | null,
   "sessions": [ … ], "sessions_du_jour": { "cumul_min", "plafond_min" }, "todoist": { … }
 }
 ```
@@ -346,6 +384,14 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   `journee(D).detteNuitMin` recalculée par le moteur avec la config active et les exceptions
   enregistrées ; `dette_cumulee_min` = leur somme.
 - `appareils[].jusqua` : fin du segment en cours du planning de l'appareil (`planifier(…)[0].fin`).
+  **Suppose les faits Todoist constants** : pour MORNING_LOCK ou WORK, c'est une borne, pas une
+  heure de sortie. L'interface affiche `sortie` (et ne présente jamais un mode conditionnel
+  comme un créneau horaire).
+- `appareils[].parcours` : sortie de `expliquer(contexte, nom)` telle quelle (§3.7).
+- `appareils[].sortie` : `sortie(contexte, nom)` ; `certaine` est vrai seulement si la sortie ne
+  dépend que de l'heure ; `au_plus_tard` = le prochain changement certain.
+- `appareil_principal` : le premier PC (`pc_linux`, `pc_windows`) qui a au moins un compte de
+  travail, sinon le premier appareil de la config (null s'il n'y en a aucun).
 - `appareils[].session_possible` / `session_motif` : la règle de §4.5 ; `session_motif` est null
   quand la session est possible. La web app ne propose à l'ouverture que les appareils où elle
   l'est et, s'il n'y en a aucun, affiche le motif de chacun.
