@@ -107,7 +107,7 @@ describe('« Décaler le coucher » en mode libre', () => {
     // Un seul engagement possible : il est déjà choisi, le prix part tout seul.
     await avancer(DELAI_APERCU_MS);
     expect(prix).toHaveBeenCalledWith({ demande: { type: 'retire', date: '2026-11-04', engagement: 'sport' } });
-    const apercu = within(fenetre).getByRole('region', { name: "Prix de l'exception" });
+    const apercu = within(fenetre).getByRole('region', { name: 'Prix du changement' });
     expect(within(apercu).getByText('Lever')).toBeTruthy();
     expect(within(fenetre).queryByLabelText(/^Raison/)).toBeNull();
   });
@@ -121,7 +121,7 @@ describe('« Décaler le coucher » en mode libre', () => {
     expect(within(fenetre).queryByRole('tab')).toBeNull();
 
     saisir('Libellé', 'Dentiste');
-    saisir('Heure du rendez-vous', '05:00');
+    saisir("Heure de l'engagement", '05:00');
     fireEvent.click(within(fenetre).getByRole('radio', { name: '45 minutes' }));
     expect(within(fenetre).getByText('04:15')).toBeTruthy();
 

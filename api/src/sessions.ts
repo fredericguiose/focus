@@ -193,11 +193,16 @@ export function appareilDeLaRequete(jeton: JetonAuthentifie, demande: unknown, c
   return appareil;
 }
 
-function verifierApps(config: Config, apps: string[]): void {
-  const inconnues = apps.filter((a) => !config.apps[a]);
+/**
+ * Apps demandées, groupes du catalogue dépliés (§4.5) : `["ia_conversationnelle", "youtube"]` donne
+ * les apps du groupe plus YouTube, dédoublonnées. Une app prime sur un groupe de même identifiant.
+ */
+export function deplierApps(config: Config, demandes: string[]): string[] {
+  const inconnues = demandes.filter((a) => !config.apps[a] && !config.groupes[a]);
   if (inconnues.length > 0) {
-    throw new ErreurApi(422, 'app_inconnue', `App absente du catalogue : ${inconnues.join(', ')}.`, { apps: inconnues });
+    throw new ErreurApi(422, 'app_inconnue', `App ou groupe absent du catalogue : ${inconnues.join(', ')}.`, { apps: inconnues });
   }
+  return [...new Set(demandes.flatMap((a) => (config.apps[a] ? [a] : config.groupes[a]!)))];
 }
 
 /** Tâches sur lesquelles une session peut porter : du jour (ou en retard), non terminées, à moi. */
@@ -216,15 +221,30 @@ export interface PossibiliteSession {
   session_motif: string | null;
 }
 
+/**
+ * Pourquoi le mode en vigueur interdit les sessions, en mots : « Matin verrouillé : planning du matin
+ * à faire » (mode `pas` : le fait qui manque), « Nuit jusqu'à 05:30 » (fin certaine), sinon la sortie.
+ * L'heure vient de `sortie`, jamais du planning (qui suppose Todoist figé).
+ */
+export function motifModeInterdit(moteur: Moteur, contexte: Contexte, appareil: string, fuseau: string): string {
+  const actif = moteur.expliquer(contexte, appareil).find((m) => m.actif);
+  const nom = actif?.nom ?? 'Mode en vigueur';
+  const manque = actif?.logique === 'pas' ? actif.conditions.find((c) => !c.vraie) : undefined;
+  if (manque) return `${nom} : ${minuscule(manque.libelle)} ${manque.detail ?? 'à faire'}`;
+  const sortie = moteur.sortie(contexte, appareil);
+  if (sortie.certaine) return `${nom} jusqu'à ${heureLocale(new Date(sortie.auPlusTard), fuseau)}`;
+  return `${nom} : fin ${sortie.texte}`;
+}
+
+const minuscule = (texte: string) => texte.charAt(0).toLowerCase() + texte.slice(1);
+
 /** Règle §4.5 : sessions autorisées, au moins une app bloquée, et (PC) un compte de travail. */
 export function possibiliteSession(moteur: Moteur, contexte: Contexte, appareil: string, etat = moteur.etat(contexte, appareil)): PossibiliteSession {
   const def = contexte.config.appareils[appareil];
   const refus = (motif: string) => ({ session_possible: false, session_motif: motif });
   if (def && def.type !== 'iphone' && def.comptesDeTravail.length === 0) return refus('aucun compte de travail sur ce PC');
   if (etat.sessions === 'interdites') {
-    const fin = moteur.planifier(contexte, appareil)[0]?.fin;
-    const jusqua = fin ? ` jusqu'à ${heureLocale(new Date(fin), etat.journee.fuseau)}` : '';
-    return refus(`sessions interdites : ${etat.mode}${jusqua}`);
+    return refus(motifModeInterdit(moteur, contexte, appareil, etat.journee.fuseau));
   }
   const bloquees = 'bloquer_domaines' in etat.actions ? etat.actions.bloquer_domaines : etat.actions.bloquer_apps;
   if (bloquees.length === 0) return refus("rien n'est bloqué en ce moment");
@@ -235,7 +255,7 @@ function exigerSessionPossible(moteur: Moteur, contexte: Contexte, appareil: str
   const etat = moteur.etat(contexte, appareil);
   const { session_possible, session_motif } = possibiliteSession(moteur, contexte, appareil, etat);
   if (!session_possible) {
-    throw new ErreurApi(409, 'session_impossible', `Session impossible sur ${appareil} : ${session_motif}.`, {
+    throw new ErreurApi(409, 'session_impossible', `Session impossible : ${session_motif}.`, {
       appareil,
       mode: etat.mode,
       motif: session_motif,
@@ -257,8 +277,7 @@ export async function ouvrirSession(deps: Dependances, db: D1Database, jeton: Je
   const { config } = contexte;
   const appareil = appareilDeLaRequete(jeton, corps.appareil, config);
   const tacheId = texte(corps, 'tache_id', 100);
-  const apps = listeDeTextes(corps, 'apps', { min: 1 });
-  verifierApps(config, apps);
+  const apps = deplierApps(config, listeDeTextes(corps, 'apps', { min: 1 }));
 
   exigerSessionPossible(deps.moteur, contexte, appareil);
   const deja = ouvertes.find((s) => s.session.appareil === appareil);
@@ -381,9 +400,9 @@ export async function repondreQuestion(deps: Dependances, db: D1Database, jeton:
 }
 
 export async function ajouterApps(deps: Dependances, db: D1Database, jeton: JetonAuthentifie, id: string, corps: Corps) {
-  const nouvelles = corps.app !== undefined ? [texte(corps, 'app', 100)] : listeDeTextes(corps, 'apps', { min: 1 });
+  const demandes = corps.app !== undefined ? [texte(corps, 'app', 100)] : listeDeTextes(corps, 'apps', { min: 1 });
   const { contexte } = await preparer(deps, db, jeton);
-  verifierApps(contexte.config, nouvelles);
+  const nouvelles = deplierApps(contexte.config, demandes);
   const s = await sessionDuJeton(db, jeton, id);
   if (s.session.fermee_le) throw new ErreurApi(409, 'session_fermee', 'Cette session est fermée.', { motif_fin: s.session.motif_fin });
   exigerSessionPossible(deps.moteur, contexte, s.session.appareil);

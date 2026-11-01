@@ -13,9 +13,11 @@ export function libelleAppareil(a: Pick<StatutAppareil, 'appareil' | 'type'>): s
   return lisible.charAt(0).toUpperCase() + lisible.slice(1);
 }
 
-/** « PC Windows : aucun compte de travail sur ce PC », pour chaque appareil sans session possible. */
-export function motifsSansSession(appareils: StatutAppareil[]): string[] {
-  return appareils.filter((a) => !a.session_possible).map((a) => `${libelleAppareil(a)} : ${a.session_motif ?? 'session impossible'}`);
+/** « PC Windows : aucun compte de travail sur ce PC », pour chaque appareil sans session possible (sauf ceux dont le motif est `sauf`). */
+export function motifsSansSession(appareils: StatutAppareil[], sauf: string | null = null): string[] {
+  return appareils
+    .filter((a) => !a.session_possible && (sauf === null || a.session_motif !== sauf))
+    .map((a) => `${libelleAppareil(a)} : ${a.session_motif ?? 'session impossible'}`);
 }
 
 export type EtatPing = 'recent' | 'retard' | 'absent';

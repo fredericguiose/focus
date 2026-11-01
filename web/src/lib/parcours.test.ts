@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { creerApiSimulee } from '@/api/simule';
-import type { EtapeParcours, StatutAppareil } from '@/api/contrat';
-import { appareilPrincipal, ceQuiManque, etapesDuJour } from './parcours';
+import type { ConditionParcours, EtapeParcours, StatutAppareil } from '@/api/contrat';
+import { appareilPrincipal, ceQuiManque, etapesDuJour, phraseManque } from './parcours';
 
 // Mardi 3 novembre 2026, 15:00 à Paris (journée), ouverture 19:50, coucher 21:30.
 const MARDI_15H = Date.parse('2026-11-03T14:00:00Z');
@@ -48,9 +48,20 @@ describe('parcours de la journée', () => {
 
   it('dit ce qui manque pour sortir du mode actif', async () => {
     const journee = await statutEnPhase('journee');
-    expect(ceQuiManque(appareilPrincipal(journee), journee.journee)).toEqual(['Planning à faire']);
+    // Mode `pas` : le fait attendu (pas fait), en ✗ orange.
+    expect(ceQuiManque(appareilPrincipal(journee), journee.journee)).toEqual([{ texte: 'Planning à faire', detail: null, etat: 'a_faire' }]);
     const soiree = await statutEnPhase('soiree');
-    expect(ceQuiManque(appareilPrincipal(soiree), soiree.journee)).toEqual(['P1/P2 : 2 restantes']);
+    expect(ceQuiManque(appareilPrincipal(soiree), soiree.journee)).toEqual([
+      { texte: 'Tâches P1/P2 à faire', detail: '2 restantes, dont 1 en retard depuis le 30 oct.', etat: 'a_faire' },
+    ]);
+  });
+
+  it('phrases de ce qui manque : date du retard pour planning et récap, heure sans doublon', () => {
+    const c = (type: ConditionParcours['type'], libelle: string, detail: string | null) => ({ type, libelle, vraie: false, detail, a: null });
+    expect(phraseManque(c('planning', 'Planning du matin', 'en retard depuis le 8 oct.'))).toEqual({ texte: 'Planning à faire', detail: 'en retard depuis le 8 oct.' });
+    expect(phraseManque(c('recap', "Récap d'hier", 'à faire'))).toEqual({ texte: 'Récap à faire', detail: null });
+    expect(phraseManque(c('heure', 'Ouverture à 16:00', '+20 min de report'))).toEqual({ texte: 'Ouverture à 16:00', detail: '+20 min de report' });
+    expect(phraseManque(c('toujours', 'Par défaut', null))).toBeNull();
   });
 
   it('tolère un mode inconnu : placé à la fin, avant le lever suivant', async () => {

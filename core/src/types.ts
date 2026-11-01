@@ -287,8 +287,10 @@ export interface ConditionExpliquee {
   vraie: boolean;
   /** Ce qui reste, ex. « 2 restantes » ; null si rien à signaler. */
   detail: string | null;
-  /** Condition d'heure : l'instant où elle devient vraie (null sinon). */
+  /** Condition d'heure : l'instant où le fait (plage horaire) devient vrai (null sinon). */
   a: Instant | null;
+  /** Le mode exige le contraire du fait (`pas`) : `vraie` reste l'état du fait. */
+  niee: boolean;
 }
 
 /** Un mode de la routine du jour, dans l'ordre de priorité, et pourquoi il gagne ou non. */
@@ -299,7 +301,7 @@ export interface ModeExplique {
   applicable: boolean;
   actif: boolean;
   conditions: ConditionExpliquee[];
-  /** `pas` : les conditions sont déjà énoncées sous forme niée (vraie = le mode s'applique). */
+  /** `pas` : le mode s'applique tant que ses conditions (faits positifs, `niee`) ne sont pas vraies. */
   logique: 'tous' | 'un_parmi' | 'pas' | 'simple';
 }
 

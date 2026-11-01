@@ -1,5 +1,6 @@
 // Planning d'un appareil (§4.3), statut pour l'interface, tâches du jour, raison d'un blocage.
 import type { ActionsIphone, ActionsPc, Config, Contexte, EngagementPrevu, Journee, Moteur, Segment, SortieMode } from '../../core/src/types';
+import { dateCourte } from '../../core/src/temps';
 import { CLES_CACHE, chargerContexte, lireCache } from './contexte';
 import type { Dependances, JetonAuthentifie } from './env';
 import { ErreurApi, requeteInvalide } from './erreurs';
@@ -102,6 +103,35 @@ export function appsBloquees(config: Config, actions: ActionsPc | ActionsIphone)
     .sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
 }
 
+/** Noms lisibles des groupes connus ; sinon l'identifiant mis en forme (« jeux_video » → « Jeux video »). */
+const NOMS_GROUPES: Record<string, string> = {
+  ia_conversationnelle: 'IA conversationnelle',
+  divertissement: 'Divertissement',
+  navigateurs: 'Navigateurs',
+  matin: 'Apps du matin',
+  reseaux_sociaux: 'Réseaux sociaux',
+};
+
+export function nomGroupe(id: string): string {
+  const lisible = id.replace(/[_-]+/g, ' ');
+  return NOMS_GROUPES[id] ?? lisible.charAt(0).toUpperCase() + lisible.slice(1);
+}
+
+/**
+ * Groupes que le mode en vigueur bloque (cités dans `bloque`, ou tous pour `tout`), réduits aux apps
+ * effectivement bloquées sur l'appareil (§4.6) ; un groupe sans app bloquée n'apparaît pas.
+ */
+export function groupesBloques(config: Config, mode: string, bloquees: { id: string }[]) {
+  const ids = new Set(bloquees.map((a) => a.id));
+  const bloque = config.modes[mode]?.effets.bloque;
+  const cites = bloque === 'tout' ? null : new Set(bloque ?? []);
+  return Object.entries(config.groupes)
+    .filter(([id]) => cites === null || cites.has(id))
+    .map(([id, apps]) => ({ id, nom: nomGroupe(id), apps: apps.filter((a) => ids.has(a)) }))
+    .filter((g) => g.apps.length > 0)
+    .sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+}
+
 function vueSortie(s: SortieMode) {
   return { texte: s.texte, certaine: s.certaine, au_plus_tard: s.auPlusTard };
 }
@@ -137,8 +167,8 @@ export function actionsPossibles(j: Journee, phase: Phase) {
       phase === 'journee'
         ? { mode: 'libre' as const, motif: null }
         : j.decisionDeNuitPrise
-          ? { mode: 'indisponible' as const, motif: `décision de nuit déjà prise pour la nuit du ${j.date} (une seule par nuit)` }
-          : { mode: 'decision_de_nuit' as const, motif: `soirée ouverte depuis ${ouverture} : raison et phrase exigées, une fois par nuit` },
+          ? { mode: 'indisponible' as const, motif: `décision de nuit déjà prise pour la nuit du ${dateCourte(j.date)} (une seule par nuit)` }
+          : { mode: 'decision_de_nuit' as const, motif: `soirée ouverte depuis ${ouverture}` },
   };
 }
 
@@ -188,6 +218,7 @@ export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuth
     appareils: Object.entries(config.appareils).map(([nom, def]) => {
       const etat = deps.moteur.etat(contexte, nom);
       const segment = deps.moteur.planifier(contexte, nom, HORIZON_H)[0];
+      const bloquees = appsBloquees(config, etat.actions);
       return {
         nom,
         type: def.type,
@@ -196,7 +227,8 @@ export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuth
         ...possibiliteSession(deps.moteur, contexte, nom, etat),
         raison: etat.raison,
         actions: etat.actions,
-        apps_bloquees: appsBloquees(config, etat.actions),
+        apps_bloquees: bloquees,
+        groupes_bloques: groupesBloques(config, etat.mode, bloquees),
         dernier_ping: vuLe.get(nom) ?? null,
         // Suppose les faits Todoist constants : à lire avec `sortie`, pas comme une certitude.
         jusqua: segment?.fin ?? decaler(maintenant, HORIZON_H * 3600),

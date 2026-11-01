@@ -122,30 +122,41 @@ describe('API simulée : phase et actions', () => {
       ['pc_windows', 'MORNING_LOCK', false],
       ['iphone', 'WORK', false],
     ]);
-    expect(journee.appareils[0]?.sortie).toEqual({ texte: 'Dès que le planning du jour est fait', certaine: false, au_plus_tard: '2026-11-03T20:30:00Z' });
+    expect(journee.appareils[0]?.sortie).toEqual({ texte: 'dès que le planning du matin est fait', certaine: false, au_plus_tard: '2026-11-03T20:30:00Z' });
+    // Motif comme l'API : le mode et le fait qui manque, pas d'identifiant.
+    expect(journee.appareils[0]?.session_motif).toBe('Matin verrouillé : planning du matin à faire');
+    // Le fait positif, son état réel, et `niee` pour le mode `pas`.
+    expect(journee.appareils[0]?.parcours?.find((e) => e.mode === 'MORNING_LOCK')?.conditions).toEqual([
+      { type: 'planning', libelle: 'Planning du matin', vraie: false, detail: 'à faire', a: null, niee: true },
+    ]);
     expect(journee.appareils[0]?.parcours?.find((e) => e.actif)?.mode).toBe('MORNING_LOCK');
 
     const soiree = await enPhase('soiree');
     expect(soiree.phase).toBe('soiree');
-    expect(soiree.appareils[0]).toMatchObject({ mode: 'WORK', sortie: { texte: 'Dès que les 2 tâches P1/P2 restantes sont faites', certaine: false } });
+    expect(soiree.appareils[0]).toMatchObject({ mode: 'WORK', sortie: { texte: 'dès que les tâches P1/P2 sont faites', certaine: false } });
     const evening = soiree.appareils[0]?.parcours?.find((e) => e.mode === 'EVENING_FREE');
-    expect(evening?.conditions.map((c) => [c.type, c.vraie, c.detail])).toEqual([
-      ['heure', true, 'report de 20 min compris'],
-      ['prioritaires', false, '2 restantes'],
-      ['recap', true, null],
+    expect(evening?.conditions.map((c) => [c.libelle, c.vraie, c.detail])).toEqual([
+      ['Ouverture à 19:50', true, '+20 min de report'],
+      ['Tâches P1/P2 faites', false, '2 restantes, dont 1 en retard depuis le 30 oct.'],
+      ["Récap d'hier", true, null],
+    ]);
+    // Groupes bloqués en WORK sur le PC : Safari n'a pas de domaine, le groupe Navigateurs n'y est pas.
+    expect(soiree.appareils[0]?.groupes_bloques?.map((g) => [g.nom, g.apps])).toEqual([
+      ['Divertissement', ['youtube', 'x']],
+      ['IA conversationnelle', ['chatgpt', 'gemini', 'claude_ai']],
     ]);
 
     const nuit = await enPhase('nuit');
     expect(nuit.appareils[0]).toMatchObject({
       mode: 'NIGHT_LOCK',
-      sortie: { texte: 'Au lever de 05:30', certaine: true, au_plus_tard: '2026-11-04T04:30:00Z' },
+      sortie: { texte: 'au lever, 05:30', certaine: true, au_plus_tard: '2026-11-04T04:30:00Z' },
     });
   });
 
   it('refuse de retirer un engagement non annulable', async () => {
     const prix = await simulation().api.prixException({ demande: { type: 'retire', date: '2026-11-04', engagement: 'travail' } });
     expect(prix.admissible).toBe(false);
-    expect(prix.motifRefus).toContain('annulable');
+    expect(prix.motifRefus).toBe("l'engagement « Travail » ne peut pas être annulé");
   });
 });
 
@@ -189,9 +200,9 @@ describe('API simulée : sessions', () => {
     expect(e.erreur).toBe('session_impossible');
     sim.regler('2026-11-03T21:00:00Z');
     expect(await possibilites()).toEqual({
-      pc_linux: [false, "sessions interdites : NIGHT_LOCK jusqu'à 05:30"],
+      pc_linux: [false, "Nuit jusqu'à 05:30"],
       pc_windows: [false, 'aucun compte de travail sur ce PC'],
-      iphone: [false, "sessions interdites : NIGHT_LOCK jusqu'à 05:30"],
+      iphone: [false, "Nuit jusqu'à 05:30"],
     });
   });
 
@@ -274,6 +285,6 @@ describe('API simulée : exceptions', () => {
     const { api } = simulation();
     const prix = await api.prixException({ demande: { type: 'retire', date: '2026-11-04', engagement: 'piscine' } });
     expect(prix.admissible).toBe(false);
-    expect(prix.motifRefus).toContain('piscine');
+    expect(prix.motifRefus).toBe("pas d'engagement « Piscine » le 4 nov.");
   });
 });

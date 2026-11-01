@@ -13,7 +13,7 @@ const config = { dette: { label: 'Dette', color: 'var(--avertissement)' } } sati
 /** « en retard » (dette), « en avance », « à l'équilibre », avec la couleur qui va avec. */
 export function sensDette(minutes: number): { libelle: string; classe: string } {
   if (Math.round(minutes) === 0) return { libelle: "à l'équilibre", classe: 'text-muted-foreground' };
-  return minutes > 0 ? { libelle: 'en retard', classe: 'text-avertissement' } : { libelle: 'en avance', classe: 'text-succes' };
+  return minutes > 0 ? { libelle: 'en dette', classe: 'text-avertissement' } : { libelle: 'en avance', classe: 'text-succes' };
 }
 
 const signe = (minutes: number) => (Math.round(minutes) === 0 ? '0 min' : `${minutes > 0 ? '+' : '−'}${formaterDuree(minutes)}`);
@@ -83,7 +83,7 @@ export function CarteDette({ statut }: { statut: ReponseStatut }) {
         </span>
         <span className="flex items-center gap-3 text-xs">
           <span className="flex items-center gap-1">
-            <span className="bg-avertissement size-2 rounded-full" /> retard
+            <span className="bg-avertissement size-2 rounded-full" /> dette
           </span>
           <span className="flex items-center gap-1">
             <span className="bg-succes size-2 rounded-full" /> avance

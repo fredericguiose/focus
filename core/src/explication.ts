@@ -7,9 +7,11 @@ import type {
   ConditionExpliquee,
   Config,
   Contexte,
+  DateLocale,
   Journee,
   ModeExplique,
   SortieMode,
+  Tache,
   TypeConditionExpliquee,
 } from './types';
 import {
@@ -18,16 +20,15 @@ import {
   planningRestant,
   prioritairesRestantes,
   recapRestant,
-  repere,
   retardsRestants,
   tachesFiltrees,
   type ConditionHeure,
   type Environnement,
 } from './conditions';
 import { etatA, verifierAppareil } from './etat';
-import { lireExpression, resoudreExpression } from './expressions';
+import { lireExpression } from './expressions';
 import { journeeCourante, parametresDuMode, routineDuJour } from './journee';
-import { ecrireInstant, jourSemaine, lireInstant, local } from './temps';
+import { ajouterJours, dateCourte, ecrireInstant, jourSemaine, lireInstant, local } from './temps';
 
 export const NOMS_DES_MODES: Record<string, string> = {
   NIGHT_LOCK: 'Nuit',
@@ -39,9 +40,13 @@ export const NOMS_DES_MODES: Record<string, string> = {
 /** Condition jugée, avec ce qu'il faut pour raisonner sur la sortie. */
 interface Feuille {
   type: TypeConditionExpliquee;
+  /** Le fait, énoncé positivement, même sous `pas` (« Planning du matin »). */
   libelle: string;
+  /** Vrai si le mode s'applique de ce côté-là (négation comprise) : sert à la sortie. */
   vraie: boolean;
   detail: string | null;
+  /** Heure : instant où le fait positif devient vrai (ce que l'API expose). */
+  aPositif: number | null;
   /** Heure : instant où elle devient vraie. */
   a: number | null;
   /** Heure : instant où elle devient fausse (null : pas dans la journée). */
@@ -81,56 +86,80 @@ function recapLisible(config: Config): string {
   return n === 0 ? 'récap du jour' : n === 1 ? "récap d'hier" : `récap d'il y a ${n} jours`;
 }
 
+function majuscule(texte: string): string {
+  return texte.charAt(0).toUpperCase() + texte.slice(1);
+}
+
+function minuscule(texte: string): string {
+  return texte.charAt(0).toLowerCase() + texte.slice(1);
+}
+
+/** La plus ancienne échéance d'une liste de tâches (null si aucune). */
+function plusAncienne(taches: Tache[]): DateLocale | null {
+  return taches.reduce<DateLocale | null>((min, t) => (t.echeance !== null && (min === null || t.echeance < min) ? t.echeance : min), null);
+}
+
+/** Planning et récap : jamais un compte, la date de la plus ancienne échéance non faite. */
+function detailEcheance(taches: Tache[], attendue: DateLocale): string {
+  const d = plusAncienne(taches);
+  return d === null || d >= attendue ? 'à faire' : `en retard depuis le ${dateCourte(d)}`;
+}
+
+/** « 3 restantes, dont 2 en retard depuis le 12 oct. » */
+function detailPrioritaires(taches: Tache[], jour: DateLocale): string {
+  const enRetard = taches.filter((t) => t.echeance !== null && t.echeance < jour);
+  const total = pluriel(taches.length, 'restante');
+  if (enRetard.length === 0) return total;
+  const depuis = `en retard depuis le ${dateCourte(plusAncienne(enRetard)!)}`;
+  return enRetard.length === taches.length ? `${total}, ${depuis}` : `${total}, dont ${enRetard.length} ${depuis}`;
+}
+
 // ─── Feuilles ─────────────────────────────────────────────────────────────────
 
 function feuilleHeure(h: ConditionHeure, env: Environnement, nie: boolean): Feuille {
   const b = bornes(h, env);
   const t = env.instant;
   const dansPlage = (b.apres === undefined || t >= b.apres) && (b.avant === undefined || t < b.avant);
-  const report = h.decalePar === 'prix_du_report' && env.journee.prixDuReportMin > 0
-    ? ` (+${env.journee.prixDuReportMin} min de report)`
-    : '';
-  let debut = '';
+  const reportMin = h.decalePar === 'prix_du_report' ? env.journee.prixDuReportMin : 0;
+  // L'heure effective (report compris), comme `journee.ouverture` : une seule mention.
+  const debut = b.apres !== undefined ? heure(b.apres, env) : '';
+  let nom = 'Ouverture';
   if (h.apres !== undefined) {
     const e = lireExpression(h.apres);
-    const base = resoudreExpression(h.apres, repere(env));
-    const variable = e && 'variable' in e && e.decalageMin === 0 && ['coucher', 'lever'].includes(e.variable) ? e.variable : null;
-    debut = variable ? `le ${variable} ${heure(base, env)}` : `${heure(base, env)}${report}`;
+    if (e && 'variable' in e && e.decalageMin === 0 && e.variable === 'coucher') nom = 'Coucher';
+    if (e && 'variable' in e && e.decalageMin === 0 && e.variable === 'lever') nom = 'Lever';
   }
   const fin = b.avant !== undefined ? heure(b.avant, env) : '';
-  const parNom = debut.startsWith('le ');
+  const libelle = b.apres !== undefined && b.avant !== undefined
+    ? `De ${debut} à ${fin}`
+    : b.apres !== undefined ? `${nom} à ${debut}` : `Avant ${fin}`;
+  const detail = reportMin > 0 && b.apres !== undefined ? `+${reportMin} min de report` : null;
 
-  let libelle: string;
   let a: number | null;
   let finA: number | null;
   if (!nie) {
-    libelle = b.apres !== undefined && b.avant !== undefined
-      ? `de ${debut.replace(/^le /, '')} à ${fin}`
-      : b.apres !== undefined ? (parNom ? `dès ${debut}` : `après ${debut}`) : `avant ${fin}`;
     a = b.apres ?? null;
     finA = b.avant ?? null;
   } else {
-    libelle = b.apres !== undefined && b.avant !== undefined
-      ? `avant ${debut.replace(/^le /, '')} ou à partir de ${fin}`
-      : b.apres !== undefined ? `avant ${debut}` : `à partir de ${fin}`;
     a = b.avant ?? null;
     finA = b.apres !== undefined && t < b.apres ? b.apres : null;
   }
-  return { type: 'heure', libelle, vraie: dansPlage !== nie, detail: null, a, finA, nie, present: null, futur: null };
+  return { type: 'heure', libelle, vraie: dansPlage !== nie, detail, aPositif: b.apres ?? null, a, finA, nie, present: null, futur: null };
 }
 
 function feuilleTaches(
   type: TypeConditionExpliquee,
   n: number,
-  textes: { oui: string; non: string; present: string; futur: string; detail: string },
+  textes: { fait: string; present: string; futur: string; detail: string },
   nie: boolean,
   vraiSiAucune = n === 0,
 ): Feuille {
   return {
     type,
-    libelle: nie ? textes.non : textes.oui,
+    libelle: textes.fait,
     vraie: vraiSiAucune !== nie,
-    detail: n > 0 ? textes.detail : null,
+    detail: vraiSiAucune ? null : textes.detail,
+    aPositif: null,
     a: null,
     finA: null,
     nie,
@@ -143,48 +172,44 @@ function feuille(condition: Condition, env: Environnement, nie: boolean): Feuill
   const { config, faits } = env;
   const jour = env.journee.date;
   if (condition === 'toujours') {
-    return { type: 'toujours', libelle: nie ? 'jamais' : 'toujours', vraie: !nie, detail: null, a: null, finA: null, nie, present: null, futur: null };
+    return { type: 'toujours', libelle: 'Par défaut', vraie: !nie, detail: null, aPositif: null, a: null, finA: null, nie, present: null, futur: null };
   }
   if (condition === 'planning_fait') {
-    const n = planningRestant(config, faits, jour).length;
-    return feuilleTaches('planning', n, {
-      oui: 'planning du matin fait',
-      non: 'planning du matin pas encore fait',
+    const restant = planningRestant(config, faits, jour);
+    return feuilleTaches('planning', restant.length, {
+      fait: 'Planning du matin',
       present: 'le planning du matin est fait',
       futur: 'le planning du matin sera fait',
-      detail: `${n} à faire`,
+      detail: detailEcheance(restant, jour),
     }, nie);
   }
   if (condition === 'recap_fait') {
-    const n = recapRestant(config, faits, jour).length;
+    const restant = recapRestant(config, faits, jour);
     const r = recapLisible(config);
-    return feuilleTaches('recap', n, {
-      oui: `${r} fait`,
-      non: `${r} pas encore fait`,
+    return feuilleTaches('recap', restant.length, {
+      fait: majuscule(r),
       present: `le ${r} est fait`,
       futur: `le ${r} sera fait`,
-      detail: `${n} en retard`,
+      detail: detailEcheance(restant, ajouterJours(jour, -config.todoist.recapToleranceJours)),
     }, nie);
   }
   if (condition === 'prioritaires_faites') {
-    const n = prioritairesRestantes(config, faits, jour).length;
+    const restant = prioritairesRestantes(config, faits, jour);
     const p = prioritesLisibles(config);
-    return feuilleTaches('prioritaires', n, {
-      oui: `tâches ${p} du jour faites`,
-      non: `tâches ${p} du jour pas toutes faites`,
-      present: `les tâches ${p} du jour sont faites`,
-      futur: `les tâches ${p} du jour seront faites`,
-      detail: pluriel(n, 'restante'),
+    return feuilleTaches('prioritaires', restant.length, {
+      fait: `Tâches ${p} faites`,
+      present: `les tâches ${p} sont faites`,
+      futur: `les tâches ${p} seront faites`,
+      detail: detailPrioritaires(restant, jour),
     }, nie);
   }
   if (condition === 'aucun_retard') {
     const n = retardsRestants(faits, jour).length;
     return feuilleTaches('retard', n, {
-      oui: 'aucun retard (photo de 00:00)',
-      non: 'retards de la photo de 00:00 pas soldés',
-      present: 'les retards de la photo de 00:00 sont soldés',
-      futur: 'les retards de la photo de 00:00 seront soldés',
-      detail: pluriel(n, 'restant'),
+      fait: 'Retards rattrapés',
+      present: 'les retards sont rattrapés',
+      futur: 'les retards seront rattrapés',
+      detail: `${pluriel(n, 'restante')} (en retard à minuit)`,
     }, nie);
   }
   if ('heure' in condition) return feuilleHeure(condition.heure, env, nie);
@@ -193,8 +218,7 @@ function feuille(condition: Condition, env: Environnement, nie: boolean): Feuill
     const n = tachesFiltrees(faits, jour, filtre).length;
     const quoi = `${pluriel(auPlus, 'tâche')} ${filtre.jour === 'aujourd_hui' ? 'du jour' : filtre.jour === 'retard' ? 'en retard' : 'du jour ou en retard'}`;
     return feuilleTaches('taches', n, {
-      oui: `au plus ${quoi}`,
-      non: `plus de ${quoi}`,
+      fait: `Au plus ${quoi}`,
       present: `il reste au plus ${quoi}`,
       futur: `il restera au plus ${quoi}`,
       detail: `${n} en tout`,
@@ -215,19 +239,20 @@ function feuilleComposee(condition: Condition, env: Environnement, nie: boolean)
     : typeof condition === 'object' && 'pas' in condition ? [condition.pas] : [condition];
   const sous = enfants.map((c) => feuille(c, env, false));
   const lien = typeof condition === 'object' && 'unParmi' in condition ? ' ou ' : ' et ';
-  let libelle = sous.map((f) => f.libelle).join(lien);
-  if (typeof condition === 'object' && 'pas' in condition) libelle = `non (${libelle})`;
-  if (nie) libelle = `non (${libelle})`;
+  let libelle = sous.map((f, i) => (i === 0 ? f.libelle : minuscule(f.libelle))).join(lien);
+  if (typeof condition === 'object' && 'pas' in condition) libelle = `Pas : ${minuscule(libelle)}`;
+  // Sous `pas`, le libellé reste positif : la négation est portée par `niee`.
   return {
     type: sous.find((f) => f.type !== 'toujours')?.type ?? 'toujours',
     libelle,
     vraie: juger(condition, env).vrai !== nie,
     detail: null,
+    aPositif: null,
     a: null,
     finA: null,
     nie,
-    present: libelle,
-    futur: libelle,
+    present: minuscule(libelle),
+    futur: minuscule(libelle),
   };
 }
 
@@ -271,12 +296,14 @@ function modesInternes(contexte: Contexte, appareil: string, journee: Journee, i
 function versExplique({ explique, feuilles }: ModeInterne): ModeExplique {
   return {
     ...explique,
+    // Toujours le fait positif : `vraie` est son état réel, `niee` dit qu'il joue à l'envers.
     conditions: feuilles.map((f) => ({
       type: f.type,
       libelle: f.libelle,
-      vraie: f.vraie,
+      vraie: f.nie ? !f.vraie : f.vraie,
       detail: f.detail,
-      a: f.a === null ? null : ecrireInstant(f.a),
+      a: f.aPositif === null ? null : ecrireInstant(f.aPositif),
+      niee: f.nie,
     }) satisfies ConditionExpliquee),
   };
 }

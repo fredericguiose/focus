@@ -2,7 +2,7 @@
 // l'ordre où la journée les traverse. L'API les donne dans l'ordre de priorité, avec leurs
 // conditions évaluées maintenant ; seules les heures fixes (lever, coucher) sont des heures.
 import type { ConditionParcours, EtapeParcours, Instant, Journee, ReponseStatut, StatutAppareil } from '@/api/contrat';
-import { formaterHeure } from './temps';
+import { etatCondition, type EtatFait } from './etats';
 
 /** Ordre du jour des modes connus ; un mode inconnu vient après, dans l'ordre de l'API. */
 export const ORDRE_DU_JOUR = ['MORNING_LOCK', 'WORK', 'EVENING_FREE', 'NIGHT_LOCK'] as const;
@@ -54,45 +54,51 @@ export function etapesDuJour(appareil: StatutAppareil | undefined, j: Journee): 
   ];
 }
 
-/** Ce qu'il faut faire pour qu'une condition devienne vraie, en quelques mots. */
-export function phraseManque(c: ConditionParcours, fuseau: string): string | null {
-  switch (c.type) {
-    case 'toujours':
-      return null;
-    case 'heure':
-      return c.a ? `Pas avant ${formaterHeure(c.a, fuseau)}` : c.libelle;
-    case 'planning':
-      return 'Planning à faire';
-    case 'recap':
-      return 'Récap à faire';
-    case 'prioritaires':
-      return c.detail ? `P1/P2 : ${c.detail}` : 'Tâches prioritaires à faire';
-    case 'retard':
-      return c.detail ? `Retards : ${c.detail}` : 'Retards à rattraper';
-    default:
-      return c.detail ? `${c.libelle} : ${c.detail}` : c.libelle;
-  }
+/** Ce qui manque : quelques mots en gros, la précision à part (couleur commune, lib/etats). */
+export interface Manque {
+  texte: string;
+  detail: string | null;
+  etat: EtatFait;
+}
+
+const A_FAIRE: Partial<Record<ConditionParcours['type'], string>> = {
+  planning: 'Planning à faire',
+  recap: 'Récap à faire',
+  prioritaires: 'Tâches P1/P2 à faire',
+  retard: 'Retards à rattraper',
+};
+
+/** Le fait qui manque, court ; la précision (« en retard depuis le 8 oct. ») reste en détail. Null pour « par défaut ». */
+export function phraseManque(c: ConditionParcours): Omit<Manque, 'etat'> | null {
+  if (c.type === 'toujours') return null;
+  const detail = c.detail && c.detail !== 'à faire' ? c.detail : null;
+  return { texte: A_FAIRE[c.type] ?? c.libelle, detail };
 }
 
 /**
- * Ce qui manque pour sortir du mode actif : la condition d'un mode `pas` qui le retient, sinon les
- * conditions fausses de l'étape suivante du jour (l'heure seulement s'il ne manque rien d'autre).
+ * Ce qui manque pour sortir du mode actif : le fait attendu par un mode `pas` qui le retient, sinon
+ * les faits pas encore vrais de l'étape suivante du jour (l'heure seulement s'il ne manque rien d'autre).
  */
-export function ceQuiManque(appareil: StatutAppareil | undefined, j: Journee): string[] {
+export function ceQuiManque(appareil: StatutAppareil | undefined, j: Journee): Manque[] {
   const etapes = etapesDuJour(appareil, j);
   if (!etapes) return [];
   const modes = etapes.flatMap((e) => (e.genre === 'mode' ? [e.etape] : []));
   const i = modes.findIndex((e) => e.actif);
   const active = modes[i];
   if (!active) return [];
-  const phrases = (conditions: ConditionParcours[]) =>
-    conditions.map((c) => phraseManque(c, j.fuseau)).filter((p): p is string => p !== null);
-  if (active.logique === 'pas') return phrases(active.conditions.filter((c) => !c.vraie));
+  const manques = (conditions: ConditionParcours[]) =>
+    conditions.flatMap((c) => {
+      const m = phraseManque(c);
+      return m === null ? [] : [{ ...m, etat: etatCondition(c) }];
+    });
+  if (active.logique === 'pas') return manques(active.conditions.filter((c) => !c.vraie));
   const suivante = modes[i + 1];
   // Entrer dans un mode `pas` n'est pas un objectif : rien à proposer.
   if (!suivante || suivante.logique === 'pas') return [];
   const fausses = suivante.conditions.filter((c) => !c.vraie);
   const sansHeure = fausses.filter((c) => c.type !== 'heure');
-  const retenues = phrases(sansHeure.length > 0 ? sansHeure : fausses);
-  return suivante.logique === 'un_parmi' && retenues.length > 1 ? [retenues.join(' ou ')] : retenues;
+  const retenues = manques(sansHeure.length > 0 ? sansHeure : fausses);
+  return suivante.logique === 'un_parmi' && retenues.length > 1
+    ? [{ texte: retenues.map((m) => m.texte).join(' ou '), detail: null, etat: retenues[0]!.etat }]
+    : retenues;
 }

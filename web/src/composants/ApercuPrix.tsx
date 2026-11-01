@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { PrixException } from '@/api/contrat';
 import { formaterDette, formaterHeureRelative } from '@/lib/temps';
+import { phrase } from '@/lib/texte';
 import { cn } from '@/lib/utils';
 
 function Comparaison({ terme, avant, apres, alerte = false }: { terme: string; avant: string; apres: string; alerte?: boolean }) {
@@ -37,7 +38,7 @@ export function ApercuPrix({
 }) {
   if (!prix) {
     return (
-      <section aria-label="Prix de l'exception" className="bg-muted/40 grid gap-3 rounded-xl border border-dashed p-4">
+      <section aria-label="Prix du changement" className="bg-muted/40 grid gap-3 rounded-xl border border-dashed p-4">
         {calcul ? (
           <>
             <Skeleton className="h-5 w-32" />
@@ -56,7 +57,7 @@ export function ApercuPrix({
   const heure = (instant: string) => formaterHeureRelative(instant, fuseau, maintenantMs);
   return (
     <section
-      aria-label="Prix de l'exception"
+      aria-label="Prix du changement"
       aria-live="polite"
       className={cn('grid gap-3 rounded-xl border p-4', prix.admissible ? 'bg-muted/40' : 'border-destructive/40 bg-destructive/5')}
     >
@@ -64,19 +65,19 @@ export function ApercuPrix({
         <span className="text-sm font-semibold">Prix</span>
         {prix.admissible ? (
           <Badge variant="outline" className="text-succes border-succes/40">
-            <CircleCheck /> {prix.resserre ? 'Resserre : toujours permis' : 'Admissible'}
+            <CircleCheck /> {prix.resserre ? 'Plus strict : toujours accepté' : 'Accepté'}
           </Badge>
         ) : (
           <Badge variant="destructive">
-            <CircleX /> Refusée
+            <CircleX /> Refusé
           </Badge>
         )}
         {prix.friction === 'raison_phrase' ? (
           <Badge variant="outline" className="text-avertissement border-avertissement/40">
-            <ShieldAlert /> Raison + phrase exigées
+            <ShieldAlert /> Raison et phrase exigées
           </Badge>
         ) : (
-          <Badge variant="secondary">Sans friction</Badge>
+          <Badge variant="secondary">Sans justification</Badge>
         )}
       </div>
       <div className="divide-y overflow-hidden rounded-lg border sm:grid sm:grid-cols-3 sm:gap-2 sm:divide-y-0 sm:overflow-visible sm:rounded-none sm:border-0">
@@ -89,7 +90,7 @@ export function ApercuPrix({
           alerte={prix.detteApresMin > prix.detteAvantMin}
         />
       </div>
-      {prix.admissible ? null : <p className="text-destructive text-sm font-medium">{prix.motifRefus ?? 'Exception non admissible.'}</p>}
+      {prix.admissible ? null : <p className="text-destructive text-sm font-medium">{prix.motifRefus ? `${phrase(prix.motifRefus.replace(/\.$/, ''))}.` : 'Changement refusé.'}</p>}
     </section>
   );
 }

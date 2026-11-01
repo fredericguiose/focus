@@ -45,6 +45,16 @@ describe('sessions (§4.5)', () => {
     expect(planning.corps.sessions[0].id).toBe(s.id);
   });
 
+  it('apps : un identifiant de groupe est déplié (apps du catalogue, sans doublon) ; inconnu refusé', async () => {
+    const r = await api.post('/v1/sessions', web, { ...OUVERTURE, apps: ['ia_conversationnelle', 'chatgpt', 'youtube'] });
+    expect(r.statut).toBe(201);
+    expect(r.corps.session.apps).toEqual(['chatgpt', 'gemini', 'claude_ai', 'youtube']);
+    const ajout = await api.post(`/v1/sessions/${r.corps.session.id}/apps`, web, { apps: ['divertissement'] });
+    expect(ajout.corps.session.apps).toEqual(['chatgpt', 'gemini', 'claude_ai', 'youtube', 'x']);
+    const inconnu = await api.post(`/v1/sessions/${r.corps.session.id}/apps`, web, { app: 'jeux' });
+    expect(inconnu).toMatchObject({ statut: 422, corps: { erreur: 'app_inconnue' } });
+  });
+
   it('intervalle iPhone : 10 min', async () => {
     const r = await api.post('/v1/sessions', web, { ...OUVERTURE, appareil: 'iphone' });
     expect(r.corps.session).toMatchObject({ question: { posee_a: '2026-11-03T10:10:00Z' }, identifiants_iphone: ['com.openai.chat'] });
@@ -57,7 +67,7 @@ describe('sessions (§4.5)', () => {
     expect(r.corps).toMatchObject({
       erreur: 'session_impossible',
       mode: 'NIGHT_LOCK',
-      motif: "sessions interdites : NIGHT_LOCK jusqu'à 05:30",
+      motif: "Nuit jusqu'à 05:30",
     });
   });
 

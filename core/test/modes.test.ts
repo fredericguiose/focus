@@ -64,7 +64,7 @@ describe('choix du mode', () => {
     const ctx = contexte('2026-11-02T20:00:00Z', { faits: faits({ taches: [tache({ echeance: '2026-11-02', priorite: 'p2' })] }) });
     const e = etat(ctx, 'pc_linux');
     expect(e.mode).toBe('WORK');
-    expect(e.raison).toBe('WORK — EVENING_FREE non atteint : tâches prioritaires restantes : 1');
+    expect(e.raison).toBe('WORK — EVENING_FREE non atteint : tâches prioritaires restantes (du jour et en retard) : 1');
   });
 
   it('après le coucher : NIGHT_LOCK, claude_code jamais bloqué, session verrouillée', () => {

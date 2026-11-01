@@ -5,6 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import type { ReponseStatut } from '@/api/contrat';
 import { libelleAppareil } from '@/lib/appareils';
 import { type FamilleMode, infoMode, raisonLisible, STYLES_FAMILLE } from '@/lib/modes';
+import { STYLES_ETAT } from '@/lib/etats';
 import { appareilPrincipal, ceQuiManque } from '@/lib/parcours';
 import { formaterDuree, formaterHeureRelative } from '@/lib/temps';
 import { cn } from '@/lib/utils';
@@ -73,12 +74,22 @@ export function CarteMode({ statut, maintenant }: { statut: ReponseStatut; maint
             <div className="grid gap-1 md:max-w-64 md:text-right" data-testid="sortie-incertaine">
               <span className="text-muted-foreground text-xs font-medium">Pour en sortir</span>
               {manque.length > 0 ? (
-                <ul className="grid gap-0.5">
-                  {manque.map((m) => (
-                    <li key={m} className="text-2xl font-semibold tracking-tight text-pretty sm:text-3xl">
-                      {m}
-                    </li>
-                  ))}
+                <ul className="grid gap-1">
+                  {manque.map((m) => {
+                    const { Icone, couleur, texte } = STYLES_ETAT[m.etat];
+                    return (
+                      <li key={m.texte} className="flex items-start gap-2 text-xl font-semibold tracking-tight text-pretty sm:text-2xl md:flex-row-reverse md:text-right">
+                        <Icone className={cn('mt-1 size-5 shrink-0 sm:size-6', couleur)} aria-hidden />
+                        <span className="grid gap-0.5">
+                          <span>
+                            {m.texte}
+                            <span className="sr-only"> ({texte})</span>
+                          </span>
+                          {m.detail ? <span className="text-avertissement text-sm font-medium tracking-normal">{m.detail}</span> : null}
+                        </span>
+                      </li>
+                    );
+                  })}
                 </ul>
               ) : (
                 <span className="text-xl font-semibold tracking-tight text-pretty">{sortie.texte}</span>

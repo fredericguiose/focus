@@ -1,4 +1,4 @@
-import { Lock, Timer } from 'lucide-react';
+import { ChevronDown, Lock, Timer } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -9,14 +9,15 @@ import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { TacheSession } from '@/api/contrat';
+import type { AppBloquee, GroupeBloque, TacheSession } from '@/api/contrat';
 import { type ErreurFocus, versErreurFocus } from '@/api/erreur';
 import { useAppsBloquees } from '@/hooks/useAppsBloquees';
 import { useCompteARebours } from '@/hooks/useCompteARebours';
 import { useFocus, useHeureServeur, useStatut } from '@/hooks/useFocus';
-import { libelleAppareil, motifsSansSession } from '@/lib/appareils';
+import { libelleAppareil } from '@/lib/appareils';
+import { basculerGroupe, etatGroupe, type GroupeAffiche, regrouperApps } from '@/lib/groupes';
+import { phrase } from '@/lib/texte';
 import { ATTENTE_OUVERTURE_S, tacheEligible } from '@/lib/attente';
 import { formaterHeure } from '@/lib/temps';
 import { cn } from '@/lib/utils';
@@ -30,6 +31,98 @@ function Section({ titre, children }: { titre: string; children: React.ReactNode
       <legend className="mb-2.5 text-sm font-medium">{titre}</legend>
       {children}
     </fieldset>
+  );
+}
+
+function CaseApp({ app, choisies, surChoix, prefixe }: { app: AppBloquee; choisies: string[]; surChoix: (a: string[]) => void; prefixe: string }) {
+  const id = `${prefixe}-${app.id}`;
+  const coche = choisies.includes(app.id);
+  return (
+    <Label
+      htmlFor={id}
+      className={cn(
+        'hover:bg-accent/50 flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 font-normal',
+        coche && 'border-primary bg-accent/40',
+      )}
+    >
+      <Checkbox
+        id={id}
+        checked={coche}
+        onCheckedChange={(c) => surChoix(c === true ? [...choisies, app.id] : choisies.filter((x) => x !== app.id))}
+      />
+      {app.nom}
+    </Label>
+  );
+}
+
+function Groupe({ groupe, choisies, surChoix }: { groupe: GroupeAffiche; choisies: string[]; surChoix: (a: string[]) => void }) {
+  const [ouvert, setOuvert] = useState(false);
+  const etat = etatGroupe(groupe, choisies);
+  const id = `groupe-${groupe.id}`;
+  const n = groupe.apps.filter((a) => choisies.includes(a.id)).length;
+  return (
+    <div className={cn('rounded-lg border', etat !== false && 'border-primary bg-accent/20')}>
+      <div className="flex items-center gap-2.5 px-3 py-2.5">
+        <Checkbox id={id} checked={etat} onCheckedChange={() => surChoix(basculerGroupe(groupe, choisies))} aria-label={`Tout le groupe ${groupe.nom}`} />
+        <Label htmlFor={id} className="grid min-w-0 flex-1 cursor-pointer gap-0.5 font-normal">
+          <span className="font-medium">{groupe.nom}</span>
+          <span className="text-muted-foreground text-xs">
+            {etat === 'indeterminate' ? `${n} sur ${groupe.apps.length}` : 'Tout le groupe'} · {groupe.apps.map((a) => a.nom).join(', ')}
+          </span>
+        </Label>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="text-muted-foreground shrink-0"
+          aria-expanded={ouvert}
+          aria-controls={`${id}-apps`}
+          onClick={() => setOuvert((o) => !o)}
+        >
+          Choisir
+          <ChevronDown className={cn('transition-transform', ouvert && 'rotate-180')} />
+        </Button>
+      </div>
+      {ouvert ? (
+        <div id={`${id}-apps`} className="grid grid-cols-2 gap-2 border-t px-3 py-2.5 sm:grid-cols-3">
+          {groupe.apps.map((a) => (
+            <CaseApp key={a.id} app={a} choisies={choisies} surChoix={surChoix} prefixe={id} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Les groupes que le mode bloque (cases « tout le groupe », apps à la demande), puis les apps hors groupe. */
+function ChoixApps({
+  apps,
+  groupes,
+  choisies,
+  surChoix,
+}: {
+  apps: AppBloquee[];
+  groupes: GroupeBloque[] | undefined;
+  choisies: string[];
+  surChoix: (a: string[]) => void;
+}) {
+  const r = regrouperApps(apps, groupes);
+  return (
+    <div className="grid gap-2">
+      {r.groupes.map((g) => (
+        <Groupe key={g.id} groupe={g} choisies={choisies} surChoix={surChoix} />
+      ))}
+      {r.seules.length > 0 ? (
+        <div className="grid gap-2">
+          {r.groupes.length > 0 ? <span className="text-muted-foreground text-xs">Autres apps</span> : null}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {r.seules.map((a) => (
+              <CaseApp key={a.id} app={a} choisies={choisies} surChoix={surChoix} prefixe="app" />
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -70,7 +163,7 @@ export function OuvrirSession({ surTermine }: { surTermine?: () => void }) {
     setEnvoi(true);
     try {
       await api.ouvrirSession({ appareil, tache_id: tacheId, apps });
-      toast.success('Session ouverte', { description: "L'appareil l'applique à son prochain planning (une minute au plus)." });
+      toast.success('Session ouverte', { description: "L'appareil débloque les apps d'ici une minute." });
       setTacheId('');
       setApps([]);
       await rafraichir();
@@ -88,41 +181,45 @@ export function OuvrirSession({ surTermine }: { surTermine?: () => void }) {
   return (
     <div className="grid gap-6">
       <fieldset disabled={occupe} className="grid gap-6 disabled:opacity-70">
-        <div className="grid gap-2">
-          <Label htmlFor="session-appareil">Appareil</Label>
-          {possibles.length === 0 ? (
-            <div className="text-destructive grid gap-1 text-xs">
-              <p className="flex items-center gap-1.5">
-                <Lock className="size-3.5" /> Aucun appareil ne permet une session en ce moment.
-              </p>
-              <ul className="list-disc pl-5">
-                {motifsSansSession(statut.appareils).map((m) => (
-                  <li key={m}>{m}</li>
-                ))}
-              </ul>
-            </div>
-          ) : (
-            <Select
-              value={appareil}
-              onValueChange={(v) => {
-                setAppareil(v);
-                setApps([]);
-              }}
-              disabled={occupe}
-            >
-              <SelectTrigger id="session-appareil" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {possibles.map((a) => (
-                  <SelectItem key={a.appareil} value={a.appareil}>
-                    {libelleAppareil(a)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </div>
+        <Section titre="Appareil">
+          {/* Tous les appareils : ceux où une session est impossible restent visibles, avec leur motif. */}
+          <RadioGroup
+            value={appareil}
+            onValueChange={(v) => {
+              setAppareil(v);
+              setApps([]);
+            }}
+            className="gap-2"
+            aria-label="Appareil"
+          >
+            {statut.appareils.map((a) => {
+              const id = `appareil-${a.appareil}`;
+              return (
+                <Label
+                  key={a.appareil}
+                  htmlFor={id}
+                  className={cn(
+                    'hover:bg-accent/50 flex items-start gap-3 rounded-lg border px-3 py-3 font-normal transition-colors',
+                    a.session_possible ? 'cursor-pointer' : 'cursor-not-allowed',
+                    appareil === a.appareil && 'border-primary bg-accent/40',
+                  )}
+                >
+                  <RadioGroupItem id={id} value={a.appareil} disabled={!a.session_possible} className="mt-0.5" />
+                  <span className="grid min-w-0 flex-1 gap-0.5 leading-snug">
+                    <span className={cn(!a.session_possible && 'text-muted-foreground')}>{libelleAppareil(a)}</span>
+                    {a.session_possible ? null : (
+                      <span className="text-muted-foreground flex items-start gap-1.5 text-xs">
+                        <Lock className="mt-0.5 size-3 shrink-0" />
+                        {phrase(a.session_motif ?? 'session impossible')}
+                      </span>
+                    )}
+                  </span>
+                </Label>
+              );
+            })}
+          </RadioGroup>
+          {possibles.length === 0 ? <p className="text-avertissement text-xs font-medium">Aucun appareil ne permet une session en ce moment.</p> : null}
+        </Section>
 
         <Section titre="Tâche du jour">
           {taches === null ? (
@@ -175,28 +272,7 @@ export function OuvrirSession({ surTermine }: { surTermine?: () => void }) {
           ) : appsBloquees.length === 0 ? (
             <p className="text-muted-foreground text-sm">Rien n'est bloqué sur cet appareil.</p>
           ) : (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {appsBloquees.map((a) => {
-                const id = `app-${a.id}`;
-                return (
-                  <Label
-                    key={a.id}
-                    htmlFor={id}
-                    className={cn(
-                      'hover:bg-accent/50 flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 font-normal',
-                      apps.includes(a.id) && 'border-primary bg-accent/40',
-                    )}
-                  >
-                    <Checkbox
-                      id={id}
-                      checked={apps.includes(a.id)}
-                      onCheckedChange={(coche) => setApps((liste) => (coche === true ? [...liste, a.id] : liste.filter((x) => x !== a.id)))}
-                    />
-                    {a.nom}
-                  </Label>
-                );
-              })}
-            </div>
+            <ChoixApps apps={appsBloquees} groupes={etat?.groupes_bloques} choisies={apps} surChoix={setApps} />
           )}
           <ErreurAffichee erreur={erreurApps} />
         </Section>

@@ -20,6 +20,7 @@ import { useFocus, useHeureServeur, useStatut } from '@/hooks/useFocus';
 import { validerFriction } from '@/lib/decisionNuit';
 import { type ChampsAjout as ChampsAjoutType, demandeAjout, PREPARATION_DEFAUT } from '@/lib/engagement';
 import { ajouterJours, formaterHeure, heureLocale } from '@/lib/temps';
+import { phrase } from '@/lib/texte';
 import { cn } from '@/lib/utils';
 import { ChampsAjout } from './ChampsAjout';
 
@@ -36,14 +37,14 @@ const OPTIONS: { option: OptionDecalage; titre: string; description: string; ico
   {
     option: 'ajoute',
     titre: 'Ajouter un engagement demain',
-    description: 'Un rendez-vous qui avance le réveil.',
+    description: 'Un engagement qui avance le réveil.',
     icone: CalendarPlus,
     classe: 'bg-mode-travail/12 text-mode-travail',
   },
   {
     option: 'decale',
     titre: 'Décaler un engagement de demain',
-    description: "Changer l'heure d'un rendez-vous.",
+    description: "Changer l'heure d'un engagement.",
     icone: CalendarClock,
     classe: 'bg-mode-matin/12 text-mode-matin',
   },
@@ -69,7 +70,7 @@ function BandeauDecision({ motif }: { motif: string | null }) {
       <ShieldAlert />
       <AlertTitle>Décision de nuit : une fois par nuit</AlertTitle>
       <AlertDescription>
-        {motif ? <p>{motif}</p> : null}
+        {motif ? <p>{phrase(motif)}.</p> : null}
         <p>Il faudra une raison d'au moins 50 caractères et recopier une phrase.</p>
       </AlertDescription>
     </Alert>
@@ -205,7 +206,7 @@ function FormulaireOption({ option, decisionDeNuit, surTermine }: { option: Opti
     setErreur(null);
     try {
       await api.enregistrerException({ demande, friction: frictionExigee ? { raison: raison.trim(), phrase } : undefined });
-      toast.success('Exception enregistrée', { description: OPTIONS.find((o) => o.option === option)?.titre });
+      toast.success('Changement enregistré', { description: OPTIONS.find((o) => o.option === option)?.titre });
       await rafraichir();
       surTermine();
     } catch (e) {
@@ -230,7 +231,7 @@ function FormulaireOption({ option, decisionDeNuit, surTermine }: { option: Opti
         {option === 'decale' && choisi ? (
           <Champ
             id="decaler-heure"
-            libelle="Nouvelle heure du rendez-vous"
+            libelle="Nouvelle heure de l'engagement"
             aide={choisi.heure ? `Actuellement à ${formaterHeure(choisi.heure, j.fuseau)}` : undefined}
           >
             <Input id="decaler-heure" type="time" value={heure} onChange={(e) => setHeure(e.target.value)} className="tabular-nums" />
@@ -284,7 +285,7 @@ export function DecalerCoucher({ ouverte, surChangement }: { ouverte: boolean; s
         <Alert>
           <ShieldAlert />
           <AlertTitle>Indisponible</AlertTitle>
-          <AlertDescription>{action?.motif ?? "L'API n'indique pas si le coucher peut être décalé."}</AlertDescription>
+          <AlertDescription>{action?.motif ? `${phrase(action.motif)}.` : "L'API n'indique pas si le coucher peut être décalé."}</AlertDescription>
         </Alert>
       ) : (
         <>

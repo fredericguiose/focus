@@ -2,6 +2,7 @@
 // Horaires fictifs repris de config/exemple.yaml. Le fuseau est celui du navigateur, pour que la
 // journée simulée suive celle de la personne qui développe. Ce n'est pas le moteur : seules les
 // règles visibles par l'interface (§3.4 exceptions, §4.5 sessions) sont reproduites, simplifiées.
+import { dateCourte } from '../../../core/src/temps';
 import type { DateLocale, HeureLocale } from '../../../core/src/types';
 import { PHRASE_NUIT, RAISON_MIN, longueurRaison } from '@/lib/decisionNuit';
 import { ajouterJours, dateLocale, formaterDuree, formaterHeure, heureLocale, instantLocal, jourDeSemaine, versInstant } from '@/lib/temps';
@@ -52,6 +53,12 @@ const CATALOGUE: Record<string, { nom: string; domaines: string[]; iphone?: stri
   safari: { nom: 'Safari', domaines: [], iphone: 'com.apple.mobilesafari' },
 };
 const BLOQUEES_WORK = ['chatgpt', 'gemini', 'claude_ai', 'youtube', 'x', 'safari'];
+/** Groupes du catalogue, comme dans l'exemple de config (noms tels que l'API les donne). */
+const GROUPES: { id: string; nom: string; apps: string[] }[] = [
+  { id: 'divertissement', nom: 'Divertissement', apps: ['youtube', 'x'] },
+  { id: 'ia_conversationnelle', nom: 'IA conversationnelle', apps: ['chatgpt', 'gemini', 'claude_ai'] },
+  { id: 'navigateurs', nom: 'Navigateurs', apps: ['safari'] },
+];
 
 interface EngagementSimule {
   nom: string;
@@ -132,6 +139,14 @@ const versHeure = (minutes: number) => {
 // Copie par JSON, comme un passage par le réseau ; `undefined` (réponse sans corps) reste tel quel.
 const copie = <T,>(valeur: T): T => (valeur === undefined ? valeur : (JSON.parse(JSON.stringify(valeur)) as T));
 const minuscule = (texte: string) => texte.charAt(0).toLowerCase() + texte.slice(1);
+const majuscule = (texte: string) => texte.charAt(0).toUpperCase() + texte.slice(1);
+
+/** Comme le moteur : « 2 restantes, dont 1 en retard depuis le 30 oct. » (une sur deux est en retard). */
+function detailPrioritaires(n: number, date: DateLocale): string {
+  const total = `${n} restante${n > 1 ? 's' : ''}`;
+  if (n < 2) return total;
+  return `${total}, dont ${Math.floor(n / 2)} en retard depuis le ${dateCourte(ajouterJours(date, -4))}`;
+}
 const HEURE_VALIDE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DATE_VALIDE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -262,13 +277,13 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
     const coucher = coucherApplique(date, exceptions);
     const jeVaisDormir =
       phase === 'nuit'
-        ? { disponible: false, motif: `La nuit a commencé à ${heureLocale(coucher, fuseau)}.` }
+        ? { disponible: false, motif: `la nuit a déjà commencé à ${heureLocale(coucher, fuseau)}` }
         : { disponible: true, motif: null };
     // Une décision de nuit prise ferme la nuit, même si l'ouverture a reculé avec le coucher.
     if (decisionPrise(date)) {
       return {
         je_vais_dormir: jeVaisDormir,
-        decaler_coucher: { mode: 'indisponible', motif: 'Décision de nuit déjà prise cette nuit : une seule par nuit.' },
+        decaler_coucher: { mode: 'indisponible', motif: `décision de nuit déjà prise pour la nuit du ${dateCourte(date)} (une seule par nuit)` },
       };
     }
     if (phase === 'journee') return { je_vais_dormir: jeVaisDormir, decaler_coucher: { mode: 'libre', motif: null } };
@@ -278,8 +293,8 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
         mode: 'decision_de_nuit',
         motif:
           phase === 'nuit'
-            ? `La nuit a commencé à ${heureLocale(coucher, fuseau)}.`
-            : `Soirée ouverte depuis ${heureLocale(ouverture(date, exceptions), fuseau)}.`,
+            ? `la nuit a déjà commencé à ${heureLocale(coucher, fuseau)}`
+            : `soirée ouverte depuis ${heureLocale(ouverture(date, exceptions), fuseau)}`,
       },
     };
   }
@@ -336,20 +351,29 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
     return versInstant(debut - 3 * 24 * 60 * MINUTE);
   }
 
+  /** Comme l'API : « Matin verrouillé : planning du matin à faire », « Nuit jusqu'à 05:30 ». */
+  function motifInterdit(etat: Omit<StatutAppareil, 'session_possible' | 'session_motif'>): string {
+    const actif = etat.parcours?.find((e) => e.actif);
+    const nom = actif?.nom ?? etat.mode;
+    const manque = actif?.logique === 'pas' ? actif.conditions.find((c) => !c.vraie) : undefined;
+    if (manque) return `${nom} : ${minuscule(manque.libelle)} ${manque.detail ?? 'à faire'}`;
+    if (etat.sortie?.certaine) return `${nom} jusqu'à ${formaterHeure(etat.sortie.au_plus_tard, fuseau)}`;
+    return etat.sortie ? `${nom} : fin ${etat.sortie.texte}` : nom;
+  }
+
   function etatAppareil(appareil: string, type: TypeAppareil, t: number): StatutAppareil {
     const etat = etatSansPossibilite(appareil, type, t);
-    const sortie = etat.sortie;
     const motif =
       type === 'pc_windows'
         ? 'aucun compte de travail sur ce PC'
         : etat.sessions === 'interdites'
-          ? sortie && !sortie.certaine
-            ? `sessions interdites : ${etat.mode}, ${minuscule(sortie.texte)}`
-            : `sessions interdites : ${etat.mode}${etat.jusqua ? ` jusqu'à ${formaterHeure(etat.jusqua, fuseau)}` : ''}`
+          ? motifInterdit(etat)
           : (etat.apps_bloquees ?? []).length === 0
             ? "rien n'est bloqué en ce moment"
             : null;
-    return { ...etat, session_possible: motif === null, session_motif: motif };
+    const bloquees = new Set((etat.apps_bloquees ?? []).map((x) => x.id));
+    const groupes_bloques = GROUPES.map((g) => ({ ...g, apps: g.apps.filter((id) => bloquees.has(id)) })).filter((g) => g.apps.length > 0);
+    return { ...etat, groupes_bloques, session_possible: motif === null, session_motif: motif };
   }
 
   /** Les modes de la routine dans l'ordre de priorité (§2.5), conditions évaluées à `t`. */
@@ -364,7 +388,9 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
         nom: 'Nuit',
         applicable: true,
         logique: 'simple',
-        conditions: [{ type: 'heure', libelle: 'Heure du coucher', vraie: t >= coucher, detail: null, a: versInstant(coucher) }],
+        conditions: [
+          { type: 'heure', libelle: `Coucher à ${heureLocale(coucher, fuseau)}`, vraie: t >= coucher, detail: null, a: versInstant(coucher), niee: false },
+        ],
       },
       {
         mode: 'MORNING_LOCK',
@@ -372,7 +398,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
         applicable: APPAREILS_MATIN.includes(type),
         logique: 'pas',
         conditions: [
-          { type: 'planning', libelle: 'Planning du jour fait', vraie: faits.planningFait, detail: faits.planningFait ? null : 'à faire', a: null },
+          { type: 'planning', libelle: 'Planning du matin', vraie: faits.planningFait, detail: faits.planningFait ? null : 'à faire', a: null, niee: true },
         ],
       },
       {
@@ -383,25 +409,27 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
         conditions: [
           {
             type: 'heure',
-            libelle: "Heure d'ouverture",
+            libelle: `Ouverture à ${heureLocale(soiree, fuseau)}`,
             vraie: t >= soiree,
-            detail: `report de ${formaterDuree(PRIX_DU_REPORT_MIN)} compris`,
+            detail: `+${formaterDuree(PRIX_DU_REPORT_MIN)} de report`,
             a: versInstant(soiree),
+            niee: false,
           },
           {
             type: 'prioritaires',
-            libelle: 'Tâches P1/P2 du jour faites',
+            libelle: 'Tâches P1/P2 faites',
             vraie: n === 0,
-            detail: n === 0 ? null : `${n} restante${n > 1 ? 's' : ''}`,
+            detail: n === 0 ? null : detailPrioritaires(n, date),
             a: null,
+            niee: false,
           },
-          { type: 'recap', libelle: "Récap d'hier fait", vraie: faits.recapFait, detail: faits.recapFait ? null : 'à faire', a: null },
+          { type: 'recap', libelle: "Récap d'hier", vraie: faits.recapFait, detail: faits.recapFait ? null : 'à faire', a: null, niee: false },
         ],
       },
-      { mode: 'WORK', nom: 'Travail', applicable: true, logique: 'simple', conditions: [{ type: 'toujours', libelle: 'Par défaut', vraie: true, detail: null, a: null }] },
+      { mode: 'WORK', nom: 'Travail', applicable: true, logique: 'simple', conditions: [{ type: 'toujours', libelle: 'Par défaut', vraie: true, detail: null, a: null, niee: false }] },
     ];
     const vrai = (e: Omit<EtapeParcours, 'actif'>) =>
-      e.applicable && (e.logique === 'pas' ? !e.conditions.every((c) => c.vraie) : e.conditions.every((c) => c.vraie));
+      e.applicable && e.conditions.every((c) => c.vraie !== (c.niee === true));
     const gagnant = etapes.find(vrai)?.mode;
     return etapes.map((e) => ({ ...e, actif: e.mode === gagnant }));
   }
@@ -421,7 +449,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
         raison: `NIGHT_LOCK — nuit jusqu'au lever de ${heureLocale(leverSuivant, fuseau)}`,
         sessions: 'interdites',
         jusqua: versInstant(leverSuivant),
-        sortie: { texte: `Au lever de ${heureLocale(leverSuivant, fuseau)}`, certaine: true, au_plus_tard: versInstant(leverSuivant) },
+        sortie: { texte: `au lever, ${heureLocale(leverSuivant, fuseau)}`, certaine: true, au_plus_tard: versInstant(leverSuivant) },
         apps_bloquees: appsPour(type, Object.keys(CATALOGUE)),
       };
     }
@@ -431,7 +459,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
         raison: 'MORNING_LOCK — planning du jour à faire',
         sessions: 'interdites',
         jusqua: versInstant(coucher),
-        sortie: { texte: 'Dès que le planning du jour est fait', certaine: false, au_plus_tard: versInstant(coucher) },
+        sortie: { texte: 'dès que le planning du matin est fait', certaine: false, au_plus_tard: versInstant(coucher) },
         apps_bloquees: appsPour(type, Object.keys(CATALOGUE)),
       };
     }
@@ -441,21 +469,27 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
         raison: `EVENING_FREE — soirée libre jusqu'au coucher de ${heureLocale(coucher, fuseau)}`,
         sessions: 'autorisees',
         jusqua: versInstant(coucher),
-        sortie: { texte: `Au coucher de ${heureLocale(coucher, fuseau)}`, certaine: true, au_plus_tard: versInstant(coucher) },
+        sortie: { texte: `au coucher, ${heureLocale(coucher, fuseau)}`, certaine: true, au_plus_tard: versInstant(coucher) },
         apps_bloquees: [],
       };
     }
     const n = faits.prioritairesRestantes;
     const manque = [
-      ...(n > 0 ? [n > 1 ? `les ${n} tâches P1/P2 restantes sont faites` : 'la tâche P1/P2 restante est faite'] : []),
-      ...(faits.recapFait ? [] : ["le récap d'hier est fait"]),
-    ].join(' et ');
+      ...(n > 0 ? ['les tâches P1/P2'] : []),
+      ...(faits.recapFait ? [] : ["le récap d'hier"]),
+    ];
     const hOuverture = heureLocale(soiree, fuseau);
     const sortie: SortieMode =
-      manque === ''
-        ? { texte: `À l'ouverture de ${hOuverture}`, certaine: true, au_plus_tard: versInstant(soiree) }
+      manque.length === 0
+        ? { texte: `à ${hOuverture}`, certaine: true, au_plus_tard: versInstant(soiree) }
         : {
-            texte: t < soiree ? `Pas avant ${hOuverture}, et dès que ${manque}` : `Dès que ${manque}`,
+            // Mêmes phrases que le moteur (§3.7).
+            texte:
+              t < soiree
+                ? `quand ${manque.join(' et ')} seront faites et après ${hOuverture}`
+                : manque.length === 1 && n === 0
+                  ? `dès que ${manque[0]} est fait`
+                  : `dès que ${manque.join(' et ')} sont faites`,
             certaine: false,
             au_plus_tard: versInstant(coucher),
           };
@@ -463,7 +497,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
       ...commun,
       raison: n > 0 ? `WORK — tâches prioritaires restantes : ${n}` : `WORK — soirée libre à ${hOuverture}`,
       sessions: 'autorisees',
-      jusqua: versInstant(manque === '' ? soiree : coucher),
+      jusqua: versInstant(manque.length === 0 ? soiree : coucher),
       sortie,
       apps_bloquees: appsPour(type, BLOQUEES_WORK),
     };
@@ -577,9 +611,9 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
     if (demande.type === 'retire' || demande.type === 'decale') {
       const e = engagementsDuJour(demande.date, exceptions).get(demande.engagement);
       const refus = (motifRefus: string): PrixException => ({ ...base, admissible: false, motifRefus, friction: 'aucune', resserre: false });
-      if (!e) return refus(`Aucun engagement « ${demande.engagement} » le ${demande.date}.`);
-      if (demande.type === 'retire' && !e.annulable) return refus(`« ${e.nom} » n'est pas annulable.`);
-      if (demande.type === 'decale' && !e.decalable) return refus(`« ${e.nom} » n'est pas décalable.`);
+      if (!e) return refus(`pas d'engagement « ${majuscule(demande.engagement)} » le ${dateCourte(demande.date)}`);
+      if (demande.type === 'retire' && !e.annulable) return refus(`l'engagement « ${e.nom} » ne peut pas être annulé`);
+      if (demande.type === 'decale' && !e.decalable) return refus(`l'engagement « ${e.nom} » ne peut pas être décalé`);
     }
     if (coucherApres <= coucherAvant && leverApres <= leverAvant) {
       return { ...base, admissible: true, friction: 'aucune', resserre: true };
@@ -591,20 +625,20 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
       return {
         ...base,
         admissible,
-        motifRefus: admissible ? undefined : `Sommeil prévu ${formaterDuree(sommeil)} : moins que le minimum de ${formaterDuree(MINIMUM_MIN)}.`,
+        motifRefus: admissible ? undefined : `sommeil prévu ${formaterDuree(sommeil)}, sous le minimum de ${formaterDuree(MINIMUM_MIN)}`,
         friction: 'aucune',
         resserre: false,
       };
     }
     if (t < leverAvant) {
       let motifRefus: string | undefined;
-      if (decisionPrise(nuit)) motifRefus = 'Décision de nuit déjà prise cette nuit : une seule par nuit.';
+      if (decisionPrise(nuit)) motifRefus = `décision de nuit déjà prise pour la nuit du ${dateCourte(nuit)} (une seule par nuit)`;
       else if (sommeil < PLANCHER_NUIT_MIN) {
-        motifRefus = `Sommeil prévu ${formaterDuree(sommeil)} : moins que le plancher de nuit de ${formaterDuree(PLANCHER_NUIT_MIN)}.`;
+        motifRefus = `sommeil prévu ${formaterDuree(sommeil)}, sous le plancher de nuit de ${formaterDuree(PLANCHER_NUIT_MIN)}`;
       }
       return { ...base, admissible: motifRefus === undefined, motifRefus, friction: 'raison_phrase', resserre: false };
     }
-    return { ...base, admissible: false, motifRefus: 'Cette nuit est passée.', friction: 'aucune', resserre: false };
+    return { ...base, admissible: false, motifRefus: `la nuit du ${dateCourte(nuit)} est passée`, friction: 'aucune', resserre: false };
   }
 
   // ─── Points d'entrée ────────────────────────────────────────────────────────

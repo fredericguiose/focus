@@ -1,4 +1,4 @@
-// Formulaire « Ajouter un engagement » : libellé, heure du rendez-vous, temps de préparation.
+// Formulaire « Ajouter un engagement » : libellé, heure de l'engagement, temps de préparation.
 // Le réveil affiché est celui que l'API calculera (heure − préparation, conception §2.3).
 import type { HeureLocale } from '../../../core/src/types';
 import type { DemandeException } from '@/api/contrat';

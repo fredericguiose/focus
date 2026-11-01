@@ -70,7 +70,7 @@ describe('ouverture de session', () => {
 
   const choisir = () => {
     fireEvent.click(screen.getByRole('radio', { name: /Exercices de probabilités/ }));
-    fireEvent.click(screen.getByRole('checkbox', { name: 'YouTube' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Tout le groupe Divertissement' }));
   };
 
   it('grise les tâches non éligibles avec leur heure d’éligibilité', async () => {
@@ -101,18 +101,34 @@ describe('ouverture de session', () => {
 
     await avancer(1_000);
     expect(ouvrir).toHaveBeenCalledTimes(1);
-    expect(ouvrir).toHaveBeenCalledWith({ appareil: 'pc_linux', tache_id: 't1', apps: ['youtube'] });
+    expect(ouvrir).toHaveBeenCalledWith({ appareil: 'pc_linux', tache_id: 't1', apps: ['youtube', 'x'] });
     await avancer(50);
     expect(screen.getByText('Session ouverte')).toBeTruthy();
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('ne propose que les appareils où une session est possible (pas pc_windows)', async () => {
+  it('montre tous les appareils ; celui où une session est impossible est désactivé, avec son motif', async () => {
     await preparer();
-    const declencheur = screen.getByRole('combobox', { name: 'Appareil' });
-    fireEvent.keyDown(declencheur, { key: 'Enter' });
-    await vider();
-    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['PC Linux', 'iPhone']);
+    const radio = (nom: RegExp) => screen.getByRole<HTMLButtonElement>('radio', { name: nom });
+    expect(radio(/^PC Linux/).disabled).toBe(false);
+    expect(radio(/^iPhone/).disabled).toBe(false);
+    expect(radio(/^PC Windows/).disabled).toBe(true);
+    expect(screen.getByText('Aucun compte de travail sur ce PC')).toBeTruthy();
+  });
+
+  it('apps par groupe : « tout le groupe », ou une app à la fois en dépliant le groupe ; les apps hors groupe seules', async () => {
+    await preparer();
+    const tout = screen.getByRole('checkbox', { name: 'Tout le groupe IA conversationnelle' });
+    expect(tout.getAttribute('data-state')).toBe('unchecked');
+    expect(screen.queryByRole('checkbox', { name: 'Gemini' })).toBeNull();
+    fireEvent.click(screen.getAllByRole('button', { name: /Choisir/ })[1]!);
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Gemini' }));
+    expect(tout.getAttribute('data-state')).toBe('indeterminate');
+    expect(screen.getByText(/1 sur 3/)).toBeTruthy();
+    fireEvent.click(tout);
+    expect(tout.getAttribute('data-state')).toBe('checked');
+    // Gmail n'est pas bloqué en Travail : il n'est pas proposé.
+    expect(screen.queryByRole('checkbox', { name: 'Gmail' })).toBeNull();
   });
 
   it('« Annuler » pendant l’attente n’envoie rien', async () => {
@@ -132,7 +148,10 @@ describe('sessions la nuit', () => {
     vi.setSystemTime(new Date('2026-11-03T21:00:00Z'));
     await rendreAvecFocus(<EcranSessions />, creerApiSimulee({ fuseau: 'Europe/Paris' }));
     // Lever du mercredi 05:30 à Paris : fin du mode NIGHT_LOCK donnée par l'API (`jusqua`).
-    expect(screen.getByText("Sessions interdites pendant la nuit — jusqu'à mer. 05:30")).toBeTruthy();
+    expect(screen.getByText("Sessions interdites pendant la nuit, jusqu'à mer. 05:30")).toBeTruthy();
+    // Le motif de la nuit est dans le titre : seul le PC Windows a un motif à part.
+    expect(screen.getByText('PC Windows : aucun compte de travail sur ce PC')).toBeTruthy();
+    expect(screen.queryByText(/PC Linux :/)).toBeNull();
     expect(screen.getAllByRole<HTMLButtonElement>('button', { name: /Ouvrir une session/ }).every((b) => b.disabled)).toBe(true);
   });
 });

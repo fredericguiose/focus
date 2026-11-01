@@ -19,7 +19,7 @@ describe('carte du mode actuel', () => {
     const { s, t } = await statut('journee');
     render(<CarteMode statut={s} maintenant={t} />);
     expect(screen.getByText('Matin verrouillé')).toBeTruthy();
-    expect(screen.getByText('Dès que le planning du jour est fait')).toBeTruthy();
+    expect(screen.getByText('dès que le planning du matin est fait')).toBeTruthy();
     expect(screen.queryByTestId('compte-a-rebours')).toBeNull();
     const sortie = screen.getByTestId('sortie-incertaine');
     expect(within(sortie).getByText('Planning à faire')).toBeTruthy();
@@ -39,14 +39,29 @@ describe('carte du mode actuel', () => {
 });
 
 describe('parcours de la journée (rendu)', () => {
-  it('soirée : « tu es ici » sur Travail, conditions de la soirée avec le détail', async () => {
+  it('journée : Matin verrouillé dit le fait positif, « Se lève quand c’est fait », ✗ à faire', async () => {
+    const { s, t } = await statut('journee');
+    render(<ParcoursJournee statut={s} maintenant={t} />);
+    const actuelle = screen.getByRole('listitem', { current: 'step' });
+    expect(within(actuelle).getByText('Matin verrouillé')).toBeTruthy();
+    expect(within(actuelle).getByText("Se lève quand c'est fait :")).toBeTruthy();
+    expect(within(actuelle).getByText('Planning du matin')).toBeTruthy();
+    expect(within(actuelle).getByText(/à faire/, { selector: '.sr-only' })).toBeTruthy();
+    expect(screen.queryByText(/pas encore fait/)).toBeNull();
+  });
+
+  it('soirée : « en cours » sur Travail, faits de la soirée sans doublon d’heure, détail du retard', async () => {
     const { s, t } = await statut('soiree');
     render(<ParcoursJournee statut={s} maintenant={t} />);
     const actuelle = screen.getByRole('listitem', { current: 'step' });
     expect(within(actuelle).getByText('Travail')).toBeTruthy();
-    expect(within(actuelle).getByText('tu es ici')).toBeTruthy();
-    expect(screen.getByText('2 restantes')).toBeTruthy();
-    expect(screen.getByText(/au plus tôt 19:50/)).toBeTruthy();
+    expect(within(actuelle).getByText('en cours')).toBeTruthy();
+    expect(screen.getByText('2 restantes, dont 1 en retard depuis le 30 oct.')).toBeTruthy();
+    // Une seule mention de l'heure ; le report en détail.
+    expect(screen.getByText('Ouverture à 19:50')).toBeTruthy();
+    expect(screen.getByText('+20 min de report')).toBeTruthy();
+    expect(screen.queryByText(/au plus tôt/)).toBeNull();
+    expect(screen.queryByText(/Pas encore/)).toBeNull();
     expect(screen.getByText(/Coucher 21:30/)).toBeTruthy();
   });
 });

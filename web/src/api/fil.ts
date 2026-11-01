@@ -4,6 +4,7 @@ import type { ActionsIphone, ActionsPc } from '../../../core/src/types';
 import type {
   ActionsStatut,
   AppBloquee,
+  GroupeBloque,
   CorpsException,
   EngagementDemain,
   EtapeParcours,
@@ -64,6 +65,7 @@ export interface StatutFil {
     raison: string;
     actions?: ActionsPc | ActionsIphone;
     apps_bloquees?: AppBloquee[];
+    groupes_bloques?: GroupeBloque[];
     dernier_ping: string | null;
     jusqua?: string | null;
     parcours?: EtapeParcours[];
@@ -148,6 +150,7 @@ export function statutDepuisFil(s: StatutFil): ReponseStatut {
         ...(a.sortie ? { sortie: a.sortie } : {}),
         ...(a.actions ? { actions: a.actions } : {}),
         ...(a.apps_bloquees ? { apps_bloquees: a.apps_bloquees } : {}),
+        ...(a.groupes_bloques ? { groupes_bloques: a.groupes_bloques } : {}),
       }),
     ),
     sessions: s.sessions.filter((x) => !x.fermee_le).map(sessionDepuisFil),

@@ -148,3 +148,11 @@ export function local(ms: number, fuseau: string): { date: DateLocale; heure: He
 export function dateLocale(ms: number, fuseau: string): DateLocale {
   return local(ms, fuseau).date;
 }
+
+const MOIS_COURTS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+
+/** « 8 oct. », « 1er nov. » : date locale au format court français (textes destinés à l'utilisateur). */
+export function dateCourte(date: DateLocale): string {
+  const [, mois, jour] = date.split('-').map(Number);
+  return `${jour === 1 ? '1er' : jour} ${MOIS_COURTS[mois! - 1]}`;
+}

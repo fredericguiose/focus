@@ -1,4 +1,4 @@
-import { AlarmClock, CircleCheck, CircleX, Route } from 'lucide-react';
+import { AlarmClock, Route } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,7 +7,8 @@ import { ICONES_FAMILLE } from '@/composants/statut/CarteMode';
 import { libelleAppareil } from '@/lib/appareils';
 import { type FamilleMode, infoMode, STYLES_FAMILLE } from '@/lib/modes';
 import { appareilPrincipal, type EtapeJour, etapesDuJour } from '@/lib/parcours';
-import { formaterHeure, formaterHeureRelative } from '@/lib/temps';
+import { etatCondition, STYLES_ETAT } from '@/lib/etats';
+import { formaterHeureRelative } from '@/lib/temps';
 import { cn } from '@/lib/utils';
 
 // Classes écrites en entier pour Tailwind.
@@ -20,24 +21,23 @@ const ANNEAU: Record<FamilleMode, string> = {
 };
 
 const INTRO: Record<EtapeParcours['logique'], string | null> = {
-  tous: 'Quand tout est vrai :',
-  un_parmi: "Quand l'un est vrai :",
-  pas: "Tant que ceci n'est pas fait :",
+  tous: 'Il faut :',
+  un_parmi: "Il suffit d'un seul :",
+  pas: "Se lève quand c'est fait :",
   simple: null,
 };
 
-function Condition({ c, fuseau, active }: { c: ConditionParcours; fuseau: string; active: boolean }) {
-  const Icone = c.vraie ? CircleCheck : CircleX;
+/** Une ligne = un fait et son état, avec la règle de couleurs commune (lib/etats). */
+function Condition({ c }: { c: ConditionParcours }) {
+  const etat = etatCondition(c);
+  const { Icone, couleur, texte } = STYLES_ETAT[etat];
   return (
     <li className="flex items-start gap-2">
-      <Icone className={cn('mt-0.5 size-4 shrink-0', c.vraie ? 'text-succes' : active && c.type !== 'heure' ? 'text-avertissement' : 'text-muted-foreground')} aria-hidden />
+      <Icone className={cn('mt-0.5 size-4 shrink-0', couleur)} aria-hidden />
       <span className="min-w-0">
-        <span className="sr-only">{c.vraie ? 'Fait : ' : 'Pas encore : '}</span>
         <span>{c.libelle}</span>
-        {c.type === 'heure' && c.a ? <span className="font-medium tabular-nums"> · au plus tôt {formaterHeure(c.a, fuseau)}</span> : null}
-        {c.detail ? (
-          <span className={cn('block text-xs', !c.vraie && c.type !== 'heure' ? 'text-avertissement font-medium' : 'text-muted-foreground')}>{c.detail}</span>
-        ) : null}
+        <span className="sr-only"> : {texte}</span>
+        {c.detail ? <span className={cn('block text-xs', etat === 'a_faire' ? 'text-avertissement font-medium' : 'text-muted-foreground')}>{c.detail}</span> : null}
       </span>
     </li>
   );
@@ -87,9 +87,9 @@ function Etape({ etape, fuseau, maintenant, derniere }: { etape: EtapeJour; fuse
             <span className="flex flex-wrap items-center gap-2">
               <span className={cn('font-semibold', active && styles?.texte)}>{nom}</span>
               {active ? (
-                <Badge className={cn('text-white', styles?.fond)}>tu es ici</Badge>
+                <Badge className={cn('text-white', styles?.fond)}>en cours</Badge>
               ) : etape.etat === 'franchie' && etape.genre === 'mode' ? (
-                <span className="text-muted-foreground text-xs">franchie</span>
+                <span className="text-muted-foreground text-xs">passée</span>
               ) : null}
             </span>
             {heure ? (
@@ -106,7 +106,7 @@ function Etape({ etape, fuseau, maintenant, derniere }: { etape: EtapeJour; fuse
               {intro ? <span className="text-muted-foreground text-xs">{intro}</span> : null}
               <ul className="grid gap-1.5">
                 {conditions.map((c, i) => (
-                  <Condition key={`${c.type}-${i}`} c={c} fuseau={fuseau} active={active || etape.etat === 'a_venir'} />
+                  <Condition key={`${c.type}-${i}`} c={c} />
                 ))}
               </ul>
             </div>

@@ -10,7 +10,7 @@ import { type ChampsAjout as Champs, PREPARATIONS_MIN, reveilDe } from '@/lib/en
 import { formaterDateCourte } from '@/lib/temps';
 
 /**
- * « Ajouter un engagement » : libellé, heure du rendez-vous, préparation en boutons ; le réveil
+ * « Ajouter un engagement » : libellé, heure de l'engagement, préparation en boutons ; le réveil
  * qui en découle est affiché. Le jour est demain, sauf si l'on choisit « autre jour ».
  */
 export function ChampsAjout({
@@ -54,7 +54,7 @@ export function ChampsAjout({
         <Input id="ajout-libelle" value={champs.libelle} onChange={(e) => modifier({ libelle: e.target.value })} placeholder="ex. Dentiste" />
       </Champ>
 
-      <Champ id="ajout-heure" libelle="Heure du rendez-vous">
+      <Champ id="ajout-heure" libelle="Heure de l'engagement">
         <Input id="ajout-heure" type="time" value={champs.heure} onChange={(e) => modifier({ heure: e.target.value })} className="tabular-nums" />
       </Champ>
 
@@ -85,7 +85,7 @@ export function ChampsAjout({
             {reveil.veille ? <span className="text-muted-foreground"> (la veille)</span> : null}
           </span>
         ) : (
-          <span className="text-muted-foreground text-sm">Indiquez l'heure du rendez-vous.</span>
+          <span className="text-muted-foreground text-sm">Indiquez l'heure de l'engagement.</span>
         )}
       </div>
 

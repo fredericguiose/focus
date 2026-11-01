@@ -34,14 +34,14 @@ describe('GET /v1/statut : phase, actions, engagements de demain, nuits', () => 
     expect(r.corps.actions.je_vais_dormir).toEqual({ disponible: true, motif: null });
     expect(r.corps.actions.decaler_coucher).toEqual({
       mode: 'decision_de_nuit',
-      motif: 'soirée ouverte depuis 19:30 : raison et phrase exigées, une fois par nuit',
+      motif: 'soirée ouverte depuis 19:30',
     });
     const decision = await api.post('/v1/exceptions', web, { type: 'coucher', nuit: '2026-11-03', heure: '22:00', raison: RAISON, phrase: PHRASE });
     expect(decision.statut).toBe(201);
     const apres = await api.get('/v1/statut', web);
     expect(apres.corps.actions.decaler_coucher).toEqual({
       mode: 'indisponible',
-      motif: 'décision de nuit déjà prise pour la nuit du 2026-11-03 (une seule par nuit)',
+      motif: 'décision de nuit déjà prise pour la nuit du 3 nov. (une seule par nuit)',
     });
   });
 
@@ -75,9 +75,9 @@ describe('GET /v1/statut : phase, actions, engagements de demain, nuits', () => 
     });
     horloge.regler('2026-11-03T21:00:00Z');
     expect(await possibilites()).toEqual({
-      pc_linux: [false, "sessions interdites : NIGHT_LOCK jusqu'à 05:30"],
+      pc_linux: [false, "Nuit jusqu'à 05:30"],
       pc_windows: [false, 'aucun compte de travail sur ce PC'],
-      iphone: [false, "sessions interdites : NIGHT_LOCK jusqu'à 05:30"],
+      iphone: [false, "Nuit jusqu'à 05:30"],
     });
   });
 
@@ -137,6 +137,7 @@ describe('GET /v1/statut : phase, actions, engagements de demain, nuits', () => 
     expect(r.corps.appareil_principal).toBe('pc_linux');
     const pc = r.corps.appareils.find((a: { nom: string }) => a.nom === 'pc_linux');
     expect(pc.mode).toBe('MORNING_LOCK');
+    expect(pc.session_motif).toBe('Matin verrouillé : planning du matin à faire');
     expect(pc.sortie).toEqual({ texte: 'dès que le planning du matin est fait', certaine: false, au_plus_tard: MARDI.coucher });
     expect(pc.parcours[1]).toEqual({
       mode: 'MORNING_LOCK',
@@ -144,7 +145,8 @@ describe('GET /v1/statut : phase, actions, engagements de demain, nuits', () => 
       applicable: true,
       actif: true,
       logique: 'pas',
-      conditions: [{ type: 'planning', libelle: 'planning du matin pas encore fait', vraie: true, detail: '1 à faire', a: null }],
+      // Le fait positif et son état réel ; `niee` porte la négation du mode.
+      conditions: [{ type: 'planning', libelle: 'Planning du matin', vraie: false, detail: 'à faire', a: null, niee: true }],
     });
     expect(pc.parcours.map((m: { mode: string }) => m.mode)).toEqual(['NIGHT_LOCK', 'MORNING_LOCK', 'EVENING_FREE', 'WORK']);
     const iphone = r.corps.appareils.find((a: { nom: string }) => a.nom === 'iphone');

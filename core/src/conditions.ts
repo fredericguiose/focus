@@ -35,9 +35,10 @@ export function recapRestant(config: Config, faits: FaitsTodoist, jour: DateLoca
   return faits.taches.filter((t) => aFaire(t) && t.etiquettes.includes(etiquette) && t.echeance !== null && t.echeance <= limite);
 }
 
+/** Tâches prioritaires du jour et en retard (échéance ≤ jour courant), décision du propriétaire. */
 export function prioritairesRestantes(config: Config, faits: FaitsTodoist, jour: DateLocale): Tache[] {
   return tachesFiltrees(faits, jour, {
-    jour: 'aujourd_hui',
+    jour: 'les_deux',
     priorites: config.todoist.prioritaires,
     etiquettesExclues: config.todoist.etiquettesExclues,
   });
@@ -128,7 +129,11 @@ export function juger(condition: Condition, env: Environnement): Jugement {
   if (condition === 'planning_fait') return compte(planningRestant(config, faits, jour).length, 'planning fait', 'planning à faire');
   if (condition === 'recap_fait') return compte(recapRestant(config, faits, jour).length, 'récap fait', 'récaps en retard');
   if (condition === 'prioritaires_faites') {
-    return compte(prioritairesRestantes(config, faits, jour).length, 'tâches prioritaires faites', 'tâches prioritaires restantes');
+    return compte(
+      prioritairesRestantes(config, faits, jour).length,
+      'tâches prioritaires faites',
+      'tâches prioritaires restantes (du jour et en retard)',
+    );
   }
   if (condition === 'aucun_retard') return compte(retardsRestants(faits, jour).length, 'retards soldés', 'retards restants');
   if ('heure' in condition) return jugerHeure(condition.heure, env);

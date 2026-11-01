@@ -38,7 +38,7 @@ export function EcranStatut() {
           pied={coucherMs > maintenant ? formaterEcart(coucherMs - maintenant) : 'nuit en cours'}
         />
         <Indicateur
-          titre="Ouverture soirée"
+          titre="Ouverture de la soirée"
           icone={Sunset}
           valeur={formaterHeure(j.ouverture, j.fuseau)}
           pied={

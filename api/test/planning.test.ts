@@ -120,6 +120,17 @@ describe('statut et tâches', () => {
     });
     expect(parNom.iphone!.map((a) => a.id)).toEqual(['chatgpt', 'claude_ai', 'gemini', 'safari', 'x', 'youtube']);
     expect(parNom.iphone!.find((a) => a.id === 'safari')).toEqual({ id: 'safari', nom: 'Safari', domaines: [], iphone: 'com.apple.mobilesafari' });
+    // Groupes bloqués : nom lisible, réduits aux apps bloquées ici (le groupe « matin » n'est pas bloqué en WORK).
+    const groupes = Object.fromEntries((r.corps.appareils as { nom: string; groupes_bloques: unknown }[]).map((a) => [a.nom, a.groupes_bloques]));
+    expect(groupes.pc_linux).toEqual([
+      { id: 'divertissement', nom: 'Divertissement', apps: ['youtube', 'x'] },
+      { id: 'ia_conversationnelle', nom: 'IA conversationnelle', apps: ['chatgpt', 'gemini', 'claude_ai'] },
+    ]);
+    expect(groupes.iphone).toEqual([
+      { id: 'divertissement', nom: 'Divertissement', apps: ['youtube', 'x'] },
+      { id: 'ia_conversationnelle', nom: 'IA conversationnelle', apps: ['chatgpt', 'gemini', 'claude_ai'] },
+      { id: 'navigateurs', nom: 'Navigateurs', apps: ['safari'] },
+    ]);
   });
 
   it("GET /v1/taches : tâches du jour à moi, avec eligible_le = création + 15 min", async () => {

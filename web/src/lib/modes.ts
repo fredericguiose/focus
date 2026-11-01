@@ -66,6 +66,10 @@ export function infoMode(code: string): InfoMode {
 
 /** « WORK — tâches prioritaires restantes : 2 » → « Tâches prioritaires restantes : 2 ». */
 export function raisonLisible(raison: string): string {
-  const sansCode = raison.replace(/^[A-Z][A-Z_]*\s*[—–-]\s*/, '').trim();
+  // Le code du mode en tête est retiré ; un code cité plus loin (« EVENING_FREE non atteint ») prend son nom.
+  const sansCode = raison
+    .replace(/^[A-Z][A-Z_]*\s*[—–-]\s*/, '')
+    .replace(/\b[A-Z][A-Z]+(?:_[A-Z]+)+\b/g, (code) => infoMode(code).libelle)
+    .trim();
   return sansCode.charAt(0).toUpperCase() + sansCode.slice(1);
 }

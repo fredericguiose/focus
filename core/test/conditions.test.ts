@@ -44,18 +44,36 @@ describe('recap_fait (tolérance 1 jour)', () => {
   });
 });
 
-describe('prioritaires_faites', () => {
-  it('P1 et P2 du jour, hors exclusions et hors tâches non assignées', () => {
-    const p1 = tache({ priorite: 'p1', echeance: D });
-    const p2 = tache({ priorite: 'p2', echeance: D });
-    const p3 = tache({ priorite: 'p3', echeance: D });
-    const exclue = tache({ priorite: 'p1', echeance: D, etiquettes: ['planning'] });
-    const nonAssignee = tache({ priorite: 'p1', echeance: D, assigneeAMoi: false });
-    const enRetard = tache({ priorite: 'p1', echeance: '2026-11-01' });
-    const faite = tache({ priorite: 'p1', echeance: D, terminee: true });
-    const restant = prioritairesRestantes(config, faits({ taches: [p1, p2, p3, exclue, nonAssignee, enRetard, faite] }), D);
-    expect(ids(restant)).toEqual([p1.id, p2.id]);
-    expect(prioritairesRestantes(config, faits({ taches: [p3, exclue, nonAssignee, enRetard, faite] }), D)).toEqual([]);
+describe('prioritaires_faites (du jour et en retard)', () => {
+  const p = (partiel: Parameters<typeof tache>[0]) => tache({ priorite: 'p1', ...partiel });
+
+  it('du jour seulement', () => {
+    const p1 = p({ echeance: D });
+    const p2 = p({ priorite: 'p2', echeance: D });
+    const p3 = p({ priorite: 'p3', echeance: D });
+    const demain = p({ echeance: '2026-11-03' });
+    expect(ids(prioritairesRestantes(config, faits({ taches: [p1, p2, p3, demain] }), D))).toEqual([p1.id, p2.id]);
+  });
+
+  it('en retard seulement : une P1 d\'avant-hier bloque', () => {
+    const vieille = p({ echeance: '2026-10-12' });
+    const hier = p({ priorite: 'p2', echeance: '2026-11-01' });
+    const restant = prioritairesRestantes(config, faits({ taches: [vieille, hier] }), D);
+    expect(ids(restant)).toEqual([vieille.id, hier.id]);
+  });
+
+  it('mélange du jour et en retard ; les faites ne comptent pas', () => {
+    const duJour = p({ echeance: D });
+    const enRetard = p({ echeance: '2026-10-30' });
+    const faite = p({ echeance: '2026-10-30', terminee: true });
+    expect(ids(prioritairesRestantes(config, faits({ taches: [duJour, enRetard, faite] }), D))).toEqual([duJour.id, enRetard.id]);
+  });
+
+  it('exclusions : étiquettes exclues et tâches des autres, du jour comme en retard', () => {
+    const exclues = [p({ echeance: D, etiquettes: ['planning'] }), p({ echeance: '2026-10-30', etiquettes: ['recap'] })];
+    const autres = [p({ echeance: D, assigneeAMoi: false }), p({ echeance: '2026-10-30', assigneeAMoi: false })];
+    const sansEcheance = p({ echeance: null });
+    expect(prioritairesRestantes(config, faits({ taches: [...exclues, ...autres, sansEcheance] }), D)).toEqual([]);
   });
 });
 

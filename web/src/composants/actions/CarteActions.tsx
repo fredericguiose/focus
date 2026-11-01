@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import type { ReponseStatut } from '@/api/contrat';
 import { formaterHeure } from '@/lib/temps';
+import { phrase } from '@/lib/texte';
 import { DecalerCoucher } from './DecalerCoucher';
 import { JeVaisDormir } from './JeVaisDormir';
 
@@ -37,7 +38,7 @@ export function CarteActions({ statut }: { statut: ReponseStatut }) {
       <CardContent className="grid gap-3">
         {!actions ? (
           <p className="text-muted-foreground rounded-lg border border-dashed p-3 text-sm">
-            L'API n'indique pas encore les actions disponibles : mettez-la à jour.
+            Actions indisponibles : l'API doit être mise à jour.
           </p>
         ) : null}
 
@@ -66,13 +67,13 @@ export function CarteActions({ statut }: { statut: ReponseStatut }) {
               ) : null}
             </Button>
             {mode === 'indisponible' && actions.decaler_coucher.motif ? (
-              <p className="text-muted-foreground text-xs">{actions.decaler_coucher.motif}</p>
+              <p className="text-muted-foreground text-xs">{phrase(actions.decaler_coucher.motif)}.</p>
             ) : null}
             {nuit && mode === 'decision_de_nuit' ? (
               <p className="text-muted-foreground text-xs">La nuit a commencé : seule une décision de nuit peut encore la décaler.</p>
             ) : null}
             {!actions.je_vais_dormir.disponible && !nuit && actions.je_vais_dormir.motif ? (
-              <p className="text-muted-foreground text-xs">{actions.je_vais_dormir.motif}</p>
+              <p className="text-muted-foreground text-xs">{phrase(actions.je_vais_dormir.motif)}.</p>
             ) : null}
           </div>
         ) : null}

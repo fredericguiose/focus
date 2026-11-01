@@ -3,8 +3,9 @@ import { Laptop, Monitor, Smartphone, type LucideIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import type { StatutAppareil, TypeAppareil } from '@/api/contrat';
+import type { SortieMode, StatutAppareil, TypeAppareil } from '@/api/contrat';
 import { type EtatPing, etatPing, libelleAppareil } from '@/lib/appareils';
+import { STYLES_ETAT } from '@/lib/etats';
 import { infoMode, STYLES_FAMILLE } from '@/lib/modes';
 import { ilYA } from '@/lib/temps';
 import { cn } from '@/lib/utils';
@@ -29,6 +30,20 @@ export function BadgePing({ appareil, maintenant }: { appareil: StatutAppareil; 
   );
 }
 
+/** Fin du mode, avec la règle de couleurs commune : horloge grise si elle ne dépend que de l'heure, ✗ orange s'il y a à faire. */
+function Sortie({ sortie }: { sortie: SortieMode }) {
+  const { Icone, couleur, texte } = STYLES_ETAT[sortie.certaine ? 'attente' : 'a_faire'];
+  return (
+    <span className="text-muted-foreground mt-1 flex max-w-36 items-start gap-1 text-xs leading-snug sm:max-w-60">
+      <Icone className={cn('mt-px size-3.5 shrink-0', couleur)} aria-hidden />
+      <span>
+        Fin {sortie.texte}
+        <span className="sr-only"> ({texte})</span>
+      </span>
+    </span>
+  );
+}
+
 export function TableauAppareils({ appareils, maintenant }: { appareils: StatutAppareil[]; maintenant: number }) {
   return (
     <Card className="gap-3">
@@ -43,7 +58,7 @@ export function TableauAppareils({ appareils, maintenant }: { appareils: StatutA
               <TableHead>Appareil</TableHead>
               <TableHead>Mode</TableHead>
               <TableHead className="hidden sm:table-cell">Sessions</TableHead>
-              <TableHead className="text-right">Dernier ping</TableHead>
+              <TableHead className="hidden text-right sm:table-cell">Dernier ping</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -58,7 +73,13 @@ export function TableauAppareils({ appareils, maintenant }: { appareils: StatutA
                       <span className="bg-muted flex size-7 items-center justify-center rounded-md">
                         <Icone className="size-4" />
                       </span>
-                      {libelleAppareil(a)}
+                      <span className="grid gap-1">
+                        {libelleAppareil(a)}
+                        {/* Sur téléphone, le dernier ping passe sous le nom : la table tient en largeur. */}
+                        <span className="sm:hidden">
+                          <BadgePing appareil={a} maintenant={maintenant} />
+                        </span>
+                      </span>
                     </span>
                   </TableCell>
                   <TableCell className="whitespace-normal">
@@ -66,10 +87,10 @@ export function TableauAppareils({ appareils, maintenant }: { appareils: StatutA
                       <span className={cn('size-1.5 rounded-full', styles.fond)} aria-hidden />
                       {mode.libelle}
                     </Badge>
-                    {a.sortie ? <span className="text-muted-foreground mt-1 block max-w-32 text-xs leading-snug sm:max-w-56">{a.sortie.texte}</span> : null}
+                    {a.sortie ? <Sortie sortie={a.sortie} /> : null}
                   </TableCell>
                   <TableCell className="text-muted-foreground hidden sm:table-cell">{a.sessions === 'interdites' ? 'Interdites' : 'Autorisées'}</TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="hidden text-right sm:table-cell">
                     <BadgePing appareil={a} maintenant={maintenant} />
                   </TableCell>
                 </TableRow>

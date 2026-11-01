@@ -85,7 +85,7 @@ describe('exceptions — décision de nuit (après l\'ouverture)', () => {
     const deja = exception(coucher('23:00'), '2026-11-02T19:45:00Z', true);
     const p = prixException(contexte(APRES_OUVERTURE, { exceptions: [deja] }), coucher('23:30'), FRICTION);
     expect(p.admissible).toBe(false);
-    expect(p.motifRefus).toBe('décision de nuit déjà prise pour la nuit du 2026-11-02 (une seule par nuit)');
+    expect(p.motifRefus).toBe('décision de nuit déjà prise pour la nuit du 2 nov. (une seule par nuit)');
     expect(p.coucherAvant).toBe('2026-11-02T22:00:00Z'); // la première exception s'applique déjà
     // Une décision prise une autre nuit ne compte pas.
     const autreNuit = exception(coucher('23:00', '2026-11-01'), '2026-11-01T20:00:00Z', true);
@@ -95,8 +95,8 @@ describe('exceptions — décision de nuit (après l\'ouverture)', () => {
   it('la nuit passée, plus rien à changer', () => {
     const p = prixException(contexte('2026-11-03T06:00:00Z'), coucher('23:30'), FRICTION);
     expect(p.admissible).toBe(false);
-    expect(p.motifRefus).toBe('la nuit du 2026-11-02 est passée');
-    expect(prixException(contexte('2026-11-03T06:00:00Z'), coucher('21:00')).motifRefus).toBe('la nuit du 2026-11-02 est passée');
+    expect(p.motifRefus).toBe('la nuit du 2 nov. est passée');
+    expect(prixException(contexte('2026-11-03T06:00:00Z'), coucher('21:00')).motifRefus).toBe('la nuit du 2 nov. est passée');
   });
 
   it('demande mal formée : refus motivé, ou erreur si elle n\'a pas de nuit', () => {
@@ -110,7 +110,7 @@ describe('exceptions — engagements', () => {
     const config = lireConfig(remplacer(EXEMPLE, 'travail: { reveil: "06:30", annulable: true', 'travail: { reveil: "06:30", annulable: false'));
     const p = prixException({ ...contexte(AVANT_OUVERTURE), config }, { type: 'retire', date: '2026-11-03', engagement: 'travail' });
     expect(p.admissible).toBe(false);
-    expect(p.motifRefus).toBe('engagement « travail » non annulable');
+    expect(p.motifRefus).toBe("l'engagement « Travail » ne peut pas être annulé");
   });
 
   it('retirer le sport du mercredi : desserrer, lever et coucher reculent ensemble', () => {
@@ -129,21 +129,21 @@ describe('exceptions — engagements', () => {
 
   it('engagement absent ce jour-là, ou nuit passée', () => {
     expect(prixException(contexte(AVANT_OUVERTURE), { type: 'retire', date: '2026-11-03', engagement: 'sport' }).motifRefus).toBe(
-      'engagement « sport » absent le 2026-11-03',
+      "pas d'engagement « Sport » le 3 nov.",
     );
     const tard = prixException(contexte('2026-11-04T05:00:00Z'), { type: 'retire', date: '2026-11-04', engagement: 'sport' });
-    expect(tard.motifRefus).toBe('la nuit du 2026-11-03 est passée');
+    expect(tard.motifRefus).toBe('la nuit du 3 nov. est passée');
   });
 
   it('decale refusé si non décalable, ou si l\'engagement est sans heure', () => {
     const config = lireConfig(remplacer(EXEMPLE, 'preparation: 30, annulable: true, decalable: true', 'preparation: 30, annulable: true, decalable: false'));
     const p = prixException({ ...contexte(AVANT_OUVERTURE), config }, { type: 'decale', date: '2026-11-04', engagement: 'sport', heure: '06:30' });
     expect(p.admissible).toBe(false);
-    expect(p.motifRefus).toBe('engagement « sport » non décalable');
+    expect(p.motifRefus).toBe("l'engagement « Sport » ne peut pas être décalé");
     expect(p.coucherApres).toBe(p.coucherAvant);
     // Congés : sport « heure: libre » le lundi 21/12.
     const libre = prixException(contexte('2026-12-20T10:00:00Z'), { type: 'decale', date: '2026-12-21', engagement: 'sport', heure: '09:00' });
-    expect(libre.motifRefus).toBe('engagement « sport » sans heure : rien à décaler');
+    expect(libre.motifRefus).toBe("l'engagement « Sport » n'a pas d'heure : rien à décaler");
   });
 
   it('décaler : plus tard = desserrer, plus tôt = resserrer', () => {

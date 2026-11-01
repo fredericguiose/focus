@@ -107,7 +107,7 @@ modes:
 | `heure: { apres, avant }` | l'instant est ≥ `apres` et < `avant` (bornes facultatives), dans la journée courante (§3.1). `decale_par: prix_du_report` ajoute le prix du report à `apres`. Les expressions `$…` et les **paramètres** du mode (`$ouverture`) sont résolus. |
 | `planning_fait` | aucune tâche non terminée portant l'étiquette `todoist.etiquette_planning` avec une échéance ≤ jour courant |
 | `recap_fait` | aucune tâche non terminée portant l'étiquette `todoist.etiquette_recap` avec une échéance ≤ jour courant − `todoist.recap_tolerance_jours` (défaut 1) |
-| `prioritaires_faites` | aucune tâche non terminée, échéance = jour courant, priorité dans `todoist.prioritaires` (défaut `[p1, p2]`), hors étiquettes `todoist.etiquettes_exclues` et hors tâches non assignées à l'utilisateur |
+| `prioritaires_faites` | aucune tâche non terminée, échéance **≤ jour courant** (du jour **et en retard** : une P1/P2 en retard bloque la soirée, décision du propriétaire), priorité dans `todoist.prioritaires` (défaut `[p1, p2]`), hors étiquettes `todoist.etiquettes_exclues` et hors tâches non assignées à l'utilisateur |
 | `aucun_retard` | toutes les tâches de la **photo des retards** du jour courant sont terminées (§4.4) |
 | `nombre_de_taches: { filtre, au_plus }` | forme générale : `filtre = { jour: aujourd_hui \| retard \| les_deux, priorites, etiquettes_incluses, etiquettes_exclues }` |
 | `tous: [...]`, `un_parmi: [...]`, `pas: c` | combinaisons |
@@ -235,17 +235,31 @@ de priorité** (modes retirés compris) :
   actif,                // le mode choisi (§3.2)
   logique: 'tous' | 'un_parmi' | 'pas' | 'simple',
   conditions: [{ type: 'toujours'|'heure'|'planning'|'recap'|'prioritaires'|'retard'|'taches',
-                 libelle, vraie, detail /* « 2 restantes », « 1 à faire » ou null */,
-                 a /* condition d'heure : instant où elle devient vraie, sinon null */ }] }
+                 libelle,  // le fait, court et positif
+                 vraie,    // état réel du fait maintenant
+                 detail,   // le reste : « à faire », « en retard depuis le 8 oct. », « +20 min de report », ou null
+                 a,        // condition d'heure : instant où le fait devient vrai, sinon null
+                 niee }] } // le mode exige le contraire du fait (`pas`)
 ```
 - `quand` + `conditions_en_plus` forment une conjonction (`tous`), aplatie d'un niveau. Une
   combinaison imbriquée tient sur une ligne, libellé composé.
-- `pas` : la condition est énoncée **niée** (« planning du matin pas encore fait ») et `vraie`
-  dit si le mode s'applique de ce côté-là.
-- Heure : `decale_par: prix_du_report` s'écrit « après 20:30 (+20 min de report) », `a` portant
-  l'instant décalé ; `$coucher` s'écrit « dès le coucher 22:30 ».
-- Libellés : « planning du matin fait », « récap d'hier fait », « tâches P1/P2 du jour faites »
-  (priorités de `todoist.prioritaires`), « aucun retard (photo de 00:00) ».
+- **Toujours le fait positif**, jamais une formulation niée : sous `pas`, `libelle` reste
+  « Planning du matin », `vraie` est l'état du planning (faux tant qu'il n'est pas fait) et
+  `niee` = vrai. Le mode `pas` s'applique tant que son fait n'est pas vrai (l'interface titre la
+  liste « Se lève quand c'est fait : »).
+- **Libellé court, le fait seul ; le reste en détail.** Libellés : « Planning du matin »,
+  « Récap d'hier » (selon `recap_tolerance_jours`), « Tâches P1/P2 faites » (priorités de
+  `todoist.prioritaires`), « Retards rattrapés », « Par défaut ».
+- Heure : **une seule mention**, l'heure effective (report compris, comme `journee.ouverture`) :
+  « Ouverture à 20:50 », détail « +20 min de report » s'il y a un report ; `$coucher` s'écrit
+  « Coucher à 22:30 », `$lever` « Lever à 06:30 » ; deux bornes « De 14:00 à 18:00 », une borne
+  `avant` « Avant 18:00 ».
+- Détails : `planning` et `recap` ne donnent **jamais un compte** mais la plus ancienne échéance
+  non faite : « à faire » si c'est l'échéance attendue (aujourd'hui pour le planning ; jour − 
+  `recap_tolerance_jours` pour le récap, ex. le récap d'hier), sinon « en retard depuis le 8 oct. ».
+  `prioritaires` : « 3 restantes », « 3 restantes, dont 2 en retard depuis le 12 oct. » (date de la
+  plus ancienne échéance), « 2 restantes, en retard depuis le 12 oct. » si toutes le sont.
+  `retard` : « 1 restante (en retard à minuit) ». Dates au format court français (« 1er nov. »).
 
 `sortie(contexte, appareil)` → `{ texte, certaine, auPlusTard }` : comment on quitte le mode
 actif. Chemins examinés : une condition vraie du mode actif qui cessera de l'être (heure `avant`,
@@ -254,7 +268,7 @@ conditions fausses peuvent devenir vraies (heure future, ou tâches à faire ; j
 comme l'ajout d'une tâche). `auPlusTard` = le plus tôt des changements certains : coucher (ou
 lever suivant si la nuit a commencé), ou heure d'un mode prioritaire qui ne dépend que de l'heure.
 S'il existe un chemin dépendant d'une action et possible avant `auPlusTard`, il donne le texte
-(« dès que le planning du matin est fait », « quand les tâches P1/P2 du jour seront faites et
+(« dès que le planning du matin est fait », « quand les tâches P1/P2 seront faites et
 après 20:30 ») et `certaine` = faux ; sinon le texte est celui du changement certain (« au
 coucher, 22:30 », « au lever, 06:30 », « à 20:30 ») et `certaine` = vrai.
 
@@ -275,8 +289,8 @@ Actions). Chaque jeton appartient à un utilisateur. Création par un script loc
 | GET | `/v1/statut` | interface | mode par appareil et raison, journée (lever, coucher, ouverture), phase, actions possibles, engagements de demain, dette des 7 dernières nuits, sessions, dernier ping (§4.6) |
 | GET | `/v1/taches` | interface, appareil | tâches du jour éligibles à une session (`eligible_le` : création + 15 min) |
 | GET | `/v1/blocage?appareil=<nom>&domaine=<d>` | interface, appareil | pour l'extension : `{ bloque, app, mode, raison, sessions: autorisees \| interdites }` (`bloque` tient compte des sessions ouvertes ; un jeton appareil ne lit que son appareil) |
-| POST | `/v1/sessions` | interface, appareil | ouvrir : `{ appareil, tache_id, apps: [id] }` |
-| POST | `/v1/sessions/:id/apps` | interface, appareil | ajouter une app (gratuit) |
+| POST | `/v1/sessions` | interface, appareil | ouvrir : `{ appareil, tache_id, apps: [id] }` ; `apps` accepte des identifiants d'apps **ou de groupes** du catalogue (§4.5) |
+| POST | `/v1/sessions/:id/apps` | interface, appareil | ajouter une app (gratuit) : `{ app }` ou `{ apps: [id] }`, groupes acceptés |
 | POST | `/v1/sessions/:id/reponse` | interface, appareil | `{ question_id, reponse: continue \| arrete }` |
 | POST | `/v1/sessions/:id/fermer` | interface, appareil | fermer |
 | POST | `/v1/exceptions/prix` | interface | aperçu, sans rien enregistrer |
@@ -329,9 +343,16 @@ config existent dans Todoist.
 - **Session possible** sur un appareil seulement si (1) le mode en vigueur sur l'appareil a
   `sessions: autorisees`, (2) ce mode bloque au moins une app sur l'appareil (domaines pour un
   PC, identifiants pour l'iPhone) et (3) pour un PC, l'appareil a au moins un compte de travail.
-  Sinon, motif dans cet ordre : « aucun compte de travail sur ce PC », « sessions interdites :
-  <mode> jusqu'à HH:MM » (fin du segment en cours, heure locale), « rien n'est bloqué en ce
-  moment ». Ex. : `pc_windows` (aucun compte de travail) n'a jamais de session possible.
+  Sinon, motif dans cet ordre : « aucun compte de travail sur ce PC » ; mode qui interdit les
+  sessions, nommé (jamais son identifiant) : pour un mode `pas`, le fait qui manque (« Matin
+  verrouillé : planning du matin à faire », « … en retard depuis le 8 oct. »), sinon la fin si elle
+  est certaine (« Nuit jusqu'à 05:30 », heure de `sortie`, jamais du planning qui suppose Todoist
+  figé), sinon « <mode> : fin <sortie.texte> » ; « rien n'est bloqué en ce moment ». Ex. :
+  `pc_windows` (aucun compte de travail) n'a jamais de session possible.
+- **Apps et groupes** : `apps` contient des identifiants d'apps ou de groupes du catalogue
+  (`groupes`) ; un groupe est déplié en ses apps, le tout dédoublonné, et la session enregistre
+  des apps. Un identifiant inconnu des deux : 422 `app_inconnue`. Une app prime sur un groupe de
+  même identifiant.
 - Ouverture et ajout d'une app à une session refusés (409 `session_impossible`, avec `appareil`,
   `mode`, `motif`) si la session n'est pas possible sur l'appareil. Ouverture refusée aussi si
   la tâche est terminée ou créée il y a moins de 15 min, ou si le plafond quotidien (3 h, toutes
@@ -364,6 +385,7 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   "dette_cumulee_min": number,
   "appareils": [ { "nom", "type", "mode", "sessions", "session_possible": bool,
                    "session_motif": string | null, "raison", "actions", "apps_bloquees",
+                   "groupes_bloques": [ { "id", "nom", "apps": [id] } ],
                    "dernier_ping", "jusqua": "…Z",
                    "parcours": [ /* expliquer(), §3.7 */ ],
                    "sortie": { "texte": string, "certaine": bool, "au_plus_tard": "…Z" } } ],
@@ -375,7 +397,8 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
 - `je_vais_dormir` : disponible si maintenant < coucher appliqué(J) ; sinon motif « la nuit a
   déjà commencé à HH:MM » (même règle que le moteur, §3.4).
 - `decaler_coucher` : `libre` avant l'ouverture ; `decision_de_nuit` après, si elle n'a pas été
-  prise pour la nuit J ; `indisponible` sinon. Indicatif : le prix exact passe par
+  prise pour la nuit J (motif « soirée ouverte depuis HH:MM ») ; `indisponible` sinon (motif
+  « décision de nuit déjà prise pour la nuit du 3 nov. (une seule par nuit) »). Indicatif : le prix exact passe par
   `/v1/exceptions/prix`.
 - `engagements_demain` : `engagementsPrevus(contexte, J + 1)` du moteur, exceptions appliquées
   (un engagement décalé garde l'origine `routine`). `nom` : libellé pour une exception `ajoute`,
@@ -388,13 +411,19 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   heure de sortie. L'interface affiche `sortie` (et ne présente jamais un mode conditionnel
   comme un créneau horaire).
 - `appareils[].parcours` : sortie de `expliquer(contexte, nom)` telle quelle (§3.7).
+- `appareils[].groupes_bloques` : groupes que le mode en vigueur bloque (cités dans `bloque`, ou
+  tous pour `tout`), réduits aux apps bloquées sur l'appareil (`apps_bloquees`, `sauf` compris) ;
+  un groupe sans app bloquée ici n'apparaît pas. `nom` lisible (table de l'API, sinon
+  l'identifiant mis en forme : `jeux_video` → « Jeux video »). Tri par nom. La web app les propose
+  d'abord à l'ouverture d'une session (case « tout le groupe », apps dépliables), puis les apps
+  bloquées hors groupe.
 - `appareils[].sortie` : `sortie(contexte, nom)` ; `certaine` est vrai seulement si la sortie ne
   dépend que de l'heure ; `au_plus_tard` = le prochain changement certain.
 - `appareil_principal` : le premier PC (`pc_linux`, `pc_windows`) qui a au moins un compte de
   travail, sinon le premier appareil de la config (null s'il n'y en a aucun).
 - `appareils[].session_possible` / `session_motif` : la règle de §4.5 ; `session_motif` est null
-  quand la session est possible. La web app ne propose à l'ouverture que les appareils où elle
-  l'est et, s'il n'y en a aucun, affiche le motif de chacun.
+  quand la session est possible. À l'ouverture, la web app montre **tous** les appareils ; ceux où
+  la session est impossible sont désactivés, leur motif sous le nom.
 
 ## 5. Client PC (Go)
 
@@ -418,6 +447,10 @@ l'utilisateur, affiche les questions et l'ouverture de session). Ils se parlent 
 - Web app (React + Vite, composants shadcn/ui), servie comme fichiers statiques par le Worker.
   Écrans v2.0 : statut, exceptions (avec aperçu du prix), décision de nuit, sessions, dernier
   ping. Installable en PWA. Jeton `interface` saisi une fois.
+- Une seule règle de couleurs pour un fait (parcours, carte du mode, tableau des appareils) :
+  ✓ vert = fait ; ✗ orange = à faire, c'est ce qui bloque ; horloge grise = heure pas encore
+  atteinte (rien à faire). Les motifs de l'API (minuscule initiale, sans point) prennent une
+  majuscule quand ils sont affichés seuls.
 - Extension (Manifest V3, Chrome) : **interface seulement**, ne bloque rien. Quand un onglet
   échoue sur un domaine bloqué, elle demande la raison à l'API et affiche une page avec la
   raison et un bouton pour ouvrir une session.

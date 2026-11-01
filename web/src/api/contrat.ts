@@ -36,13 +36,16 @@ export type TypeCondition = 'toujours' | 'heure' | 'planning' | 'recap' | 'prior
 
 export interface ConditionParcours {
   type: TypeCondition;
+  /** Le fait, énoncé positivement (« Planning du matin »), même pour un mode `pas`. */
   libelle: string;
-  /** Valeur de la condition maintenant (avant la négation d'un mode `pas`). */
+  /** État réel du fait maintenant (fait / pas fait ; heure atteinte ou non). */
   vraie: boolean;
-  /** Précision lisible, ex. « 2 restantes ». */
+  /** Précision lisible, ex. « à faire », « en retard depuis le 8 oct. », « +20 min de report ». */
   detail: string | null;
-  /** Pour une condition `heure` : l'instant à partir duquel elle est vraie. */
+  /** Pour une condition `heure` : l'instant à partir duquel le fait est vrai. */
   a: Instant | null;
+  /** Le mode exige le contraire du fait (`pas`). Absent d'une API plus ancienne. */
+  niee?: boolean;
 }
 
 /** Un mode de la routine du jour pour cet appareil, avec ses conditions évaluées maintenant. */
@@ -89,6 +92,16 @@ export interface StatutAppareil {
   actions?: ActionsPc | ActionsIphone;
   /** Donné par l'API (`apps_bloquees`) ; absent d'une API plus ancienne, `ApiFocus.appsBloquees` le reconstitue. */
   apps_bloquees?: AppBloquee[];
+  /** Groupes du catalogue que le mode bloque ici, réduits aux apps bloquées (absent d'une API plus ancienne). */
+  groupes_bloques?: GroupeBloque[];
+}
+
+export interface GroupeBloque {
+  id: string;
+  /** Nom lisible, ex. « IA conversationnelle ». */
+  nom: string;
+  /** Identifiants des apps bloquées du groupe. */
+  apps: string[];
 }
 
 export interface Question {

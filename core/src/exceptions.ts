@@ -3,7 +3,7 @@
 
 import type { Contexte, DemandeException, Exception, FrictionFournie, Journee, PrixException } from './types';
 import { engagementEffectif, engagementsDuJour, journee, nuitDe, routineDuJour } from './journee';
-import { estDate, estHeure, lireInstant, local, MINUTE, minutesDe } from './temps';
+import { dateCourte, estDate, estHeure, lireInstant, local, MINUTE, minutesDe } from './temps';
 
 export const PHRASE_DECISION_DE_NUIT = 'JE NE PEUX PAS DECALER';
 export const RAISON_MIN_CARACTERES = 50;
@@ -44,15 +44,16 @@ function motifInvalide(contexte: Contexte, d: DemandeException): string | undefi
     case 'decale': {
       if (d.type === 'decale' && !estHeure(d.heure)) return 'heure invalide : attendu "HH:MM"';
       const present = engagementsDuJour(contexte, d.date).find((e) => e.id === d.engagement);
-      if (!present) return `engagement « ${d.engagement} » absent le ${d.date}`;
+      const nom = `« ${d.engagement.charAt(0).toUpperCase()}${d.engagement.slice(1)} »`;
+      if (!present) return `pas d'engagement ${nom} le ${dateCourte(d.date)}`;
       const { routine } = routineDuJour(contexte.config, d.date);
       const definition = engagementEffectif(contexte.config, routine, d.engagement);
       if (d.type === 'retire' && !(definition?.annulable ?? present.annulable)) {
-        return `engagement « ${d.engagement} » non annulable`;
+        return `l'engagement ${nom} ne peut pas être annulé`;
       }
       if (d.type === 'decale') {
-        if (!(definition?.decalable ?? present.decalable)) return `engagement « ${d.engagement} » non décalable`;
-        if (present.reveilMin === undefined) return `engagement « ${d.engagement} » sans heure : rien à décaler`;
+        if (!(definition?.decalable ?? present.decalable)) return `l'engagement ${nom} ne peut pas être décalé`;
+        if (present.reveilMin === undefined) return `l'engagement ${nom} n'a pas d'heure : rien à décaler`;
       }
       return undefined;
     }
@@ -126,7 +127,7 @@ export function prixException(contexte: Contexte, demande: DemandeException, fri
   });
 
   if (invalide) return refuse(invalide);
-  if (t >= lireInstant(avant.leverSuivant)) return refuse(`la nuit du ${nuit} est passée`);
+  if (t >= lireInstant(avant.leverSuivant)) return refuse(`la nuit du ${dateCourte(nuit)} est passée`);
   if (bilan.resserre) return accepte('aucune');
 
   const sommeilApres = (lireInstant(apres.leverSuivant) - lireInstant(apres.coucherApplique)) / MINUTE;
@@ -137,7 +138,7 @@ export function prixException(contexte: Contexte, demande: DemandeException, fri
     return accepte('aucune');
   }
 
-  if (avant.decisionDeNuitPrise) return refuse(`décision de nuit déjà prise pour la nuit du ${nuit} (une seule par nuit)`, 'raison_phrase');
+  if (avant.decisionDeNuitPrise) return refuse(`décision de nuit déjà prise pour la nuit du ${dateCourte(nuit)} (une seule par nuit)`, 'raison_phrase');
   if (sommeilApres < sommeil.plancherNuitMin) {
     return refuse(`sommeil prévu ${duree(sommeilApres)}, sous le plancher de nuit de ${duree(sommeil.plancherNuitMin)}`, 'raison_phrase');
   }

@@ -23,19 +23,20 @@ export function motifSessionsInterdites(
   maintenant: number,
 ): { titre: string; detail: string | null; motifs: string[] } | null {
   if (statut.appareils.some((a) => a.session_possible)) return null;
-  const motifs = motifsSansSession(statut.appareils);
   const principal = appareilPrincipal(statut);
+  // Quand le titre dit déjà le mode, les motifs identiques à celui de l'appareil principal sont omis.
+  const motifs = motifsSansSession(statut.appareils, principal?.session_motif ?? null);
   // Une heure de fin n'est affichée que si elle est certaine (`jusqua` suppose les faits constants).
   const fin = principal?.sortie ? (principal.sortie.certaine ? principal.sortie.au_plus_tard : null) : principal?.jusqua;
-  const jusqua = fin ? ` — jusqu'à ${formaterHeureRelative(fin, statut.journee.fuseau, maintenant)}` : '';
+  const jusqua = fin ? ` jusqu'à ${formaterHeureRelative(fin, statut.journee.fuseau, maintenant)}` : '';
   if (statut.phase === 'nuit' || principal?.mode === 'NIGHT_LOCK') {
-    return { titre: `Sessions interdites pendant la nuit${jusqua}`, detail: 'Aucune app ne peut être débloquée avant le lever.', motifs };
+    return { titre: `Sessions interdites pendant la nuit,${jusqua}`.replace(/,$/, ''), detail: 'Aucune app ne peut être débloquée avant le lever.', motifs };
   }
   if (principal?.sessions === 'interdites') {
-    const detail = principal.sortie && !principal.sortie.certaine ? `Fin : ${principal.sortie.texte}` : raisonLisible(principal.raison);
-    return { titre: `Sessions interdites : ${infoMode(principal.mode).libelle}${jusqua}`, detail, motifs };
+    const detail = principal.sortie && !principal.sortie.certaine ? `Fin ${principal.sortie.texte}.` : raisonLisible(principal.raison);
+    return { titre: `Sessions interdites en mode ${infoMode(principal.mode).libelle}${jusqua}`, detail, motifs };
   }
-  return { titre: 'Aucune session possible en ce moment', detail: null, motifs };
+  return { titre: 'Aucune session possible en ce moment', detail: null, motifs: motifsSansSession(statut.appareils) };
 }
 
 export function EcranSessions() {
