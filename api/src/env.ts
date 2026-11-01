@@ -1,4 +1,5 @@
 import type { Moteur } from '../../core/src/types';
+import type { HorlogeLocale } from './horloge';
 import type { ClientTodoist } from './todoist';
 
 /** Liaisons du Worker (wrangler.jsonc) et secret Todoist. */
@@ -7,6 +8,10 @@ export interface Liaisons {
   ASSETS?: Fetcher;
   /** Secret Worker ; absent en local tant qu'il n'est pas posé dans .dev.vars. */
   TODOIST_TOKEN?: string;
+  /** « local » seulement pour un essai sur la machine : autorise l'horloge réglable. */
+  FOCUS_ENVIRONNEMENT?: string;
+  /** Instant ISO ou décalage (« +3h », « -90min ») ; ignorée hors environnement local. */
+  FOCUS_HORLOGE?: string;
 }
 
 export type TypeJeton = 'appareil' | 'interface' | 'config';
@@ -26,6 +31,8 @@ export interface Dependances {
   moteur: Moteur;
   maintenant: () => Date;
   todoist: (jeton: string) => ClientTodoist;
+  /** Présente si l'horloge peut être réglée (en local seulement, voir horloge.ts). */
+  horloge?: HorlogeLocale;
 }
 
 export interface EnvApp {

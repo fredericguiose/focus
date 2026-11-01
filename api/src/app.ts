@@ -74,6 +74,18 @@ export function creerApp(deps: Dependances) {
 
   app.get('/v1/config/version', exigerJeton(deps, ...TOUS), async (c) => c.json(await versionActive(c.env.DB, c.get('jeton'))));
 
+  // Essai local seulement : hors FOCUS_ENVIRONNEMENT=local, la route n'existe pas.
+  const localSeulement = async (_c: unknown, suite: () => Promise<void>) => {
+    if (!deps.horloge?.estLocale()) throw new ErreurApi(404, 'introuvable', "Point d'entrée inconnu.");
+    await suite();
+  };
+  app.post('/v1/dev/horloge', localSeulement, interfaceSeule, async (c) => {
+    const horloge = deps.horloge!;
+    const corps = await lireCorps(c);
+    if (!('horloge' in corps)) throw new ErreurApi(400, 'requete_invalide', 'Champ « horloge » manquant.', { champ: 'horloge' });
+    return c.json({ environnement: 'local', ...horloge.regler(corps.horloge) });
+  });
+
   app.all('/v1/*', () => {
     throw new ErreurApi(404, 'introuvable', "Point d'entrée inconnu.");
   });

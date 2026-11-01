@@ -198,6 +198,10 @@ maintenant : « je vais dormir »).
   |---|---|---|---|
   | avant ouverture(D) | aucune | sommeil prévu ≥ `minimum` | aucune |
   | après ouverture(D), avant lever(D+1) | `raison` ≥ 50 caractères + `phrase` exacte `JE NE PEUX PAS DECALER` | sommeil ≥ `plancher_nuit` | **1 fois** par nuit |
+- **« Je vais dormir »** (`avancer_coucher`, `a` = maintenant) n'est admissible que si
+  `a` < coucher appliqué de la nuit ; sinon refus « la nuit a déjà commencé à HH:MM » (heure
+  locale du coucher appliqué), sans friction demandée. Elle ne peut jamais repousser le coucher :
+  pour coucher plus tard, c'est une exception `coucher` (desserrage, règles ci-dessus).
 - `prixException(contexte, demande)` renvoie : admissible ou non (et pourquoi), friction
   exigée, coucher avant/après, lever avant/après, dette de la nuit avant/après.
 - Plusieurs exceptions de la même nuit s'appliquent dans l'ordre de création.
@@ -233,7 +237,7 @@ Actions). Chaque jeton appartient à un utilisateur. Création par un script loc
 | GET | `/v1/planning` | appareil | planning de l'appareil (§4.3) ; vaut ping (met à jour `vu_le`) |
 | POST | `/v1/accuses` | appareil | `{ action, pose_le }` : verrou posé |
 | POST | `/v1/evenements` | appareil | lot : `{ type: reconnexion \| acces, ... }` |
-| GET | `/v1/statut` | interface | mode par appareil et raison, journée (lever, coucher, ouverture), sessions, dette, dernier ping |
+| GET | `/v1/statut` | interface | mode par appareil et raison, journée (lever, coucher, ouverture), phase, actions possibles, engagements de demain, dette des 7 dernières nuits, sessions, dernier ping (§4.6) |
 | GET | `/v1/taches` | interface, appareil | tâches du jour éligibles à une session (`eligible_le` : création + 15 min) |
 | GET | `/v1/blocage?appareil=<nom>&domaine=<d>` | interface, appareil | pour l'extension : `{ bloque, app, mode, raison, sessions: autorisees \| interdites }` (`bloque` tient compte des sessions ouvertes ; un jeton appareil ne lit que son appareil) |
 | POST | `/v1/sessions` | interface, appareil | ouvrir : `{ appareil, tache_id, apps: [id] }` |
@@ -244,6 +248,7 @@ Actions). Chaque jeton appartient à un utilisateur. Création par un script loc
 | POST | `/v1/exceptions` | interface | enregistrer (mêmes règles) |
 | POST | `/v1/config` | config | `{ yaml, commit }` : valide, enregistre une nouvelle version |
 | GET | `/v1/config/version` | tous | version active |
+| POST | `/v1/dev/horloge` | interface | **local seulement** (`FOCUS_ENVIRONNEMENT=local`, sinon 404) : `{ horloge: "+3h" \| instant \| null }` règle l'horloge de l'API (docs/essai-local.md) |
 
 Erreurs : `{ erreur: code, message }` en français, codes HTTP usuels.
 
@@ -296,6 +301,43 @@ config existent dans Todoist.
   `posee_a + attente_s`.
 - Pas de réponse avant `expire_a`, ou « arrête » : session fermée. Tâche terminée : session
   fermée.
+
+### 4.6 Statut (`GET /v1/statut`)
+Champs calculés à partir de la journée courante J (contrat partagé avec la web app) :
+```jsonc
+{
+  "heure_serveur": "…Z", "config_version": "…",
+  "journee": { "date", "routine", "fuseau", "engagements", "lever", "lever_suivant", "coucher_prevu",
+               "coucher_applique", "ouverture", "prix_du_report_min", "dette_nuit_min", "decision_de_nuit_prise" },
+  "phase": "journee" | "soiree" | "nuit",
+  "actions": {
+    "je_vais_dormir":  { "disponible": bool, "motif": string | null },
+    "decaler_coucher": { "mode": "libre" | "decision_de_nuit" | "indisponible", "motif": string | null }
+  },
+  "engagements_demain": [
+    { "id": "sport", "nom": "Sport", "reveil": "…Z" | null, "heure": "…Z" | null,
+      "annulable": bool, "decalable": bool, "origine": "routine" | "exception" }
+  ],
+  "nuits": [ { "nuit": "YYYY-MM-DD", "dette_min": number } ],
+  "dette_cumulee_min": number,
+  "appareils": [ { "nom", "type", "mode", "sessions", "raison", "actions", "apps_bloquees",
+                   "dernier_ping", "jusqua": "…Z" } ],
+  "sessions": [ … ], "sessions_du_jour": { "cumul_min", "plafond_min" }, "todoist": { … }
+}
+```
+- `phase` : `nuit` si maintenant ≥ coucher appliqué(J) ; `soiree` si ≥ ouverture(J) ; sinon `journee`.
+- `je_vais_dormir` : disponible si maintenant < coucher appliqué(J) ; sinon motif « la nuit a
+  déjà commencé à HH:MM » (même règle que le moteur, §3.4).
+- `decaler_coucher` : `libre` avant l'ouverture ; `decision_de_nuit` après, si elle n'a pas été
+  prise pour la nuit J ; `indisponible` sinon. Indicatif : le prix exact passe par
+  `/v1/exceptions/prix`.
+- `engagements_demain` : `engagementsPrevus(contexte, J + 1)` du moteur, exceptions appliquées
+  (un engagement décalé garde l'origine `routine`). `nom` : libellé pour une exception `ajoute`,
+  sinon l'identifiant avec une majuscule.
+- `nuits` : les 7 nuits terminées J−7 … J−1, de la plus ancienne à la plus récente, `dette_min` =
+  `journee(D).detteNuitMin` recalculée par le moteur avec la config active et les exceptions
+  enregistrées ; `dette_cumulee_min` = leur somme.
+- `appareils[].jusqua` : fin du segment en cours du planning de l'appareil (`planifier(…)[0].fin`).
 
 ## 5. Client PC (Go)
 

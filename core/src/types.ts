@@ -239,6 +239,18 @@ export interface Journee {
   decisionDeNuitPrise: boolean;
 }
 
+/** Engagement d'un jour, exceptions appliquées (un décalage garde l'origine `routine`). */
+export interface EngagementPrevu {
+  id: string;
+  /** Libellé pour une exception `ajoute`, sinon l'identifiant avec une majuscule. */
+  nom: string;
+  reveil: Instant | null;
+  heure: Instant | null;
+  annulable: boolean;
+  decalable: boolean;
+  origine: 'routine' | 'exception';
+}
+
 export interface ActionsPc {
   bloquer_domaines: string[];
   verrouiller_session: boolean;
@@ -272,6 +284,7 @@ export interface Moteur {
   validerConfig(yaml: string): ResultatValidation;
   journee(contexte: Contexte, date: DateLocale): Journee;
   journeeCourante(contexte: Contexte): Journee;
+  engagementsPrevus(contexte: Contexte, date: DateLocale): EngagementPrevu[];
   etat(contexte: Contexte, appareil: string): EtatAppareil;
   planifier(contexte: Contexte, appareil: string, horizonH?: number): Segment[];
   prixException(contexte: Contexte, demande: DemandeException, friction?: FrictionFournie): PrixException;

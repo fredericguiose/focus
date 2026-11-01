@@ -1,5 +1,5 @@
 // Planning d'un appareil (§4.3), statut pour l'interface, tâches du jour, raison d'un blocage.
-import type { ActionsIphone, ActionsPc, Config, Contexte, Journee, Segment } from '../../core/src/types';
+import type { ActionsIphone, ActionsPc, Config, Contexte, EngagementPrevu, Journee, Moteur, Segment } from '../../core/src/types';
 import { CLES_CACHE, chargerContexte, lireCache } from './contexte';
 import type { Dependances, JetonAuthentifie } from './env';
 import { ErreurApi, requeteInvalide } from './erreurs';
@@ -11,7 +11,7 @@ import {
   tachesDuJour,
   type VueSession,
 } from './sessions';
-import { decaler, ms, versInstant } from './temps';
+import { ajouterJours, decaler, heureLocale, ms, versInstant } from './temps';
 
 export const HORIZON_H = 36;
 export const VERSION_FORMAT_PLANNING = 1;
@@ -101,6 +101,49 @@ export function appsBloquees(config: Config, actions: ActionsPc | ActionsIphone)
     .sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
 }
 
+export const NUITS_DU_STATUT = 7;
+
+export type Phase = 'journee' | 'soiree' | 'nuit';
+
+export function phaseDe(j: Journee, maintenant: Date): Phase {
+  const t = maintenant.getTime();
+  if (t >= ms(j.coucherApplique)) return 'nuit';
+  if (t >= ms(j.ouverture)) return 'soiree';
+  return 'journee';
+}
+
+/** Ce que l'interface peut proposer maintenant ; les règles restent celles du moteur (§3.4). */
+export function actionsPossibles(j: Journee, phase: Phase) {
+  const coucher = heureLocale(new Date(j.coucherApplique), j.fuseau);
+  const ouverture = heureLocale(new Date(j.ouverture), j.fuseau);
+  return {
+    je_vais_dormir:
+      phase === 'nuit'
+        ? { disponible: false, motif: `la nuit a déjà commencé à ${coucher}` }
+        : { disponible: true, motif: null },
+    decaler_coucher:
+      phase === 'journee'
+        ? { mode: 'libre' as const, motif: null }
+        : j.decisionDeNuitPrise
+          ? { mode: 'indisponible' as const, motif: `décision de nuit déjà prise pour la nuit du ${j.date} (une seule par nuit)` }
+          : { mode: 'decision_de_nuit' as const, motif: `soirée ouverte depuis ${ouverture} : raison et phrase exigées, une fois par nuit` },
+  };
+}
+
+function vueEngagement(e: EngagementPrevu) {
+  return { id: e.id, nom: e.nom, reveil: e.reveil, heure: e.heure, annulable: e.annulable, decalable: e.decalable, origine: e.origine };
+}
+
+/** Les nuits terminées avant la journée courante, de la plus ancienne à la plus récente. */
+export function dernieresNuits(moteur: Moteur, contexte: Contexte, j: Journee) {
+  const nuits = [];
+  for (let n = NUITS_DU_STATUT; n >= 1; n--) {
+    const nuit = ajouterJours(j.date, -n);
+    nuits.push({ nuit, dette_min: moteur.journee(contexte, nuit).detteNuitMin });
+  }
+  return nuits;
+}
+
 export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuthentifie) {
   const maintenant = deps.maintenant();
   const { contexte, version } = await chargerContexte(db, jeton.utilisateur, maintenant);
@@ -119,12 +162,20 @@ export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuth
     cumulSessionsS(db, jeton.utilisateur, journee, maintenant),
   ]);
   const vuLe = new Map(pings.results.map((p) => [p.nom, p.vu_le]));
+  const phase = phaseDe(journee, maintenant);
+  const nuits = dernieresNuits(deps.moteur, contexte, journee);
   return {
     heure_serveur: versInstant(maintenant),
     config_version: version,
     journee: vueJournee(journee),
+    phase,
+    actions: actionsPossibles(journee, phase),
+    engagements_demain: deps.moteur.engagementsPrevus(contexte, ajouterJours(journee.date, 1)).map(vueEngagement),
+    nuits,
+    dette_cumulee_min: nuits.reduce((total, n) => total + n.dette_min, 0),
     appareils: Object.entries(config.appareils).map(([nom, def]) => {
       const etat = deps.moteur.etat(contexte, nom);
+      const segment = deps.moteur.planifier(contexte, nom, HORIZON_H)[0];
       return {
         nom,
         type: def.type,
@@ -134,6 +185,7 @@ export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuth
         actions: etat.actions,
         apps_bloquees: appsBloquees(config, etat.actions),
         dernier_ping: vuLe.get(nom) ?? null,
+        jusqua: segment?.fin ?? decaler(maintenant, HORIZON_H * 3600),
       };
     }),
     sessions,

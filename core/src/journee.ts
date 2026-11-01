@@ -7,6 +7,7 @@ import type {
   DateLocale,
   DemandeException,
   Engagement,
+  EngagementPrevu,
   Exception,
   Journee,
   JourSemaine,
@@ -84,6 +85,7 @@ export interface EngagementDuJour {
   heureMin?: number;
   annulable: boolean;
   decalable: boolean;
+  origine: 'routine' | 'exception';
 }
 
 export function exceptionsTriees(exceptions: Exception[]): Exception[] {
@@ -108,6 +110,7 @@ export function engagementsDuJour(contexte: Contexte, date: DateLocale): Engagem
       heureMin: e.heure !== undefined ? minutesDe(e.heure) : undefined,
       annulable: e.annulable,
       decalable: e.decalable,
+      origine: 'routine' as const,
     });
   });
   for (const { demande: d } of exceptionsTriees(contexte.exceptions)) {
@@ -119,6 +122,7 @@ export function engagementsDuJour(contexte: Contexte, date: DateLocale): Engagem
         heureMin: d.heure !== undefined ? minutesDe(d.heure) : undefined,
         annulable: true,
         decalable: true,
+        origine: 'exception',
       }));
     } else if (d.type === 'retire') {
       liste = liste.filter((e) => e.id !== d.engagement);
@@ -127,6 +131,26 @@ export function engagementsDuJour(contexte: Contexte, date: DateLocale): Engagem
     }
   }
   return liste;
+}
+
+function nomEngagement(e: EngagementDuJour): string {
+  return e.origine === 'exception' ? e.id : e.id.charAt(0).toUpperCase() + e.id.slice(1);
+}
+
+/** Engagements du jour D, exceptions appliquées, avec leurs heures en instants UTC. */
+export function engagementsPrevus(contexte: Contexte, date: DateLocale): EngagementPrevu[] {
+  const { routine } = routineDuJour(contexte.config, date);
+  const instant = (minutes: number | undefined) =>
+    minutes === undefined ? null : ecrireInstant(instantLocal(date, minutes, routine.fuseau));
+  return engagementsDuJour(contexte, date).map((e) => ({
+    id: e.id,
+    nom: nomEngagement(e),
+    reveil: instant(e.reveilMin),
+    heure: instant(e.heureMin),
+    annulable: e.annulable,
+    decalable: e.decalable,
+    origine: e.origine,
+  }));
 }
 
 /** Décaler déplace l'heure ; le réveil suit du même écart (préparation conservée). */

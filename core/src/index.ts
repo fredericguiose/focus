@@ -4,7 +4,7 @@ import type { Config, Moteur } from './types';
 import { validerConfig } from './config';
 import { etat } from './etat';
 import { prixException } from './exceptions';
-import { journee, journeeCourante } from './journee';
+import { engagementsPrevus, journee, journeeCourante } from './journee';
 import { planifier } from './planning';
 
 /** Secondes d'attente du n-ième « continue » (n à partir de 0) ; la dernière valeur se répète. */
@@ -18,6 +18,7 @@ export const moteur: Moteur = {
   validerConfig,
   journee,
   journeeCourante,
+  engagementsPrevus,
   etat,
   planifier,
   prixException,
@@ -25,7 +26,7 @@ export const moteur: Moteur = {
 };
 
 export { validerConfig, lireConfig } from './config';
-export { journee, journeeCourante, routineDuJour, nuitDe } from './journee';
+export { journee, journeeCourante, routineDuJour, nuitDe, engagementsPrevus } from './journee';
 export { etat, actionsDuMode } from './etat';
 export { planifier } from './planning';
 export { prixException, PHRASE_DECISION_DE_NUIT, RAISON_MIN_CARACTERES } from './exceptions';

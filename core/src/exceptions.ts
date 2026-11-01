@@ -3,7 +3,7 @@
 
 import type { Contexte, DemandeException, Exception, FrictionFournie, Journee, PrixException } from './types';
 import { engagementEffectif, engagementsDuJour, journee, nuitDe, routineDuJour } from './journee';
-import { estDate, estHeure, lireInstant, MINUTE, minutesDe } from './temps';
+import { estDate, estHeure, lireInstant, local, MINUTE, minutesDe } from './temps';
 
 export const PHRASE_DECISION_DE_NUIT = 'JE NE PEUX PAS DECALER';
 export const RAISON_MIN_CARACTERES = 50;
@@ -59,6 +59,12 @@ function motifInvalide(contexte: Contexte, d: DemandeException): string | undefi
   }
 }
 
+/** « Je vais dormir » ne peut qu'avancer le coucher : à partir du coucher appliqué, la nuit a commencé. */
+function nuitCommencee(d: DemandeException, avant: Journee): string | undefined {
+  if (d.type !== 'avancer_coucher' || lireInstant(d.a) < lireInstant(avant.coucherApplique)) return undefined;
+  return `la nuit a déjà commencé à ${local(lireInstant(avant.coucherApplique), avant.fuseau).heure}`;
+}
+
 /** Resserrer : coucher plus tôt, engagement ajouté ou avancé. */
 function resserre(contexte: Contexte, d: DemandeException, avant: Journee, apres: Journee): boolean {
   switch (d.type) {
@@ -96,9 +102,9 @@ export function prixException(contexte: Contexte, demande: DemandeException, fri
   const { sommeil } = contexte.config;
   const t = lireInstant(contexte.maintenant);
   verifierForme(demande);
-  const invalide = motifInvalide(contexte, demande);
   const nuit = nuitDe(demande);
   const avant = journee(contexte, nuit);
+  const invalide = motifInvalide(contexte, demande) ?? nuitCommencee(demande, avant);
   const simulee: Exception = { id: '(aperçu)', demande, creeeLe: contexte.maintenant, pendantNuit: false };
   const apres = invalide ? avant : journee({ ...contexte, exceptions: [...contexte.exceptions, simulee] }, nuit);
 

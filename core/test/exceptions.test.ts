@@ -203,3 +203,36 @@ describe('exceptions — avancer le coucher', () => {
     expect(journeeCourante(contexte('2026-11-07T04:00:00Z')).date).toBe('2026-11-06');
   });
 });
+
+describe('exceptions — « je vais dormir » après le coucher', () => {
+  // Nuit du lundi 02/11 : coucher appliqué 22:30 (21:30Z).
+  const dormir = (a: string) => ({ type: 'avancer_coucher' as const, nuit: NUIT, a });
+
+  it('à 23:49 : refusé, jamais traité comme un desserrage', () => {
+    const p = prixException(contexte('2026-11-02T22:49:00Z'), dormir('2026-11-02T22:49:00Z'), FRICTION);
+    expect(p).toMatchObject({
+      admissible: false,
+      motifRefus: 'la nuit a déjà commencé à 22:30',
+      friction: 'aucune',
+      resserre: false,
+      coucherAvant: '2026-11-02T21:30:00Z',
+      coucherApres: '2026-11-02T21:30:00Z',
+    });
+  });
+
+  it('pile au coucher : refusé ; une minute avant : admis sans friction', () => {
+    expect(prixException(contexte('2026-11-02T21:30:00Z'), dormir('2026-11-02T21:30:00Z')).motifRefus)
+      .toBe('la nuit a déjà commencé à 22:30');
+    expect(prixException(contexte('2026-11-02T21:29:00Z'), dormir('2026-11-02T21:29:00Z')))
+      .toMatchObject({ admissible: true, friction: 'aucune', resserre: true, coucherApres: '2026-11-02T21:29:00Z' });
+  });
+
+  it('se compare au coucher appliqué, pas au coucher prévu', () => {
+    const tard = exception(coucher('23:30'), '2026-11-02T14:00:00Z');
+    const p = prixException(contexte('2026-11-02T22:00:00Z', { exceptions: [tard] }), dormir('2026-11-02T22:00:00Z'));
+    expect(p).toMatchObject({ admissible: true, resserre: true });
+    const tot = exception(coucher('21:00'), '2026-11-02T14:00:00Z');
+    const q = prixException(contexte('2026-11-02T20:30:00Z', { exceptions: [tot] }), dormir('2026-11-02T20:30:00Z'));
+    expect(q.motifRefus).toBe('la nuit a déjà commencé à 21:00');
+  });
+});

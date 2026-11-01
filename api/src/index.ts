@@ -1,6 +1,8 @@
+import { env } from 'cloudflare:workers';
 import { moteur } from '../../core/src/index';
 import { creerApp } from './app';
 import type { Dependances, Liaisons } from './env';
+import { HorlogeLocale } from './horloge';
 import { executerTachesPlanifiees } from './planifie';
 import { creerClientTodoist } from './todoist';
 
@@ -15,8 +17,11 @@ export function creerWorker(deps: Dependances): ExportedHandler<Liaisons> {
   };
 }
 
+const horloge = new HorlogeLocale(() => env as Liaisons);
+
 export default creerWorker({
   moteur,
-  maintenant: () => new Date(),
+  maintenant: horloge.maintenant,
+  horloge,
   todoist: (jeton) => creerClientTodoist({ jeton }),
 });

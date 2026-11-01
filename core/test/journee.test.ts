@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { journee, journeeCourante } from '../src/journee';
-import { contexte } from './aides';
+import { engagementsPrevus, journee, journeeCourante } from '../src/journee';
+import { contexte, exception } from './aides';
 
 // Routine « semaine » de l'exemple (Europe/Paris), calculée à la main :
 // sport 06:00 − 30 min = réveil 05:30 ; travail réveil 06:30 ; réveil libre 07:00 ; cible 8 h.
@@ -116,5 +116,30 @@ describe('calendrier', () => {
     expect(lundi.engagements).toEqual(['sport']);
     expect(lundi.lever).toBe('2026-12-21T07:00:00Z'); // 08:00, le sport ne donne pas de réveil
     expect(lundi.ouverture).toBe('2026-12-21T15:00:00Z'); // paramètre de la routine : 16:00
+  });
+});
+
+describe('engagementsPrevus', () => {
+  it('routine du lundi : instants UTC, nom avec majuscule', () => {
+    expect(engagementsPrevus(ctx, '2026-11-02')).toEqual([
+      { id: 'sport', nom: 'Sport', reveil: '2026-11-02T04:30:00Z', heure: '2026-11-02T05:00:00Z', annulable: true, decalable: true, origine: 'routine' },
+      { id: 'travail', nom: 'Travail', reveil: '2026-11-02T05:30:00Z', heure: null, annulable: true, decalable: true, origine: 'routine' },
+    ]);
+  });
+
+  it('exceptions appliquées : ajout (libellé), retrait, décalage', () => {
+    const exceptions = [
+      exception({ type: 'retire', date: '2026-11-02', engagement: 'travail' }, '2026-11-01T10:00:00Z'),
+      exception({ type: 'decale', date: '2026-11-02', engagement: 'sport', heure: '06:30' }, '2026-11-01T10:01:00Z'),
+      exception({ type: 'ajoute', date: '2026-11-02', libelle: 'Dentiste', heure: '08:00', preparationMin: 45 }, '2026-11-01T10:02:00Z'),
+    ];
+    expect(engagementsPrevus({ ...ctx, exceptions }, '2026-11-02')).toEqual([
+      { id: 'sport', nom: 'Sport', reveil: '2026-11-02T05:00:00Z', heure: '2026-11-02T05:30:00Z', annulable: true, decalable: true, origine: 'routine' },
+      { id: 'Dentiste', nom: 'Dentiste', reveil: '2026-11-02T06:15:00Z', heure: '2026-11-02T07:00:00Z', annulable: true, decalable: true, origine: 'exception' },
+    ]);
+  });
+
+  it('jour sans engagement : liste vide', () => {
+    expect(engagementsPrevus(ctx, '2026-11-07')).toEqual([]);
   });
 });

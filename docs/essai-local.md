@@ -158,7 +158,43 @@ Ouvrir `http://127.0.0.1:8799/`, coller le jeton `interface`. L'écran Statut do
 version de config envoyée (pas le mode simulé, qui n'existe qu'avec `npm run dev:simule`).
 L'onglet Sessions liste les apps de `apps_bloquees` sans appeler `/v1/blocage`.
 
-## 10. Ranger
+## 10. Changer l'heure (journée, soirée, nuit)
+
+L'API a une horloge réglable, **en local seulement** : elle n'est prise en compte que si
+`FOCUS_ENVIRONNEMENT=local`. Avec toute autre valeur (ou sans la variable), l'horloge est la vraie,
+`FOCUS_HORLOGE` est ignorée avec un avertissement dans le journal, et `POST /v1/dev/horloge`
+répond 404. Rien n'est écrit dans la base : le réglage vit dans la mémoire du Worker local.
+
+Au lancement (étape 4), ajouter les variables :
+
+```sh
+npx wrangler dev --local --persist-to .wrangler/essai --port 8799 --show-interactive-dev-session=false \
+  --var FOCUS_ENVIRONNEMENT:local --var FOCUS_HORLOGE:+3h
+```
+
+`FOCUS_HORLOGE` accepte un décalage (`+3h`, `-90min`, `+1h30`) appliqué à l'heure réelle, ou un
+instant ISO 8601 (`2026-11-03T21:49:00Z`) : l'heure est alors **figée** (les questions de session
+n'arrivent jamais ; préférer un décalage pour elles).
+
+À chaud, sans relancer :
+
+```sh
+I=$(cat "$ESSAI/interface.jeton"); API=http://127.0.0.1:8799
+curl -s -X POST $API/v1/dev/horloge -H "Authorization: Bearer $I" -H 'Content-Type: application/json' -d '{"horloge":"+5h"}'
+curl -s -X POST $API/v1/dev/horloge -H "Authorization: Bearer $I" -H 'Content-Type: application/json' -d '{"horloge":null}'  # heure réelle
+```
+
+Réponse : `{ environnement: "local", reglage, heure_serveur }`. Le réglage à chaud l'emporte sur
+`FOCUS_HORLOGE` jusqu'au redémarrage de wrangler. Le client PC et la web app se calent sur
+`heure_serveur` : tout suit (segment en vigueur, `phase` et `actions` de `/v1/statut`). Avec
+l'exemple (Paris, mardi) : avant 19:30 `journee`, de 19:30 à 21:30 `soiree`, ensuite `nuit`
+(« je vais dormir » refusé). La tâche planifiée (étape 6) utilise la même horloge : une photo de
+nuit ou de retards prise à une heure simulée reste dans la base locale ; repartir d'une base
+propre (étape 11) après l'essai.
+
+Ne jamais poser `FOCUS_ENVIRONNEMENT` en production.
+
+## 11. Ranger
 
 Arrêter wrangler et focusd (Ctrl-C), puis :
 

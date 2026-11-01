@@ -11,8 +11,8 @@ export const CLES_CACHE = {
   etiquettes: 'etiquettes',
 } as const;
 
-/** Les exceptions plus anciennes ne peuvent plus peser sur la journée courante ni sur 36 h de planning. */
-const JOURS_EXCEPTIONS = 3;
+/** Assez pour recalculer les 7 dernières nuits du statut (jour UTC et jour local peuvent différer d'un). */
+const JOURS_EXCEPTIONS = 9;
 const JOURS_PHOTOS = 7;
 
 export interface ConfigActive {
