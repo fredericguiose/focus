@@ -2,6 +2,7 @@
 // Horaires fictifs repris de config/exemple.yaml. Le fuseau est celui du navigateur, pour que la
 // journée simulée suive celle de la personne qui développe. Ce n'est pas le moteur : seules les
 // règles visibles par l'interface (§3.4 exceptions, §4.5 sessions) sont reproduites, simplifiées.
+import { dettesHebdomadaires, SEMAINES_DE_BILAN } from '../../../core/src/dette';
 import { dateCourte } from '../../../core/src/temps';
 import type { DateLocale, HeureLocale } from '../../../core/src/types';
 import { PHRASE_NUIT, RAISON_MIN, longueurRaison } from '@/lib/decisionNuit';
@@ -57,6 +58,18 @@ const MESURES_FICTIVES: (null | { legere: number; profonde: number; rem: number;
 const SIESTE_FICTIVE = { indice: 3, debut: '15:00', minutes: 60 } as const;
 /** Sieste fictive du jour, visible une fois finie (13:00–13:50, 45 min dormies). */
 const SIESTE_DU_JOUR = { debut: '13:00', duree: 50, minutes: 45 } as const;
+/**
+ * Nuits fictives plus anciennes que les sept barres (J−8, J−9, …), pour la semaine en cours et
+ * les bilans des semaines closes : minutes dormies (null : pas de mesure) et sieste de la journée.
+ */
+const ANCIENNES_FICTIVES: { endormi: number | null; sieste?: number }[] = [
+  { endormi: 440 }, { endormi: 470, sieste: 40 }, { endormi: null }, { endormi: 415 }, { endormi: 495 }, { endormi: 430 }, { endormi: 455 },
+  { endormi: 400 }, { endormi: 510 }, { endormi: 445, sieste: 60 }, { endormi: 380 }, { endormi: 470 }, { endormi: 465 }, { endormi: 490 },
+  { endormi: 420 }, { endormi: 500 }, { endormi: 480 }, { endormi: 435, sieste: 30 }, { endormi: 510 }, { endormi: 455 }, { endormi: 490 },
+  { endormi: 460 }, { endormi: 395 }, { endormi: 450 }, { endormi: 485 }, { endormi: 430 }, { endormi: 470 }, { endormi: 440 },
+];
+/** Semaine posée par le scénario « dette » quand les nuits fictives n'en laissent pas. */
+const SEMAINE_DETTE = { dette_min: 245, rattrape_min: 65, reste_min: 180 } as const;
 /** Nuit fictive que la montre a marquée incomplète. */
 const INCOMPLETE_FICTIVE = 4;
 /** Levers mesurés fictifs des 7 derniers jours : écart au prévu en minutes (null : pas de mesure). */
@@ -151,8 +164,9 @@ export interface OptionsSimulation {
    */
   phase?: Phase;
   /**
-   * `dette` (`?scenario=dette`) : soirée tout juste ouverte, dette mesurée : la proposition de
-   * rattraper le sommeil s'affiche, avec toute la soirée à choisir sur le curseur.
+   * `dette` (`?scenario=dette`) : soirée tout juste ouverte, dette de la semaine à rattraper (posée
+   * si les nuits fictives n'en laissent pas, le lundi par exemple) : la proposition de rattraper le
+   * sommeil s'affiche, avec toute la soirée à choisir sur le curseur.
    */
   scenario?: 'dette';
   faits?: Partial<FaitsSimules>;
@@ -800,7 +814,6 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
             siestes,
           };
         });
-        const reelles = nuits.filter((n) => n.dette_reelle_min !== null);
         const debutDuJour = instantLocal(j.date, SIESTE_DU_JOUR.debut, j.fuseau);
         const finDuJour = debutDuJour + SIESTE_DU_JOUR.duree * MINUTE;
         const siestesDuJour = t >= finDuJour ? [{ debut: versInstant(debutDuJour), fin: versInstant(finDuJour), minutes: SIESTE_DU_JOUR.minutes }] : [];
@@ -808,6 +821,19 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
         const siestesTotal = nuits.reduce((total, n) => total + n.siestes_min, 0) + siestesDuJourMin;
         const coucherDuJour = Date.parse(j.coucherApplique);
         const tardive = siestesDuJour.find((x) => Date.parse(x.fin) > coucherDuJour - 4 * 60 * MINUTE);
+        // Comme l'API : semaine en cours et semaines closes, avec les nuits plus anciennes que les barres.
+        const anciennes = ANCIENNES_FICTIVES.slice(0, 7 * SEMAINES_DE_BILAN).map((a, k) => ({
+          nuit: ajouterJours(j.date, -DETTES_FICTIVES.length - 1 - k),
+          endormi_min: a.endormi,
+          siestes_min: a.sieste ?? 0,
+        }));
+        const semaines = dettesHebdomadaires(j.date, [...anciennes.reverse(), ...nuits], CIBLE_MIN, siestesDuJourMin);
+        // Scénario « dette » : la proposition doit s'ouvrir quel que soit le jour (le lundi, la
+        // semaine n'a encore aucune nuit) ; à défaut de dette dans les nuits fictives, une semaine posée.
+        if (options.scenario === 'dette' && semaines.dette_semaine.reste_min <= 5) {
+          const finies = Math.max(1, semaines.dette_semaine.nuits_total);
+          semaines.dette_semaine = { ...semaines.dette_semaine, ...SEMAINE_DETTE, nuits_mesurees: finies, nuits_total: finies };
+        }
         const cumulMin = sessions.reduce((total, s) => total + Math.max(0, Math.round((t - Date.parse(s.session.ouverte_le)) / MINUTE)), 0);
         return {
           heure_serveur: versInstant(t),
@@ -822,7 +848,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
           sessions_du_jour: { cumul_min: Math.min(cumulMin + 35, PLAFOND_SESSIONS_MIN), plafond_min: PLAFOND_SESSIONS_MIN },
           nuits,
           dette_cumulee_min: nuits.reduce((total, n) => total + n.dette_min, 0),
-          dette_cumulee_reelle_min: reelles.length === 0 ? null : reelles.reduce((total, n) => total + n.dette_reelle_min!, 0) - siestesTotal,
+          ...semaines,
           siestes_total_min: siestesTotal,
           siestes_du_jour: siestesDuJour,
           siestes_du_jour_min: siestesDuJourMin,

@@ -9,15 +9,20 @@ import { Slider } from '@/components/ui/slider';
 import { type ErreurFocus, versErreurFocus } from '@/api/erreur';
 import { ErreurAffichee } from '@/composants/ErreurAffichee';
 import { useFocus, useHeureServeur, useStatut } from '@/hooks/useFocus';
-import { bilan, dejaProposee, detteARattraper, heuresProposees, marquerProposee, propositionPossible } from '@/lib/dette';
+import { bilan, dejaProposee, detteARattraper, heuresProposees, heureSuggeree, marquerProposee, objectifDuSoir, propositionPossible } from '@/lib/dette';
 import { formaterDuree, formaterHeure, heureLocale } from '@/lib/temps';
 import { cn } from '@/lib/utils';
 import { useJeVaisDormir } from './JeVaisDormir';
 
-/** « +1 h de sommeil · reste 1 h 30 », « +2 h 45 de sommeil · dette remboursée ». */
-export function texteBilan(gainMin: number, resteMin: number): string {
+/** « +30 min · objectif du soir 45 min », « +1 h · objectif du soir atteint ». */
+export function texteBilan(gainMin: number, objectifMin: number): string {
   if (gainMin <= 0) return 'Glisse à gauche pour dormir plus.';
-  return `+${formaterDuree(gainMin)} de sommeil · ${resteMin > 0 ? `reste ${formaterDuree(resteMin)}` : 'dette remboursée'}`;
+  return `+${formaterDuree(gainMin)} · ${gainMin >= objectifMin ? 'objectif du soir atteint' : `objectif du soir ${formaterDuree(objectifMin)}`}`;
+}
+
+/** « Cette semaine : 3 h à rattraper, sur 4 nuits » ; « …, sur cette dernière nuit » le dimanche. */
+export function texteSemaine(resteMin: number, nuits: number): string {
+  return `Cette semaine : ${formaterDuree(resteMin)} à rattraper, sur ${nuits > 1 ? `${nuits} nuits` : 'cette dernière nuit'}`;
 }
 
 function Contenu({ fermer }: { fermer: () => void }) {
@@ -26,15 +31,17 @@ function Contenu({ fermer }: { fermer: () => void }) {
   const maintenant = useHeureServeur();
   const j = statut.journee;
   const heures = heuresProposees(statut, maintenant);
-  const dette = detteARattraper(statut) ?? 0;
+  const dette = detteARattraper(statut) ?? { resteMin: 0, nuits: 1 };
+  const objectif = objectifDuSoir(dette.resteMin, dette.nuits);
   const coucher = heures[0] ?? Date.parse(j.coucherApplique);
 
-  // L'heure choisie est gardée telle quelle : la liste glisse avec l'horloge (borne gauche).
-  const [choisi, setChoisi] = useState(coucher);
+  // Le curseur démarre sur l'heure suggérée ; l'heure choisie est gardée telle quelle : la liste
+  // glisse avec l'horloge (borne gauche).
+  const [choisi, setChoisi] = useState(() => heureSuggeree(heures, objectif) ?? coucher);
   const trouve = heures.findIndex((h) => h <= choisi);
   const index = trouve === -1 ? Math.max(0, heures.length - 1) : trouve;
   const heure = heures[index] ?? coucher;
-  const { gainMin, resteMin } = bilan(coucher, heure, dette);
+  const { gainMin, progression } = bilan(coucher, heure, objectif);
   const hhmm = heureLocale(heure, j.fuseau);
 
   const [envoi, setEnvoi] = useState(false);
@@ -59,8 +66,7 @@ function Contenu({ fermer }: { fermer: () => void }) {
     }
   }
 
-  const rembourse = gainMin > 0 && resteMin === 0;
-  const pourcentage = dette > 0 ? (resteMin / dette) * 100 : 0;
+  const atteint = gainMin > 0 && gainMin >= objectif;
 
   return (
     <>
@@ -68,29 +74,9 @@ function Contenu({ fermer }: { fermer: () => void }) {
         <span className="bg-mode-nuit/12 text-mode-nuit mb-1 flex size-11 items-center justify-center rounded-full">
           <MoonStar className="size-5" />
         </span>
-        <DialogTitle className="text-xl leading-tight text-balance">Tu as {formaterDuree(dette)} de sommeil à rattraper</DialogTitle>
-        <DialogDescription className="text-pretty">Te coucher un peu plus tôt ce soir, c'est la façon la plus simple de récupérer.</DialogDescription>
+        <DialogTitle className="text-xl leading-tight text-balance">Ce soir : {formaterDuree(objectif)} de sommeil en plus</DialogTitle>
+        <DialogDescription className="text-balance">{texteSemaine(dette.resteMin, dette.nuits)}</DialogDescription>
       </DialogHeader>
-
-      <div className="grid gap-2">
-        <div className="flex items-center justify-between gap-3 text-xs">
-          <span className="text-muted-foreground font-medium">À rattraper</span>
-          {gainMin > 0 ? (
-            <span className="text-succes flex items-center gap-1.5 font-medium">
-              <span className="bg-succes/60 size-2 rounded-full" /> regagné ce soir
-            </span>
-          ) : null}
-        </div>
-        <Progress
-          value={pourcentage}
-          aria-label="Sommeil à rattraper"
-          getValueLabel={() => (resteMin > 0 ? `reste ${formaterDuree(resteMin)}` : 'dette remboursée')}
-          className={cn(
-            'h-3 transition-colors [&>[data-slot=progress-indicator]]:bg-mode-nuit [&>[data-slot=progress-indicator]]:duration-300',
-            gainMin > 0 ? 'bg-succes/35' : 'bg-mode-nuit/15',
-          )}
-        />
-      </div>
 
       <div className="bg-muted/50 grid gap-4 rounded-2xl px-4 pt-4 pb-5">
         <div className="grid justify-items-center gap-1 text-center">
@@ -112,7 +98,7 @@ function Contenu({ fermer }: { fermer: () => void }) {
           className="py-2 [&_[data-slot=slider-range]]:bg-mode-nuit [&_[data-slot=slider-track]]:h-2 [&_[data-slot=slider-track]]:bg-mode-nuit/15"
           thumbProps={{
             'aria-labelledby': 'rattraper-question',
-            'aria-valuetext': `${hhmm}, ${texteBilan(gainMin, resteMin)}`,
+            'aria-valuetext': `${hhmm}, ${texteBilan(gainMin, objectif)}`,
             className: 'size-6 border-2 border-mode-nuit bg-background shadow-md ring-mode-nuit/25',
           }}
         />
@@ -120,15 +106,23 @@ function Contenu({ fermer }: { fermer: () => void }) {
           <span>plus tôt</span>
           <span>prévu</span>
         </div>
-        <p
-          className={cn(
-            'flex min-h-6 items-center justify-center gap-1.5 text-center text-sm font-medium tabular-nums',
-            gainMin > 0 ? 'text-succes' : 'text-muted-foreground font-normal',
-          )}
-        >
-          {rembourse ? <CircleCheck className="size-4 shrink-0" /> : null}
-          {texteBilan(gainMin, resteMin)}
-        </p>
+        <div className="grid gap-2">
+          <Progress
+            value={progression}
+            aria-label="Objectif du soir"
+            getValueLabel={() => texteBilan(gainMin, objectif)}
+            className="bg-succes/15 h-2 [&>[data-slot=progress-indicator]]:bg-succes [&>[data-slot=progress-indicator]]:duration-300"
+          />
+          <p
+            className={cn(
+              'flex min-h-6 items-center justify-center gap-1.5 text-center text-sm font-medium tabular-nums',
+              gainMin > 0 ? 'text-succes' : 'text-muted-foreground font-normal',
+            )}
+          >
+            {atteint ? <CircleCheck className="size-4 shrink-0" /> : null}
+            {texteBilan(gainMin, objectif)}
+          </p>
+        </div>
       </div>
 
       <ul className="text-muted-foreground grid gap-2 text-sm">

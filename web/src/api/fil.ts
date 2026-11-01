@@ -77,7 +77,8 @@ export interface StatutFil {
   sessions_du_jour?: { cumul_min: number; plafond_min: number };
   nuits?: NuitPassee[];
   dette_cumulee_min?: number;
-  dette_cumulee_reelle_min?: number | null;
+  dette_semaine?: ReponseStatut['dette_semaine'];
+  bilans_semaines?: ReponseStatut['bilans_semaines'];
   sommeil_mesure?: ReponseStatut['sommeil_mesure'];
   objectif_sommeil_min?: number;
   siestes_total_min?: number;
@@ -170,7 +171,8 @@ export function statutDepuisFil(s: StatutFil): ReponseStatut {
     ...(s.sessions_du_jour ? { sessions_du_jour: s.sessions_du_jour } : {}),
     ...(s.nuits ? { nuits: s.nuits } : {}),
     ...(s.dette_cumulee_min !== undefined ? { dette_cumulee_min: s.dette_cumulee_min } : {}),
-    ...(s.dette_cumulee_reelle_min !== undefined ? { dette_cumulee_reelle_min: s.dette_cumulee_reelle_min } : {}),
+    ...(s.dette_semaine ? { dette_semaine: s.dette_semaine } : {}),
+    ...(s.bilans_semaines ? { bilans_semaines: s.bilans_semaines } : {}),
     ...(s.sommeil_mesure !== undefined ? { sommeil_mesure: s.sommeil_mesure } : {}),
     ...(s.objectif_sommeil_min !== undefined ? { objectif_sommeil_min: s.objectif_sommeil_min } : {}),
     ...(s.siestes_total_min !== undefined ? { siestes_total_min: s.siestes_total_min } : {}),

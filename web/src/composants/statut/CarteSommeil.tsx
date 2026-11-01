@@ -1,10 +1,10 @@
-import { BedDouble, CircleCheck, Moon, Sun, TrendingDown, TrendingUp, Watch } from 'lucide-react';
+import { BedDouble, CircleCheck, Moon, TrendingDown, Undo2, Watch } from 'lucide-react';
 import { Bar, BarChart, Cell, ReferenceLine, XAxis, YAxis } from 'recharts';
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { type ChartConfig, ChartContainer, ChartTooltip } from '@/components/ui/chart';
-import type { NuitPassee, PhasesSommeil, ReponseStatut } from '@/api/contrat';
+import type { BilanSemaine, DetteSemaine, NuitPassee, PhasesSommeil, ReponseStatut } from '@/api/contrat';
 import { ajouterJours, formaterDateCourte, formaterDuree, formaterHeure } from '@/lib/temps';
 import { cn } from '@/lib/utils';
 
@@ -68,12 +68,15 @@ export function BarrePhases({ phases }: { phases: PhasesSommeil }) {
   );
 }
 
-/** « rattrapée » ou « rattrapées », accordé à la durée (« 29 min rattrapées », « 1 h 05 rattrapée »). */
-export function rattrapee(minutes: number): string {
+/** Participe accordé à la durée : « 29 min manquées », « 1 h 05 rattrapée », « 2 h rattrapées ». */
+export function accorde(minutes: number, participe: string): string {
   const m = Math.round(Math.abs(minutes));
   const pluriel = m < 60 ? m > 1 : Math.floor(m / 60) > 1;
-  return pluriel ? 'rattrapées' : 'rattrapée';
+  return pluriel ? `${participe}s` : participe;
 }
+
+/** « rattrapée » ou « rattrapées », accordé à la durée (« 29 min rattrapées », « 1 h 05 rattrapée »). */
+export const rattrapee = (minutes: number) => accorde(minutes, 'rattrapée');
 
 /**
  * Écart d'une nuit en mots, avec la sieste de la journée qui suit : « 29 min de moins que
@@ -186,6 +189,126 @@ function GraphiqueNuits({ nuits, objectif, aujourdhui, siestesDuJour }: { nuits:
   );
 }
 
+/** Une case de l'opération : icône et durée, le mot dessous. */
+function Case({ icone: Icone, valeur, mot, classe, titre }: { icone: typeof Moon; valeur?: string; mot: string; classe?: string; titre?: string }) {
+  return (
+    <span className={cn('bg-muted/60 grid min-w-0 justify-items-center gap-0.5 rounded-md px-1.5 py-1.5 text-center', classe)} title={titre}>
+      <span className="flex items-center gap-1 text-sm font-semibold whitespace-nowrap tabular-nums">
+        <Icone className="size-3.5 shrink-0" />
+        {valeur}
+      </span>
+      <span className="text-xs">{mot}</span>
+    </span>
+  );
+}
+
+/**
+ * Semaine en cours (CDC §4, dette hebdomadaire) : « 3 h 10 manquées » moins « 1 h 05 rattrapées »
+ * (nuits plus longues et siestes) = « 2 h 05 à rattraper » ; « tout rattrapé » ou « objectif
+ * atteint » sinon.
+ */
+function SemaineEnCours({ semaine }: { semaine: DetteSemaine }) {
+  const { dette_min: dette, rattrape_min: rattrape, reste_min: reste } = semaine;
+  const aRattraper = reste > TOLERANCE_MIN;
+  const avecDette = dette > TOLERANCE_MIN;
+  const phrase = !avecDette
+    ? 'Cette semaine : objectif atteint.'
+    : `Cette semaine : ${formaterDuree(dette)} ${accorde(dette, 'manquée')}${rattrape > 0 ? `, ${formaterDuree(rattrape)} ${rattrapee(rattrape)} (nuits plus longues et siestes)` : ''}, ${aRattraper ? `${formaterDuree(reste)} à rattraper` : 'tout rattrapé'}.`;
+  const resultat = aRattraper ? (
+    <Case icone={TrendingDown} valeur={formaterDuree(reste)} mot="à rattraper" classe="text-avertissement" />
+  ) : (
+    <Case icone={CircleCheck} mot={avecDette ? 'tout rattrapé' : 'objectif atteint'} classe="text-succes" />
+  );
+  return (
+    <section className="grid gap-2" aria-label="Cette semaine">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-sm">
+        <span className="text-muted-foreground">Cette semaine</span>
+        {semaine.nuits_mesurees < semaine.nuits_total ? (
+          <span className="text-muted-foreground text-xs">
+            {semaine.nuits_mesurees}/{semaine.nuits_total} mesurées
+          </span>
+        ) : null}
+      </div>
+      <p className="sr-only">{phrase}</p>
+      {avecDette && rattrape > 0 ? (
+        <div className="text-muted-foreground grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-1.5 text-xs sm:max-w-md" aria-hidden>
+          <Case icone={Moon} valeur={formaterDuree(dette)} mot={accorde(dette, 'manquée')} classe="text-foreground [&>span:last-child]:text-muted-foreground" titre="Manque des nuits de la semaine" />
+          <span>moins</span>
+          <Case
+            icone={Undo2}
+            valeur={formaterDuree(rattrape)}
+            mot={rattrapee(rattrape)}
+            classe="text-foreground [&_svg]:text-succes [&>span:last-child]:text-muted-foreground"
+            titre="Nuits plus longues et siestes"
+          />
+          <span>=</span>
+          {resultat}
+        </div>
+      ) : (
+        <div className="flex" aria-hidden>
+          {resultat}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** « 26 oct. » : jour et mois d'un lundi. */
+const jourMois = (date: string) => formaterDateCourte(date).split(' ').slice(1).join(' ');
+
+/** Bilans des semaines closes, en tableau : semaine, dette, non rattrapé (« tout rattrapé » en vert). */
+function SemainesPassees({ bilans }: { bilans: BilanSemaine[] }) {
+  const incomplet = bilans.some((b) => b.nuits_mesurees < b.nuits_total);
+  return (
+    <section className="grid gap-1.5" aria-label="Semaines passées">
+      <span className="text-muted-foreground text-sm">Semaines passées</span>
+      <ul className="grid w-fit grid-cols-[auto_auto_auto_auto] items-center gap-x-4 gap-y-1 text-xs tabular-nums">
+        <li className="text-muted-foreground col-span-4 grid grid-cols-subgrid" aria-hidden>
+          <span />
+          <span>dette</span>
+          <span>non rattrapé</span>
+          <span />
+        </li>
+        {bilans.map((b) => {
+          const avecDette = b.dette_min > TOLERANCE_MIN;
+          const toutRattrape = b.non_rattrape_min <= TOLERANCE_MIN;
+          const nonRattrape = `${formaterDuree(b.non_rattrape_min)} non ${accorde(b.non_rattrape_min, 'rattrapée')}`;
+          const resume = `Semaine du ${jourMois(b.debut)} : ${avecDette ? `${formaterDuree(b.dette_min)} de dette, ` : ''}${toutRattrape ? (avecDette ? 'tout rattrapé' : 'objectif atteint') : nonRattrape}${b.nuits_mesurees < b.nuits_total ? ` (${b.nuits_mesurees}/${b.nuits_total} nuits mesurées)` : ''}.`;
+          return (
+            <li key={b.debut} className="relative col-span-4 grid grid-cols-subgrid items-center">
+              <span className="sr-only">{resume}</span>
+              <span className="text-muted-foreground" aria-hidden>
+                Sem. du {jourMois(b.debut)}
+              </span>
+              <span aria-hidden>{avecDette ? formaterDuree(b.dette_min) : '—'}</span>
+              {toutRattrape ? (
+                <span className="text-succes flex items-center gap-1" aria-hidden>
+                  <CircleCheck className="size-3.5 shrink-0" /> {avecDette ? 'tout rattrapé' : 'objectif atteint'}
+                </span>
+              ) : (
+                <span className="text-avertissement" aria-hidden>
+                  {formaterDuree(b.non_rattrape_min)}
+                </span>
+              )}
+              {incomplet ? (
+                <span className="text-muted-foreground flex items-center justify-end gap-1" title="Nuits mesurées" aria-hidden>
+                  {b.nuits_mesurees < b.nuits_total ? (
+                    <>
+                      <Watch className="size-3.5 shrink-0" /> {b.nuits_mesurees}/{b.nuits_total}
+                    </>
+                  ) : null}
+                </span>
+              ) : (
+                <span />
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 export function CarteSommeil({ statut }: { statut: ReponseStatut }) {
   const nuits = statut.nuits ?? [];
   const objectif = statut.objectif_sommeil_min ?? OBJECTIF_PAR_DEFAUT_MIN;
@@ -201,22 +324,8 @@ export function CarteSommeil({ statut }: { statut: ReponseStatut }) {
   // Sieste de la journée qui suit la dernière nuit (D + 1) : celle d'aujourd'hui pour « Cette nuit ».
   const siesteApres = derniere ? siesteApresNuit(derniere.nuit, nuits, statut.journee.date, statut.siestes_du_jour_min ?? 0) : 0;
   const ecart = derniere ? ecartNuitEnMots(dormi(derniere)! - objectif, siesteApres) : null;
-  const siestesDuJour = statut.siestes_du_jour_min ?? 0;
-  // Les siestes de la période rattrapent la dette des nuits (journées des 7 nuits et aujourd'hui).
-  const siestesTotal = statut.siestes_total_min ?? nuits.reduce((t, n) => t + siestesDe(n), 0) + siestesDuJour;
-  const nbSiestes = nuits.reduce((t, n) => t + (n.siestes?.length ?? (siestesDe(n) > 0 ? 1 : 0)), 0) + (statut.siestes_du_jour?.length ?? 0);
-  const ecartTotal = mesurees.reduce((t, n) => t + dormi(n)! - objectif, 0) + siestesTotal;
-  const total = ecartEnMots(ecartTotal, ' au total');
-  const rattrape = siestesTotal > 0 ? `, dont ${formaterDuree(siestesTotal)} ${rattrapee(siestesTotal)} en sieste${nbSiestes > 1 ? 's' : ''}` : '';
-  const IconeTotal = Math.abs(ecartTotal) <= TOLERANCE_MIN ? CircleCheck : ecartTotal < 0 ? TrendingDown : TrendingUp;
-  // Manque des nuits seules ; le total, lui, compte les siestes.
-  const ecartNuits = ecartTotal - siestesTotal;
-  const libelleTotal =
-    Math.abs(ecartTotal) <= TOLERANCE_MIN
-      ? siestesTotal > 0 ? 'tout rattrapé' : 'objectif atteint'
-      : ecartTotal < 0
-        ? siestesTotal > 0 ? `${formaterDuree(ecartTotal)} à rattraper` : `${formaterDuree(ecartTotal)} manquées`
-        : `${formaterDuree(ecartTotal)} en plus`;
+  const semaine = statut.dette_semaine;
+  const bilans = (statut.bilans_semaines ?? []).filter((b) => b.nuits_mesurees > 0);
   const tardive = statut.sieste_tardive ?? null;
 
   return (
@@ -250,6 +359,7 @@ export function CarteSommeil({ statut }: { statut: ReponseStatut }) {
             <Watch className="size-4 shrink-0" /> Pas encore de nuit mesurée par la montre.
           </p>
         )}
+        {semaine && semaine.nuits_mesurees > 0 ? <SemaineEnCours semaine={semaine} /> : null}
         {mesurees.length > 0 ? (
           <section className="grid gap-2" aria-label={`${nuits.length} dernières nuits`}>
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-sm">
@@ -260,33 +370,10 @@ export function CarteSommeil({ statut }: { statut: ReponseStatut }) {
                 </span>
               ) : null}
             </div>
-            {/* Phrase complète pour les lecteurs d'écran ; à l'écran, deux pastilles courtes. */}
-            <p className="sr-only">
-              {total.texte}
-              {rattrape}
-            </p>
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm" aria-hidden>
-              {siestesTotal > 0 && ecartNuits < -TOLERANCE_MIN ? (
-                <>
-                  <span className="bg-muted/60 flex items-center gap-1.5 rounded-md px-2 py-1 tabular-nums" title="Manque des nuits seules, sans les siestes">
-                    <Moon className="text-muted-foreground size-4 shrink-0" /> {formaterDuree(ecartNuits)}
-                    <span className="text-muted-foreground">manquées la nuit</span>
-                  </span>
-                  <span className="text-muted-foreground">moins</span>
-                  <span className="bg-muted/60 flex items-center gap-1.5 rounded-md px-2 py-1 tabular-nums" title="Siestes de la période">
-                    <Sun className="size-4 shrink-0" style={{ color: 'var(--sommeil-sieste)' }} /> {formaterDuree(siestesTotal)}
-                    <span className="text-muted-foreground">de sieste</span>
-                  </span>
-                  <span className="text-muted-foreground">=</span>
-                </>
-              ) : null}
-              <span className={cn('bg-muted/60 flex items-center gap-1.5 rounded-md px-2 py-1 font-semibold tabular-nums', total.classe)}>
-                <IconeTotal className="size-4 shrink-0" /> {libelleTotal}
-              </span>
-            </div>
             <GraphiqueNuits nuits={nuits} objectif={objectif} aujourdhui={statut.journee.date} siestesDuJour={statut.siestes_du_jour_min ?? 0} />
           </section>
         ) : null}
+        {bilans.length > 0 ? <SemainesPassees bilans={bilans} /> : null}
         {tardive ? (
           <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
             <Moon className="size-3.5 shrink-0" /> Sieste tardive : vous endormir à {formaterHeure(tardive.coucher, statut.journee.fuseau)} pourrait être plus difficile.

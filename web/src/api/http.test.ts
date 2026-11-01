@@ -131,7 +131,8 @@ describe('format réel de l’API', () => {
       ],
       nuits: [{ nuit: '2026-11-02', dette_min: 30, dette_reelle_min: 45, endormi_min: 435, phases: { legere: 250, profonde: 90, rem: 95, eveil: 20 }, incomplete: true }],
       dette_cumulee_min: 30,
-      dette_cumulee_reelle_min: 45,
+      dette_semaine: { debut: '2026-11-02', fin: '2026-11-08', dette_min: 45, rattrape_min: 40, reste_min: 5, nuits_restantes: 6, nuits_mesurees: 1, nuits_total: 1 },
+      bilans_semaines: [{ debut: '2026-10-26', fin: '2026-11-01', dette_min: 313, rattrape_min: 120, non_rattrape_min: 193, nuits_mesurees: 7, nuits_total: 7 }],
       sommeil_mesure: { derniere_synchro: '2026-11-03T13:00:00Z', erreur: null },
       objectif_sommeil_min: 480,
       siestes_total_min: 40,
@@ -147,7 +148,8 @@ describe('format réel de l’API', () => {
     // API sans session_possible : repli sur `sessions`.
     expect(statut.appareils[0]).toMatchObject({ session_possible: true, session_motif: null });
     expect(statut.dette_cumulee_min).toBe(30);
-    expect(statut.dette_cumulee_reelle_min).toBe(45);
+    expect(statut.dette_semaine).toMatchObject({ reste_min: 5, nuits_restantes: 6 });
+    expect(statut.bilans_semaines?.[0]).toMatchObject({ debut: '2026-10-26', non_rattrape_min: 193 });
     expect(statut.nuits?.[0]).toMatchObject({ dette_reelle_min: 45, endormi_min: 435, incomplete: true, phases: { profonde: 90 } });
     expect(statut.objectif_sommeil_min).toBe(480);
     expect(statut.sommeil_mesure?.erreur).toBeNull();

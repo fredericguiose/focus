@@ -16,7 +16,7 @@ describe('carte « Sommeil »', () => {
     expect(ecartEnMots(-107, ' au total').texte).toBe('1 h 47 de moins au total');
   });
 
-  it('mode simulé : temps dormi cette nuit, écart, phases, 7 dernières nuits', async () => {
+  it('mode simulé : temps dormi cette nuit, écart, phases, semaine, 7 dernières nuits, semaines passées', async () => {
     const s = await statut();
     const { container } = render(<CarteSommeil statut={s} />);
     expect(screen.getByText('Sommeil')).toBeTruthy();
@@ -28,20 +28,62 @@ describe('carte « Sommeil »', () => {
     expect(screen.getByText("22 min de moins que l'objectif, rattrapées en sieste")).toBeTruthy();
     expect(screen.getByText('Profond')).toBeTruthy();
     expect(screen.getByText('1 h 32')).toBeTruthy();
+    // Semaine du lundi 02/11 : la nuit de lundi (22 min manquées), la sieste de mardi (45 min).
+    expect(screen.getByText('Cette semaine')).toBeTruthy();
+    expect(screen.getByText('Cette semaine : 22 min manquées, 45 min rattrapées (nuits plus longues et siestes), tout rattrapé.')).toBeTruthy();
+    expect(screen.getByText('tout rattrapé', { selector: 'section[aria-label="Cette semaine"] span' })).toBeTruthy();
     expect(screen.getByText('7 dernières nuits')).toBeTruthy();
-    // 450 + 385 + 465 + 355 + 420 + 458 = 2533 min de nuit + 60 + 45 min de sieste, pour 6 × 480 = 2880.
-    expect(screen.getByText(/^4 h 02 de moins au total, dont 1 h 45 rattrapée en siestes/)).toBeTruthy();
-    // À l'écran : deux pastilles courtes.
-    // 5 h 47 manquées la nuit − 1 h 45 de sieste = 4 h 02 à rattraper.
-    expect(screen.getByText(/5 h 47/)).toBeTruthy();
-    expect(screen.getByText('manquées la nuit')).toBeTruthy();
-    expect(screen.getByText('de sieste')).toBeTruthy();
-    expect(screen.getByText(/4 h 02 à rattraper/)).toBeTruthy();
     expect(screen.getByText('6/7 mesurées')).toBeTruthy();
     expect(screen.queryByText(/incompl/)).toBeNull();
     expect(screen.getByText(/pas de mesure$/, { selector: 'li' })).toBeTruthy();
+    // Semaines closes, la plus récente d'abord.
+    const passees = screen.getByLabelText('Semaines passées');
+    // Pour les lecteurs d'écran, une phrase par semaine ; à l'écran, un petit tableau.
+    const phrases = [...passees.querySelectorAll('li > .sr-only')].map((l) => l.textContent);
+    expect(phrases).toEqual([
+      'Semaine du 26 oct. : 6 h 05 de dette, 5 h 05 non rattrapées (6/7 nuits mesurées).',
+      'Semaine du 19 oct. : 3 h 50 de dette, 2 h 55 non rattrapées (6/7 nuits mesurées).',
+      'Semaine du 12 oct. : 3 h 40 de dette, 2 h non rattrapées.',
+      'Semaine du 5 oct. : 1 h 30 de dette, tout rattrapé.',
+    ]);
+    const cases = [...passees.querySelectorAll('li:not(:first-child)')].map((l) => [...l.children].slice(1).map((c) => c.textContent?.trim()));
+    expect(cases).toEqual([
+      ['Sem. du 26 oct.', '6 h 05', '5 h 05', '6/7'],
+      ['Sem. du 19 oct.', '3 h 50', '2 h 55', '6/7'],
+      ['Sem. du 12 oct.', '3 h 40', '2 h', ''],
+      ['Sem. du 5 oct.', '1 h 30', 'tout rattrapé', ''],
+    ]);
+    expect(passees.textContent).toContain('non rattrapé');
     const texte = container.textContent ?? '';
-    expect(texte).not.toMatch(/dette|prévu|[+−]\d/i);
+    expect(texte).not.toMatch(/prévu|rembours|[+−]\d/i);
+  });
+
+  it('semaine en cours : manquées moins rattrapées = à rattraper ; n/total mesurées', async () => {
+    const s = await statut();
+    const semaine = { debut: '2026-11-02', fin: '2026-11-08', dette_min: 313, rattrape_min: 120, reste_min: 193, nuits_restantes: 3, nuits_mesurees: 3, nuits_total: 4 };
+    const { container } = render(<CarteSommeil statut={{ ...s, dette_semaine: semaine }} />);
+    const section = screen.getByLabelText('Cette semaine');
+    expect(section.textContent).toContain('3/4 mesurées');
+    expect(section.textContent).toContain('5 h 13 manquées');
+    expect(section.textContent).toContain('moins');
+    expect(section.textContent).toContain('2 h rattrapées');
+    expect(section.textContent).toContain('3 h 13 à rattraper');
+    expect(container.textContent).not.toMatch(/[+−]\d/);
+  });
+
+  it('semaine sans rattrapage : « à rattraper » seul ; sans dette : « objectif atteint » ; sans mesure : rien', async () => {
+    const s = await statut();
+    const base = { debut: '2026-11-02', fin: '2026-11-08', nuits_restantes: 5, nuits_mesurees: 2, nuits_total: 2 };
+    const r = render(<CarteSommeil statut={{ ...s, dette_semaine: { ...base, dette_min: 65, rattrape_min: 0, reste_min: 65 } }} />);
+    const section = () => screen.queryByLabelText('Cette semaine');
+    expect(section()!.textContent).toBe('Cette semaineCette semaine : 1 h 05 manquée, 1 h 05 à rattraper.1 h 05à rattraper');
+    r.unmount();
+    const r2 = render(<CarteSommeil statut={{ ...s, dette_semaine: { ...base, dette_min: 0, rattrape_min: 30, reste_min: 0 } }} />);
+    expect(section()!.textContent).toContain('objectif atteint');
+    expect(section()!.textContent).not.toContain('moins');
+    r2.unmount();
+    render(<CarteSommeil statut={{ ...s, dette_semaine: { ...base, dette_min: 0, rattrape_min: 0, reste_min: 0, nuits_mesurees: 0 } }} />);
+    expect(section()).toBeNull();
   });
 
   it('phases dans l’ordre léger, REM, profond, éveil', async () => {
@@ -115,13 +157,11 @@ describe('carte « Sommeil »', () => {
     const s = await statut();
     const nuits = s.nuits!.map((n) => ({ ...n, siestes_min: 0, siestes: [] }));
     render(<CarteSommeil statut={{ ...s, nuits, siestes_total_min: 0, siestes_du_jour: [], siestes_du_jour_min: 0 }} />);
-    expect(screen.getByText(/^5 h 47 de moins au total/).textContent).not.toMatch(/dont/);
-    expect(screen.queryByText('de sieste')).toBeNull();
-    expect(screen.getByText(/5 h 47 manquées/)).toBeTruthy();
+    expect(screen.queryByText(/dont/)).toBeNull();
     expect(screen.queryByText('sieste')).toBeNull();
   });
 
-  it('sieste du jour : sous « Cette nuit », comptée dans le total ; sieste tardive', async () => {
+  it('sieste du jour : sous « Cette nuit » ; sieste tardive', async () => {
     const s = await statut();
     const sieste = { debut: '2026-11-03T13:00:00Z', fin: '2026-11-03T14:05:00Z', minutes: 65 };
     render(
@@ -139,8 +179,6 @@ describe('carte « Sommeil »', () => {
     expect(screen.getByText('7 h 38')).toBeTruthy();
     expect(screen.getByText("22 min de moins que l'objectif, rattrapées en sieste")).toBeTruthy();
     expect(screen.queryByText(/aujourd'hui/)).toBeNull();
-    // 2533 + 125 − 2880 = −222.
-    expect(screen.getByText(/^3 h 42 de moins au total, dont 2 h 05 rattrapées en siestes/)).toBeTruthy();
     expect(screen.getByText(/Sieste tardive : vous endormir à 18:30 pourrait être plus difficile\./)).toBeTruthy();
   });
 

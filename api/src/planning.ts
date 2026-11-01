@@ -1,5 +1,6 @@
 // Planning d'un appareil (§4.3), statut pour l'interface, tâches du jour, raison d'un blocage.
 import type { ActionsIphone, ActionsPc, Config, Contexte, EngagementPrevu, JournalDesLevers, Journee, Mesure, Moteur, Segment, SortieMode } from '../../core/src/types';
+import { dettesHebdomadaires, lundiDe, SEMAINES_DE_BILAN } from '../../core/src/dette';
 import { JOURS_DU_JOURNAL_DES_LEVERS } from '../../core/src/levers';
 import { dateCourte, JOURS_SEMAINE, jourSemaine } from '../../core/src/temps';
 import { etatSynchroHevy, lireSeances } from './hevy';
@@ -186,14 +187,14 @@ export const SIESTE_TARDIVE_H = 4;
 const somme = (siestes: Sieste[] | undefined) => (siestes ?? []).reduce((t, s) => t + s.minutes, 0);
 
 /**
- * Les nuits terminées avant la journée courante, de la plus ancienne à la plus récente : dette
- * prévue (moteur) et, si le sommeil a été mesuré, dette réelle = cible − temps endormi de la nuit.
- * Les siestes (§4.6) sont comptées à part, par journée D (`siestes_min` de la nuit D), et celles
- * de la journée courante dans `aujourdhui`.
+ * Les `nombre` nuits terminées avant la journée courante, de la plus ancienne à la plus récente :
+ * dette prévue (moteur) et, si le sommeil a été mesuré, dette réelle = cible − temps endormi de la
+ * nuit. Les siestes (§4.6) sont comptées à part, par journée D (`siestes_min` de la nuit D), et
+ * celles de la journée courante dans `aujourdhui`.
  */
-export function dernieresNuits(moteur: Moteur, contexte: Contexte, j: Journee, sommeil: SommeilMesure[] = []) {
+export function dernieresNuits(moteur: Moteur, contexte: Contexte, j: Journee, sommeil: SommeilMesure[] = [], nombre = NUITS_DU_STATUT) {
   const jours: (JourneeDeVeille & { nuit: string; dette_min: number })[] = [];
-  for (let n = NUITS_DU_STATUT; n >= 1; n--) {
+  for (let n = nombre; n >= 1; n--) {
     const nuit = ajouterJours(j.date, -n);
     const jn = moteur.journee(contexte, nuit);
     jours.push({ nuit, date: nuit, fuseau: jn.fuseau, lever: jn.lever, coucher: jn.coucherApplique, dette_min: jn.detteNuitMin });
@@ -219,13 +220,9 @@ export function dernieresNuits(moteur: Moteur, contexte: Contexte, j: Journee, s
   return { nuits, aujourdhui: separees.siestes.get(j.date) ?? [] };
 }
 
-/**
- * Dette réelle cumulée : somme des dettes réelles des nuits mesurées, moins les siestes de la
- * période (elles rattrapent) ; null si aucune nuit n'est mesurée.
- */
-export function detteCumuleeReelle(nuits: { dette_reelle_min: number | null }[], siestesMin = 0): number | null {
-  const mesurees = nuits.filter((n) => n.dette_reelle_min !== null);
-  return mesurees.length === 0 ? null : mesurees.reduce((t, n) => t + n.dette_reelle_min!, 0) - siestesMin;
+/** Nuits à lire pour le statut : les 7 barres, et assez pour la semaine en cours et les bilans. */
+export function nuitsALire(jour: string): number {
+  return Math.max(NUITS_DU_STATUT, JOURS_SEMAINE.indexOf(jourSemaine(jour)) + 7 * SEMAINES_DE_BILAN);
 }
 
 /** La dernière sieste du jour finie moins de 4 h avant le coucher appliqué, ou null (et null une fois la nuit commencée). */
@@ -267,7 +264,7 @@ export const JOURS_VERIFIES = 7;
  * cours (à venir) ; `sautes_semaine` compte les sautés, déclarés ou non, du lundi à aujourd'hui.
  */
 export function engagementsVerifies(moteur: Moteur, contexte: Contexte, mesures: Mesure[], aujourdhui: string) {
-  const lundi = ajouterJours(aujourdhui, -JOURS_SEMAINE.indexOf(jourSemaine(aujourdhui)));
+  const lundi = lundiDe(aujourdhui);
   const liste = moteur.verifierEngagements(contexte, mesures, ajouterJours(aujourdhui, -JOURS_VERIFIES), ajouterJours(lundi, 6));
   return {
     aujourdhui,
@@ -293,7 +290,7 @@ export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuth
     lireCache<{ verifie_le: string; manquantes: string[] }>(db, jeton.utilisateur, CLES_CACHE.etiquettes),
     sessionsOuvertes(db, jeton.utilisateur, contexte, maintenant),
     cumulSessionsS(db, jeton.utilisateur, journee, maintenant),
-    lireSommeil(db, jeton.utilisateur, versInstant(debutJourLocal(ajouterJours(journee.date, -NUITS_DU_STATUT - 1), journee.fuseau))),
+    lireSommeil(db, jeton.utilisateur, versInstant(debutJourLocal(ajouterJours(journee.date, -nuitsALire(journee.date) - 1), journee.fuseau))),
     etatSynchro(db, jeton.utilisateur),
     lireSeances(db, jeton.utilisateur, versInstant(debutJourLocal(ajouterJours(jourCivil, -JOURS_VERIFIES - 1), journee.fuseau))),
     etatSynchroHevy(db, jeton.utilisateur),
@@ -301,7 +298,9 @@ export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuth
   ]);
   const vuLe = new Map(pings.results.map((p) => [p.nom, p.vu_le]));
   const phase = phaseDe(journee, maintenant);
-  const { nuits, aujourdhui } = dernieresNuits(deps.moteur, contexte, journee, sommeil);
+  const lues = dernieresNuits(deps.moteur, contexte, journee, sommeil, nuitsALire(journee.date));
+  const { aujourdhui } = lues;
+  const nuits = lues.nuits.slice(-NUITS_DU_STATUT);
   const siestesTotalMin = nuits.reduce((t, n) => t + n.siestes_min, 0) + somme(aujourdhui);
   return {
     heure_serveur: versInstant(maintenant),
@@ -312,7 +311,7 @@ export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuth
     engagements_demain: deps.moteur.engagementsPrevus(contexte, ajouterJours(journee.date, 1)).map(vueEngagement),
     nuits,
     dette_cumulee_min: nuits.reduce((total, n) => total + n.dette_min, 0),
-    dette_cumulee_reelle_min: detteCumuleeReelle(nuits, siestesTotalMin),
+    ...dettesHebdomadaires(journee.date, lues.nuits, config.sommeil.cibleMin, somme(aujourdhui)),
     siestes_total_min: siestesTotalMin,
     siestes_du_jour: aujourdhui,
     siestes_du_jour_min: somme(aujourdhui),

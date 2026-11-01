@@ -151,6 +151,36 @@ export interface NuitPassee {
   siestes?: Sieste[];
 }
 
+/**
+ * Dette de sommeil d'une semaine (lundi → dimanche ; la nuit D appartient à la semaine de D), règle
+ * comptable : `dette_min` = Σ des manques des nuits mesurées ; `rattrape_min` = Σ des surplus +
+ * siestes (celle de la journée D + 1 rattrape la nuit D) ; reste = max(0, dette − rattrapé).
+ */
+export interface DetteSemaine {
+  /** Lundi et dimanche de la semaine. */
+  debut: DateLocale;
+  fin: DateLocale;
+  dette_min: number;
+  rattrape_min: number;
+  reste_min: number;
+  /** Nuits de ce soir à celle du dimanche, incluses (1 le dimanche). */
+  nuits_restantes: number;
+  /** Nuits finies de la semaine, et celles que la montre a mesurées. */
+  nuits_mesurees: number;
+  nuits_total: number;
+}
+
+/** Bilan d'une semaine close, recalculé à partir des mesures. */
+export interface BilanSemaine {
+  debut: DateLocale;
+  fin: DateLocale;
+  dette_min: number;
+  rattrape_min: number;
+  non_rattrape_min: number;
+  nuits_mesurees: number;
+  nuits_total: number;
+}
+
 /** Une sieste : session de sommeil prise pendant la journée de veille. */
 export interface Sieste {
   debut: Instant;
@@ -232,8 +262,10 @@ export interface ReponseStatut {
   nuits?: NuitPassee[];
   /** Dette de sommeil cumulée sur ces nuits (optionnel, idem). */
   dette_cumulee_min?: number;
-  /** Somme des dettes réelles des nuits mesurées ; null si aucune ne l'est. */
-  dette_cumulee_reelle_min?: number | null;
+  /** Dette de sommeil de la semaine en cours, lundi → dimanche (absente d'une API plus ancienne). */
+  dette_semaine?: DetteSemaine;
+  /** Bilans des 4 dernières semaines closes, la plus récente d'abord. */
+  bilans_semaines?: BilanSemaine[];
   /** État de la synchro du sommeil mesuré ; null si jamais tentée. */
   sommeil_mesure?: { derniere_synchro: Instant | null; erreur: string | null } | null;
   /** Objectif de sommeil de la config (`sommeil.cible`), en minutes. */

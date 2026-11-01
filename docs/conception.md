@@ -265,8 +265,8 @@ engagement sans heure, `preparation` facultative, défaut celle de la config, si
   locale du coucher appliqué), sans friction demandée. Elle ne peut jamais repousser le coucher :
   pour coucher plus tard, c'est une exception `coucher` (desserrage, règles ci-dessus).
   Se coucher plus tôt ne déplace jamais le lever (lever fixe, 01/11) : la nuit s'allonge et
-  rembourse la dette. La popup « rattraper le sommeil » envoie une exception `coucher` plus tôt
-  (resserrement, sans friction), car `avancer_coucher` prend toujours l'heure du serveur.
+  réduit la dette. La popup « rattraper le sommeil » (§4.6) envoie une exception `coucher` plus
+  tôt (resserrement, sans friction), car `avancer_coucher` prend toujours l'heure du serveur.
 - `prixException(contexte, demande, friction?)` renvoie : admissible ou non (et pourquoi),
   friction exigée (`aucune` | `raison` | `raison_phrase`), `frictionManquante` si seule la
   friction manque (tout le reste est admissible), coucher avant/après, lever avant/après, dette
@@ -520,7 +520,11 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
                "endormi_min": number | null, "incomplete": bool,
                "phases": { "legere", "profonde", "rem", "eveil" } | null,
                "siestes_min": number, "siestes": [ { "debut": "…Z", "fin": "…Z", "minutes": number } ] } ],
-  "dette_cumulee_min": number, "dette_cumulee_reelle_min": number | null,
+  "dette_cumulee_min": number,
+  "dette_semaine": { "debut": "YYYY-MM-DD", "fin": "YYYY-MM-DD", "dette_min": number, "rattrape_min": number,
+                     "reste_min": number, "nuits_restantes": number, "nuits_mesurees": number, "nuits_total": number },
+  "bilans_semaines": [ { "debut", "fin", "dette_min", "rattrape_min", "non_rattrape_min",
+                         "nuits_mesurees", "nuits_total" } ],
   "siestes_total_min": number, "siestes_du_jour": [ { "debut", "fin", "minutes" } ], "siestes_du_jour_min": number,
   "sieste_tardive": { "fin": "…Z", "coucher": "…Z" } | null,
   "objectif_sommeil_min": number,
@@ -565,8 +569,7 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
 - **Dette réelle** (sommeil mesuré, §4.4) : `dette_reelle_min` = cible − temps endormi de la nuit
   (somme des sessions de la nuit, siestes exclues ; null sans mesure). Une session appartient à
   la nuit du jour du soir : date locale de son milieu moins 12 h. `phases` : minutes par phase,
-  cumulées sur la nuit. `dette_cumulee_reelle_min` = somme sur les seules nuits mesurées, moins
-  `siestes_total_min` (null si aucune nuit mesurée).
+  cumulées sur la nuit.
   `sommeil_mesure` : dernière synchro réussie et code d'erreur de la dernière tentative
   (null si jamais tentée). `endormi_min` : minutes dormies de la nuit (null sans mesure) ;
   `incomplete` : une session de la nuit est marquée incomplète par la montre (`is_uncomplete`).
@@ -582,20 +585,56 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   jamais dans `endormi_min` ni `dette_reelle_min` d'une nuit. `sieste_tardive` : la dernière sieste
   de J finie moins de 4 h avant `coucher_applique(J)`, avec ce coucher ; null sinon, et null une fois
   le coucher passé (information seulement, rien n'est bloqué).
+- **Dette hebdomadaire** (CDC §4, 01/11 ; règle comptable, pas biologique : la récupération
+  réelle est partielle, d'où « objectif du soir atteint » et jamais « dette remboursée ») :
+  semaine du lundi au dimanche en dates locales ; la nuit D appartient à la semaine de la date D
+  (la nuit du dimanche au lundi clôt la semaine). Par semaine, sur les nuits finies :
+  `dette_min` = Σ (cible − endormi) > 0 des nuits mesurées ; `rattrape_min` = Σ (endormi − cible)
+  > 0 + les siestes rangées sur les nuits de la semaine, une sieste rattrapant la nuit d'avant :
+  celle de la journée D + 1 compte pour la nuit D (la sieste du lundi va donc à la semaine
+  précédente, comme dans le graphique de la carte) ; reste = max(0, dette − rattrapé). Une nuit
+  non mesurée ne compte ni en dette ni en surplus (sa sieste du lendemain compte) ; elle se voit
+  dans `nuits_mesurees` / `nuits_total`. `dette_semaine` : semaine de J, nuits finies (lundi …
+  J − 1) et siestes jusqu'à aujourd'hui ; `nuits_restantes` = de la nuit J (ce soir) à celle du
+  dimanche, incluses (7 le lundi, 1 le dimanche). `bilans_semaines` : les 4 semaines closes, la
+  plus récente d'abord (`non_rattrape_min` = reste). Rien n'est stocké : tout est recalculé à
+  chaque statut à partir des mesures (le sommeil est relu jusqu'au lundi de J − 28 jours, et
+  `moteur.journee` pour chaque jour sert à reconnaître les siestes). Conséquence assumée : changer
+  `sommeil.cible` ou réimporter des mesures réécrit les bilans passés. Calcul pur dans
+  `core/src/dette.ts` (`compteSemaine`, `dettesHebdomadaires`), partagé par l'API et le mode
+  simulé de la web app. Remplace `dette_cumulee_reelle_min` (fenêtre glissante de 7 nuits, qui
+  oubliait une dette au bout de 7 jours), supprimé.
+- **Popup « rattraper le sommeil »** (web app, facultative, CDC §4 01/11) : une fois par soir, à
+  la première ouverture du tableau de bord après l'ouverture de la soirée (phase `soiree`, avant
+  le coucher appliqué, coucher pas déjà avancé, pas de décision de nuit, au moins un quart d'heure
+  à gagner), si `dette_semaine.reste_min` > 5 min. Objectif du soir = reste ÷ `nuits_restantes`,
+  arrondi au quart d'heure supérieur, entre 15 min et 1 h. Titre « Ce soir : 45 min de sommeil en
+  plus », sous-titre « Cette semaine : 3 h à rattraper, sur 4 nuits » (« sur cette dernière
+  nuit » le dimanche). Le curseur (heures de quart d'heure en quart d'heure, du coucher appliqué
+  à maintenant arrondi) démarre sur l'heure suggérée : la plus tardive qui atteint l'objectif
+  (coucher − objectif), sinon la plus tôt ; il se déplace dans les deux sens. Barre verte :
+  progression vers l'objectif du soir (0 → 100 %, pleine au-delà) ; texte « +30 min · objectif du
+  soir 45 min », puis « +45 min · objectif du soir atteint » (icône check). « Je me couche à
+  HH:MM » envoie l'exception `coucher` ; « Me coucher maintenant » = « Je vais dormir ».
 - **Carte « Sommeil »** de la web app : temps dormi de la dernière nuit mesurée (« Cette nuit »
   si c'est J−1, sinon « Nuit du … »), écart à l'objectif en mots (« 29 min de moins que
   l'objectif », « … de plus … », « objectif atteint » à 5 min près), phases léger → REM → profond
-  et éveil à part ; puis les 7 nuits en barres (heures dormies, trait de l'objectif, pas de barre
-  sans mesure, barre pâle si incomplète) et l'écart total sur les nuits mesurées. Elle ne montre
-  plus la dette prévue (`dette_min`, toujours renvoyée) ; le coucher prévu est dans « Ce soir ».
+  et éveil à part ; puis « Cette semaine » (`dette_semaine`, si une nuit de la semaine est
+  mesurée) en pastilles : « 3 h 10 manquées » moins « 1 h 05 rattrapées » (infobulle « Nuits
+  plus longues et siestes ») = « 2 h 05 à rattraper », ou « tout rattrapé » / « objectif atteint »
+  en vert (à 5 min près), « n/total mesurées » si une nuit finie n'est pas mesurée ; puis « 7
+  dernières nuits » en barres (heures dormies, trait de l'objectif, pas de barre sans mesure,
+  barre pâle si incomplète) ; puis « Semaines passées » (bilans avec au moins une nuit mesurée),
+  une ligne chacun : « Sem. du 26 oct. · 5 h 13 de dette · 3 h 13 non rattrapées », « … · tout
+  rattrapé » en vert, montre + « 6/7 » si incomplet. Participes accordés à la durée, jamais de
+  signe collé aux chiffres. Elle ne montre plus la dette prévue (`dette_min`, toujours renvoyée) ; le coucher prévu est dans « Ce soir ».
   Siestes : le chiffre de la dernière nuit reste la nuit seule ; dessous, si la nuit manque
   l'objectif et que la journée qui la suit a une sieste (`siestes_du_jour` pour « Cette nuit »,
   sinon `siestes` de la nuit suivante) : « 29 min de moins que l'objectif, dont 20 min rattrapées
   en sieste », plafonné à l'écart (« …, rattrapées en sieste » si la sieste le couvre). Dans le
-  graphique, la sieste de la journée D est un segment vert empilé au-dessus de la barre de la
-  nuit D (légende « sieste », infobulle « 7 h 12 de nuit + 1 h 05 de sieste »). Écart total =
-  Σ nuits + `siestes_total_min` − objectif × nuits mesurées, dit « 5 h 47 de moins au total, dont
-  1 h rattrapée en siestes » (« dont … » omis sans sieste). `sieste_tardive` : note discrète
+  graphique, la sieste de la journée D + 1 est un segment vert empilé au-dessus de la barre de la
+  nuit D, qu'elle rattrape (légende « sieste », infobulle « 7 h 12 de nuit + 1 h 05 de sieste »).
+  `sieste_tardive` : note discrète
   « Sieste tardive : vous endormir à 21:30 pourrait être plus difficile. »
 - **Levers mesurés** : à chaque chargement du contexte, l'API lit les sessions de sommeil des
   15 derniers jours, écarte les siestes (même règle que ci-dessus, avec les journées du **plan**
@@ -652,7 +691,8 @@ l'utilisateur, affiche les questions et l'ouverture de session). Ils se parlent 
 - Verrouillage : Linux `loginctl lock-session` sur **toutes** les sessions graphiques et texte
   de tous les comptes, surveillance de `LockedHint` (D-Bus) ; déverrouillage pendant un segment
   verrouillé → reverrouillage immédiat + événement `reconnexion`. Windows : API de session (WTS).
-- Comptes libres : Linux, fermer/verrouiller leurs sessions ; Windows, désactiver le compte.
+- Comptes libres : Linux, fermer/verrouiller leurs sessions ; Windows, déconnecter leurs sessions
+  (jamais de compte désactivé, 01/11 : pas de risque d'être enfermé dehors si le service plante).
 - Service : `kardianos/service`. Questions : `ncruces/zenity` (sous Linux, le programme
   `zenity` doit être installé).
 - Règle : une bibliothèque multi-plateforme d'abord ; sinon une fonction en deux fichiers

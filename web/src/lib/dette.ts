@@ -1,7 +1,8 @@
-// Proposition de rattraper le sommeil (CDC §4, « Rembourser la dette = facultatif », 01/11) :
-// une fois par soir, après l'ouverture de la soirée, se coucher plus tôt à l'heure de son choix.
-// Rien n'est recalculé ici : la dette est celle de l'API (`dette_cumulee_reelle_min`, celle que
-// la carte Sommeil affiche), la phase et les heures viennent du statut.
+// Proposition de rattraper le sommeil (CDC §4, « Rembourser la dette = facultatif » et « Dette de
+// sommeil hebdomadaire », 01/11) : une fois par soir, après l'ouverture de la soirée, se coucher
+// plus tôt à l'heure de son choix. La dette est celle de la semaine en cours (`dette_semaine` de
+// l'API, celle que la carte Sommeil affiche) ; l'objectif du soir la répartit sur les nuits qui
+// restent, plafonné à 1 h. La phase et les heures viennent du statut.
 import type { ReponseStatut } from '@/api/contrat';
 import { ajouterJours, heureLocale, instantLocal } from './temps';
 
@@ -10,10 +11,21 @@ export const PAS_MIN = 15;
 /** Même tolérance que la carte Sommeil : en deçà, elle affiche « objectif atteint ». */
 export const DETTE_MIN_PROPOSEE = 5;
 
-/** Dette réelle mesurée, en minutes, si elle vaut la peine d'être proposée ; null sinon. */
-export function detteARattraper(statut: ReponseStatut): number | null {
-  const d = statut.dette_cumulee_reelle_min;
-  return typeof d === 'number' && Math.round(d) > DETTE_MIN_PROPOSEE ? Math.round(d) : null;
+/** Plafond de l'objectif du soir (CDC : « plafond 1 h par soir »). */
+export const OBJECTIF_MAX_MIN = 60;
+
+/** Reste à rattraper cette semaine et nuits pour le faire, si cela vaut la peine d'être proposé ; null sinon. */
+export function detteARattraper(statut: ReponseStatut): { resteMin: number; nuits: number } | null {
+  const s = statut.dette_semaine;
+  if (!s) return null;
+  const reste = Math.round(s.reste_min);
+  return reste > DETTE_MIN_PROPOSEE ? { resteMin: reste, nuits: Math.max(1, s.nuits_restantes) } : null;
+}
+
+/** Objectif du soir : reste ÷ nuits restantes, au quart d'heure supérieur, entre 15 min et 1 h. */
+export function objectifDuSoir(resteMin: number, nuits: number): number {
+  const parNuit = Math.ceil(resteMin / Math.max(1, nuits) / PAS_MIN) * PAS_MIN;
+  return Math.min(OBJECTIF_MAX_MIN, Math.max(PAS_MIN, parNuit));
 }
 
 /** L'heure « HH:MM » d'une exception `coucher` de la nuit D désigne-t-elle bien cet instant ? */
@@ -57,10 +69,21 @@ export function propositionPossible(statut: ReponseStatut, maintenantMs: number)
   return heures.length >= 2 && heures[0]! - heures.at(-1)! >= PAS_MIN * MINUTE;
 }
 
-/** Gain de sommeil et dette restante pour une heure de coucher choisie (minutes, jamais négatifs). */
-export function bilan(coucherMs: number, choisiMs: number, detteMin: number): { gainMin: number; resteMin: number } {
+/**
+ * Heure suggérée : coucher appliqué − objectif, ramenée dans les heures proposées (la plus tardive
+ * qui atteint l'objectif) ; la plus tôt possible si aucune ne l'atteint.
+ */
+export function heureSuggeree(heures: number[], objectifMin: number): number | undefined {
+  const coucher = heures[0];
+  if (coucher === undefined) return undefined;
+  const cible = coucher - objectifMin * MINUTE;
+  return heures.find((h) => h <= cible) ?? heures.at(-1);
+}
+
+/** Gain de sommeil pour une heure de coucher choisie et progression vers l'objectif du soir (0 → 100). */
+export function bilan(coucherMs: number, choisiMs: number, objectifMin: number): { gainMin: number; progression: number } {
   const gainMin = Math.max(0, Math.round((coucherMs - choisiMs) / MINUTE));
-  return { gainMin, resteMin: Math.max(0, detteMin - gainMin) };
+  return { gainMin, progression: objectifMin > 0 ? Math.min(100, (gainMin / objectifMin) * 100) : 0 };
 }
 
 // ─── Une fois par soir ─────────────────────────────────────────────────────────

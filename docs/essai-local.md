@@ -31,10 +31,12 @@ La commande est idempotente : relancée, elle ne refait que ce qui manque ou a c
    `HEVY_API_KEY` (séances Hevy) est recopié de même, avec `HEVY_UTILISATEUR` (même règle que
    `XIAOMI_UTILISATEUR`).
 6. Lance `wrangler dev --local` sur le port 8799 avec `FOCUS_ENVIRONNEMENT=local` (horloge
-   réglable), puis déclenche une première tâche planifiée.
+   réglable), puis déclenche une première tâche planifiée. À côté, `vite build --watch`
+   reconstruit `web/dist` à chaque modification du code de la web app (ou de `core/src`) :
+   recharger la page suffit, sans relancer l'instance (« Web app reconstruite » dans le terminal).
 7. Copie le jeton `interface` dans le presse-papiers (`wl-copy`, sinon l'affiche) et ouvre le
    navigateur. `--discret` : ni presse-papiers, ni navigateur.
-8. Ctrl-C arrête wrangler et efface `api/.dev.vars`.
+8. Ctrl-C arrête wrangler et la reconstruction automatique, et efface `api/.dev.vars`.
 
 La suite détaille les mêmes étapes à la main (base `api/.wrangler/essai`, à part), plus le
 client PC et les sessions de bout en bout.

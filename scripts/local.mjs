@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Essai local en une commande (docs/essai-local.md). Sans dépendance, idempotent.
-//   npm run local [-- --exemple] [-- --discret]   prépare tout et lance l'API sur le port 8799
+//   npm run local [-- --exemple] [-- --discret]   prépare tout et lance l'API sur le port 8799 ;
+//                                                  la web app se reconstruit à chaque modification
 //   npm run local:heure -- 18:00 | +3h | reel      règle l'horloge du Worker local
 //   npm run local:reset                            efface la base locale et les jetons locaux
 import { spawn, spawnSync } from 'node:child_process';
@@ -24,6 +25,7 @@ const CONFIG_PRIVEE = resolve(RACINE, '..', 'focus-config', 'focus.yaml');
 const CONFIG_EXEMPLE = join(RACINE, 'config', 'exemple.yaml');
 const JETONS = { interface: 'local-web', config: 'local-config' };
 const WRANGLER = join(API, 'node_modules', '.bin', 'wrangler');
+const VITE = join(WEB, 'node_modules', '.bin', 'vite');
 const ENV = { ...process.env, WRANGLER_SEND_METRICS: 'false' };
 
 const info = (m) => console.log(`[focus] ${m}`);
@@ -94,6 +96,34 @@ function webApp() {
   if (existsSync(sortie) && statSync(sortie).mtimeMs >= Math.max(...sources.map(plusRecent))) return info('Web app à jour.');
   info('Construction de la web app…');
   lancer('npm', ['run', '-s', 'build'], WEB, { capturer: true });
+}
+
+/**
+ * Reconstruit web/dist à chaque modification du code (vite build --watch), pendant que l'instance
+ * tourne : wrangler sert ce dossier tel quel. Sortie filtrée : une ligne par reconstruction, les
+ * erreurs en entier.
+ */
+function surveillerWebApp() {
+  const vite = spawn(VITE, ['build', '--watch', '--logLevel', 'error'], { cwd: WEB, env: ENV, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+  let premiere = true;
+  vite.stdout.on('data', () => {});
+  vite.stderr.on('data', (d) => process.stderr.write(d));
+  // `--logLevel error` tait « built in … » et l'avertissement de taille : la fin de chaque reconstruction se lit sur index.html.
+  let derniere = plusRecent(join(WEB, 'dist', 'index.html'));
+  const minuterie = setInterval(() => {
+    const t = plusRecent(join(WEB, 'dist', 'index.html'));
+    if (t > derniere) {
+      derniere = t;
+      if (premiere) premiere = false;
+      else info('Web app reconstruite (recharger la page).');
+    }
+  }, 1000);
+  minuterie.unref();
+  vite.once('exit', (c) => {
+    clearInterval(minuterie);
+    if (c !== null && c !== 0) info(`La reconstruction automatique de la web app s'est arrêtée (code ${c}).`);
+  });
+  return vite;
 }
 
 // ── 3-4. Base locale et jetons ─────────────────────────────────────────────────
@@ -268,10 +298,16 @@ async function local(options) {
     { cwd: API, env: ENV, stdio: ['ignore', 'inherit', 'inherit'], detached: true },
   );
   const fini = new Promise((ok) => wrangler.once('exit', ok));
+  const vite = surveillerWebApp();
   const arreterTout = async (code) => {
     if (arret) return;
     arret = true;
     info('Arrêt…');
+    if (vite.exitCode === null) {
+      try {
+        process.kill(-vite.pid, 'SIGTERM');
+      } catch {}
+    }
     if (wrangler.exitCode === null) {
       try {
         process.kill(-wrangler.pid, 'SIGINT');
@@ -290,7 +326,12 @@ async function local(options) {
   };
   process.on('SIGINT', () => arreterTout(0));
   process.on('SIGTERM', () => arreterTout(0));
-  process.on('exit', effacerDevVars);
+  process.on('exit', () => {
+    effacerDevVars();
+    try {
+      if (vite.exitCode === null) process.kill(-vite.pid, 'SIGTERM');
+    } catch {}
+  });
   wrangler.once('exit', (c) => !arret && (info(`wrangler s'est arrêté (code ${c}).`), arreterTout(1)));
 
   if (!(await attendrePret(wrangler))) return arreterTout(1);
@@ -298,7 +339,7 @@ async function local(options) {
   await tachePlanifiee();
   presentationJeton(choix.utilisateur, options.includes('--discret'));
   if (!options.includes('--discret')) spawn('xdg-open', [`${URL_API}/`], { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
-  info(`Prêt : ${URL_API}/   ·   heure : npm run local:heure -- 18:00|+3h|reel   ·   arrêt : Ctrl-C`);
+  info(`Prêt : ${URL_API}/   ·   web app reconstruite à chaque modification   ·   heure : npm run local:heure -- 18:00|+3h|reel   ·   arrêt : Ctrl-C`);
 }
 
 // ── local:heure ────────────────────────────────────────────────────────────────

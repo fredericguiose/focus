@@ -2,24 +2,31 @@ import { fireEvent, screen, within } from '@testing-library/react';
 import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ApiFocus, ReponseStatut } from '@/api/contrat';
+import type { ApiFocus, DetteSemaine, ReponseStatut } from '@/api/contrat';
 import { creerApiSimulee } from '@/api/simule';
 import { RattraperSommeil } from '@/composants/actions/RattraperSommeil';
 import { oublierPropositions } from '@/lib/dette';
 import { avancer, rendreAvecFocus, vider } from '@/test/rendu';
 
 // Mardi 3 novembre à Paris : ouverture 19:50, coucher 21:30, lever mercredi 05:30.
-// Dette réelle simulée : 347 min sur six nuits mesurées − 1 h 45 de siestes = 4 h 02.
+// Semaine posée par les tests : 3 h à rattraper sur 6 nuits → objectif du soir 30 min.
 const JOURNEE = '2026-11-03T14:00:00Z';
 const SOIREE = '2026-11-03T19:00:00Z'; // 20:00
 const NUIT = '2026-11-03T21:00:00Z';
 
-function api(modifier?: (s: ReponseStatut) => ReponseStatut): ApiFocus {
+const SEMAINE: DetteSemaine = {
+  debut: '2026-11-02', fin: '2026-11-08', dette_min: 200, rattrape_min: 20, reste_min: 180, nuits_restantes: 6, nuits_mesurees: 1, nuits_total: 1,
+};
+
+/** La dette de la semaine est posée par le test (le mode simulé n'en a presque pas un mardi). */
+function api(modifier?: (s: ReponseStatut) => ReponseStatut, semaine: Partial<DetteSemaine> | null = {}): ApiFocus {
   const a = creerApiSimulee({ fuseau: 'Europe/Paris' });
-  if (modifier) {
-    const statut = a.statut;
-    a.statut = async () => modifier(await statut());
-  }
+  const statut = a.statut;
+  a.statut = async () => {
+    const s = await statut();
+    const avecSemaine = { ...s, dette_semaine: semaine === null ? undefined : { ...SEMAINE, ...semaine } };
+    return modifier ? modifier(avecSemaine) : avecSemaine;
+  };
   return a;
 }
 
@@ -45,14 +52,47 @@ afterEach(() => {
 });
 
 describe('apparition', () => {
-  it('soirée avec une dette mesurée : la proposition s’ouvre, curseur sur le coucher prévu', async () => {
+  it('soirée avec une dette cette semaine : objectif du soir, curseur sur l’heure suggérée', async () => {
     await rendre(SOIREE);
     expect(fenetre()).not.toBeNull();
-    expect(screen.getByRole('heading', { name: 'Tu as 4 h 02 de sommeil à rattraper' })).toBeTruthy();
-    expect(within(fenetre()!).getByText('21:30')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Ce soir : 30 min de sommeil en plus' })).toBeTruthy();
+    expect(within(fenetre()!).getByText('Cette semaine : 3 h à rattraper, sur 6 nuits')).toBeTruthy();
+    // Coucher 21:30 − 30 min.
+    expect(within(fenetre()!).getByText('21:00')).toBeTruthy();
     expect(within(fenetre()!).getByText('Lever demain inchangé :').textContent).toContain('05:30');
-    expect(bouton('Je me couche à 21:30').disabled).toBe(true);
+    expect(bouton('Je me couche à 21:00').disabled).toBe(false);
     expect(curseur().getAttribute('aria-valuemax')).toBe('6'); // 21:30 → 20:00, par quarts d'heure
+    expect(curseur().getAttribute('aria-valuenow')).toBe('2');
+    expect(fenetre()!.textContent).not.toMatch(/rembours/i);
+  });
+
+  it('objectif plafonné à 1 h, arrondi au quart d’heure supérieur, au moins 15 min', async () => {
+    const plafond = await rendre(SOIREE, api(undefined, { reste_min: 300, nuits_restantes: 2 }));
+    expect(screen.getByRole('heading', { name: 'Ce soir : 1 h de sommeil en plus' })).toBeTruthy();
+    expect(within(fenetre()!).getByText('20:30')).toBeTruthy();
+    plafond.rendu.unmount();
+    localStorage.clear();
+    oublierPropositions();
+    // 100 min sur 4 nuits = 25 → 30 min.
+    const arrondi = await rendre(SOIREE, api(undefined, { reste_min: 100, nuits_restantes: 4 }));
+    expect(screen.getByRole('heading', { name: 'Ce soir : 30 min de sommeil en plus' })).toBeTruthy();
+    expect(within(fenetre()!).getByText('Cette semaine : 1 h 40 à rattraper, sur 4 nuits')).toBeTruthy();
+    arrondi.rendu.unmount();
+    localStorage.clear();
+    oublierPropositions();
+    // 20 min sur 6 nuits : 15 min au moins.
+    await rendre(SOIREE, api(undefined, { reste_min: 20, nuits_restantes: 6 }));
+    expect(screen.getByRole('heading', { name: 'Ce soir : 15 min de sommeil en plus' })).toBeTruthy();
+    expect(within(fenetre()!).getByText('21:15')).toBeTruthy();
+  });
+
+  it('dimanche : « sur cette dernière nuit » ; objectif hors d’atteinte : la plus tôt possible', async () => {
+    // 20:50 : il ne reste que 21:30, 21:15 et 21:00 ; l'objectif (1 h) voudrait 20:30.
+    await rendre('2026-11-03T19:50:00Z', api(undefined, { reste_min: 90, nuits_restantes: 1 }));
+    expect(screen.getByRole('heading', { name: 'Ce soir : 1 h de sommeil en plus' })).toBeTruthy();
+    expect(within(fenetre()!).getByText('Cette semaine : 1 h 30 à rattraper, sur cette dernière nuit')).toBeTruthy();
+    expect(within(fenetre()!).getByText('21:00')).toBeTruthy();
+    expect(within(fenetre()!).getByText('+30 min · objectif du soir 1 h')).toBeTruthy();
   });
 
   it('pas en journée, ni la nuit', async () => {
@@ -63,12 +103,15 @@ describe('apparition', () => {
     expect(fenetre()).toBeNull();
   });
 
-  it('pas sans dette mesurée, ni sous la tolérance de la carte Sommeil', async () => {
-    const sans = await rendre(SOIREE, api((s) => ({ ...s, dette_cumulee_reelle_min: null })));
+  it('pas sans dette de la semaine, ni sous la tolérance de la carte Sommeil', async () => {
+    const sans = await rendre(SOIREE, api(undefined, null));
     expect(fenetre()).toBeNull();
     sans.rendu.unmount();
-    await rendre(SOIREE, api((s) => ({ ...s, dette_cumulee_reelle_min: 5 })));
+    const tolerance = await rendre(SOIREE, api(undefined, { reste_min: 5 }));
     expect(fenetre()).toBeNull();
+    tolerance.rendu.unmount();
+    await rendre(SOIREE, api(undefined, { reste_min: 6 }));
+    expect(fenetre()).not.toBeNull();
   });
 
   it('pas si le coucher a déjà été avancé ce soir, ni après une décision de nuit', async () => {
@@ -142,37 +185,37 @@ describe('une fois par soir', () => {
 });
 
 describe('curseur', () => {
-  it('la barre et le texte suivent le curseur, au clavier', async () => {
+  it('la barre suit l’objectif du soir, dans les deux sens, au clavier', async () => {
     await rendre(SOIREE);
     const barre = within(fenetre()!).getByRole('progressbar');
     expect(barre.getAttribute('aria-valuenow')).toBe('100');
+    expect(within(fenetre()!).getByText('+30 min · objectif du soir atteint')).toBeTruthy();
+
+    fireEvent.keyDown(curseur(), { key: 'ArrowRight' });
+    await vider();
+    expect(within(fenetre()!).getByText('21:15')).toBeTruthy();
+    expect(within(fenetre()!).getByText('+15 min · objectif du soir 30 min')).toBeTruthy();
+    expect(barre.getAttribute('aria-valuenow')).toBe('50');
+    expect(barre.getAttribute('aria-valuetext')).toBe('+15 min · objectif du soir 30 min');
+    expect(curseur().getAttribute('aria-valuetext')).toBe('21:15, +15 min · objectif du soir 30 min');
+
+    fireEvent.keyDown(curseur(), { key: 'ArrowRight' });
+    await vider();
     expect(within(fenetre()!).getByText('Glisse à gauche pour dormir plus.')).toBeTruthy();
+    expect(barre.getAttribute('aria-valuenow')).toBe('0');
+    expect(bouton('Je me couche à 21:30').disabled).toBe(true);
 
     for (let i = 0; i < 4; i++) fireEvent.keyDown(curseur(), { key: 'ArrowLeft' });
     await vider();
     expect(within(fenetre()!).getByText('20:30')).toBeTruthy();
-    expect(within(fenetre()!).getByText('+1 h de sommeil · reste 3 h 02')).toBeTruthy();
-    expect(Number(barre.getAttribute('aria-valuenow'))).toBeCloseTo((182 / 242) * 100, 5);
-    expect(barre.getAttribute('aria-valuetext')).toBe('reste 3 h 02');
-    expect(curseur().getAttribute('aria-valuetext')).toBe('20:30, +1 h de sommeil · reste 3 h 02');
-    expect(bouton('Je me couche à 20:30').disabled).toBe(false);
-
-    fireEvent.keyDown(curseur(), { key: 'ArrowRight' });
-    await vider();
-    expect(within(fenetre()!).getByText('+45 min de sommeil · reste 3 h 17')).toBeTruthy();
+    expect(within(fenetre()!).getByText('+1 h · objectif du soir atteint')).toBeTruthy();
+    // Au-delà de l'objectif : la barre reste pleine.
+    expect(barre.getAttribute('aria-valuenow')).toBe('100');
 
     fireEvent.keyDown(curseur(), { key: 'End' });
     await vider();
     expect(within(fenetre()!).getByText('20:00')).toBeTruthy();
-  });
-
-  it('gain au-delà de la dette : « dette remboursée », jamais de reste négatif', async () => {
-    await rendre(SOIREE, api((s) => ({ ...s, dette_cumulee_reelle_min: 40 })));
-    expect(screen.getByRole('heading', { name: 'Tu as 40 min de sommeil à rattraper' })).toBeTruthy();
-    for (let i = 0; i < 4; i++) fireEvent.keyDown(curseur(), { key: 'ArrowLeft' });
-    await vider();
-    expect(within(fenetre()!).getByText('+1 h de sommeil · dette remboursée')).toBeTruthy();
-    expect(within(fenetre()!).getByRole('progressbar').getAttribute('aria-valuenow')).toBe('0');
+    expect(fenetre()!.textContent).not.toMatch(/rembours/i);
   });
 });
 
@@ -212,7 +255,7 @@ describe('boutons', () => {
     vi.spyOn(a, 'enregistrerException').mockRejectedValueOnce(new Error('panne'));
     fireEvent.keyDown(curseur(), { key: 'ArrowLeft' });
     await vider();
-    fireEvent.click(bouton('Je me couche à 21:15'));
+    fireEvent.click(bouton('Je me couche à 20:45'));
     await vider();
     expect(fenetre()).not.toBeNull();
     expect(within(fenetre()!).getByRole('alert')).toBeTruthy();

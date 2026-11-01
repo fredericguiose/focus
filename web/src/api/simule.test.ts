@@ -65,6 +65,33 @@ describe('API simulée : statut', () => {
   });
 });
 
+describe('API simulée : dette de sommeil hebdomadaire', () => {
+  it('semaine en cours et 4 bilans, comme l’API', async () => {
+    const s = await simulation().api.statut();
+    expect(s.dette_semaine).toEqual({
+      debut: '2026-11-02', fin: '2026-11-08', dette_min: 22, rattrape_min: 45, reste_min: 0, nuits_restantes: 6, nuits_mesurees: 1, nuits_total: 1,
+    });
+    expect(s.bilans_semaines?.map((b) => [b.debut, b.non_rattrape_min])).toEqual([
+      ['2026-10-26', 305],
+      ['2026-10-19', 175],
+      ['2026-10-12', 120],
+      ['2026-10-05', 0],
+    ]);
+    expect(s).not.toHaveProperty('dette_cumulee_reelle_min');
+  });
+
+  it('scénario « dette » : une dette à rattraper quel que soit le jour, soirée ouverte', async () => {
+    for (const jour of ['2026-11-01T14:00:00Z', '2026-11-02T14:00:00Z', '2026-11-03T14:00:00Z']) {
+      const s = await creerApiSimulee({ maintenant: () => Date.parse(jour), fuseau: 'Europe/Paris', scenario: 'dette' }).statut();
+      expect(s.phase).toBe('soiree');
+      expect(s.dette_semaine!.reste_min).toBeGreaterThan(5);
+    }
+    // Dimanche 1er : la vraie semaine fictive (4 h 02 sur cette dernière nuit).
+    const dimanche = await creerApiSimulee({ maintenant: () => Date.parse('2026-11-01T14:00:00Z'), fuseau: 'Europe/Paris', scenario: 'dette' }).statut();
+    expect(dimanche.dette_semaine).toMatchObject({ reste_min: 242, nuits_restantes: 1, nuits_mesurees: 6, nuits_total: 6 });
+  });
+});
+
 describe('API simulée : phase et actions', () => {
   it('journée : « Je vais dormir » libre, décalage sur raison ; engagements de demain, obligatoires ou non', async () => {
     const statut = await simulation().api.statut();
