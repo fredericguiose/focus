@@ -5,6 +5,7 @@ import type { Dependances, Liaisons } from './env';
 import { HorlogeLocale } from './horloge';
 import { executerTachesPlanifiees } from './planifie';
 import { creerClientTodoist } from './todoist';
+import { creerClientXiaomi } from './xiaomi';
 
 /** Le moteur, l'horloge et Todoist sont injectés : les tests remplacent chaque pièce. */
 export function creerWorker(deps: Dependances): ExportedHandler<Liaisons> {
@@ -24,4 +25,5 @@ export default creerWorker({
   maintenant: horloge.maintenant,
   horloge,
   todoist: (jeton) => creerClientTodoist({ jeton }),
+  xiaomi: (identifiants) => creerClientXiaomi(identifiants),
 });

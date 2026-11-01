@@ -156,16 +156,24 @@ async function config({ fichier, yaml, utilisateur }) {
   info(`Config chargée : ${nomFichier} (${commit}).`);
 }
 
-// ── 6. Todoist ─────────────────────────────────────────────────────────────────
+// ── 6. Secrets : Todoist, Xiaomi ───────────────────────────────────────────────
 
-function todoist() {
-  const ligne = existsSync(SECRETS) ? readFileSync(SECRETS, 'utf8').split('\n').find((l) => /^TODOIST_TOKEN=\S/.test(l)) : undefined;
-  if (!ligne) return info('Sans Todoist (pas de TODOIST_TOKEN dans ~/.config/focus/secrets.env).'), false;
+/** Copie dans api/.dev.vars (600, effacé à l'arrêt) les secrets remplis ; n'affiche jamais une valeur. */
+function secrets() {
+  const lignes = existsSync(SECRETS) ? readFileSync(SECRETS, 'utf8').split('\n') : [];
+  const remplie = (nom) => lignes.find((l) => new RegExp(`^${nom}=\\S`).test(l));
+  const todoist = remplie('TODOIST_TOKEN');
+  const xiaomi = remplie('XIAOMI_USER_ID') && remplie('XIAOMI_PASS_TOKEN') ? ['XIAOMI_USER_ID', 'XIAOMI_PASS_TOKEN', 'XIAOMI_REGION'].map(remplie).filter(Boolean) : [];
+  if (!todoist) info('Sans Todoist (pas de TODOIST_TOKEN dans ~/.config/focus/secrets.env).');
+  if (xiaomi.length === 0) info('Sans sommeil Xiaomi (XIAOMI_USER_ID et XIAOMI_PASS_TOKEN vides dans ~/.config/focus/secrets.env).');
+  const a = [todoist, ...xiaomi].filter(Boolean);
+  if (a.length === 0) return false;
   const ignore = spawnSync('git', ['check-ignore', '-q', '.dev.vars'], { cwd: API });
-  if (ignore.status !== 0) return info('Sans Todoist : api/.dev.vars n\'est pas ignoré par git, jeton non copié.'), false;
-  writeFileSync(DEV_VARS, `${ligne}\n`, { mode: 0o600 });
+  if (ignore.status !== 0) return info('Secrets non copiés : api/.dev.vars n\'est pas ignoré par git.'), false;
+  writeFileSync(DEV_VARS, `${a.join('\n')}\n`, { mode: 0o600 });
   chmodSync(DEV_VARS, 0o600);
-  info('Todoist : lecture réelle (jeton dans api/.dev.vars, effacé à l\'arrêt).');
+  if (todoist) info('Todoist : lecture réelle (jeton dans api/.dev.vars, effacé à l\'arrêt).');
+  if (xiaomi.length > 0) info('Sommeil Xiaomi : lecture réelle, une fois par heure (secrets dans api/.dev.vars, effacés à l\'arrêt).');
   return true;
 }
 
@@ -223,7 +231,7 @@ async function local(options) {
   const choix = choisirConfig(options.includes('--exemple'));
   jetons(choix.utilisateur);
   writeFileSync(F_UTILISATEUR, `${choix.utilisateur}\n`, { mode: 0o600 });
-  const avecTodoist = todoist();
+  const avecSecrets = secrets();
 
   let arret = false;
   const wrangler = spawn(
@@ -250,7 +258,7 @@ async function local(options) {
       clearTimeout(delai);
     }
     effacerDevVars();
-    info(avecTodoist ? 'Arrêté, api/.dev.vars effacé.' : 'Arrêté.');
+    info(avecSecrets ? 'Arrêté, api/.dev.vars effacé.' : 'Arrêté.');
     process.exit(code);
   };
   process.on('SIGINT', () => arreterTout(0));

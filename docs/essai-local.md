@@ -21,8 +21,10 @@ La commande est idempotente : relancée, elle ne refait que ce qui manque ou a c
    leur empreinte dans la base locale.
 4. Config : `../focus-config/focus.yaml` s'il existe, sinon `config/exemple.yaml` ; renvoyée à
    l'API seulement si le fichier a changé (empreinte gardée dans `~/.config/focus/local/`).
-5. Si `~/.config/focus/secrets.env` contient `TODOIST_TOKEN` et que git ignore `api/.dev.vars`,
-   écrit ce fichier en 600 (lecture Todoist réelle) ; sinon lance sans Todoist.
+5. Si `~/.config/focus/secrets.env` contient `TODOIST_TOKEN` et/ou les lignes `XIAOMI_*`
+   remplies (`XIAOMI_USER_ID`, `XIAOMI_PASS_TOKEN`, `XIAOMI_REGION`) et que git ignore
+   `api/.dev.vars`, recopie ces lignes dans ce fichier en 600, sans les afficher (lecture
+   Todoist et sommeil Xiaomi réels) ; sinon lance sans eux.
 6. Lance `wrangler dev --local` sur le port 8799 avec `FOCUS_ENVIRONNEMENT=local` (horloge
    réglable), puis déclenche une première tâche planifiée.
 7. Copie le jeton `interface` dans le presse-papiers (`wl-copy`, sinon l'affiche) et ouvre le
@@ -83,7 +85,11 @@ git check-ignore .dev.vars         # doit répondre « .dev.vars »
 (umask 077; grep '^TODOIST_TOKEN=' ~/.config/focus/secrets.env > .dev.vars)
 ```
 
-Sans `.dev.vars`, la tâche planifiée saute Todoist et l'API travaille sur le cache de la base.
+Même chose pour le sommeil mesuré (montre Xiaomi) : ajouter les trois lignes `XIAOMI_*` à
+`.dev.vars` (`(umask 077; grep '^XIAOMI_' ~/.config/focus/secrets.env >> .dev.vars)`).
+
+Sans `.dev.vars`, la tâche planifiée saute Todoist et le sommeil, et l'API travaille sur le cache
+de la base.
 
 ```sh
 npx wrangler dev --local --persist-to .wrangler/essai --port 8799 --show-interactive-dev-session=false
@@ -127,6 +133,18 @@ terminal de wrangler. Pour vérifier ce qui a été lu sans afficher de contenu 
 (cd api && npx wrangler d1 execute DB --local --persist-to .wrangler/essai --command \
   "SELECT cle, json_type(valeur) t, CASE json_type(valeur) WHEN 'array' THEN json_array_length(valeur) END n, maj_le FROM cache_todoist")
 ```
+
+Sommeil Xiaomi (une lecture par heure au plus ; pour relire tout de suite, effacer
+`synchro_xiaomi` du cache avant de déclencher la tâche) : comptes et état, sans contenu :
+
+```sh
+(cd api && npx wrangler d1 execute DB --local --persist-to .wrangler/essai --command \
+  "SELECT COUNT(*) n, MIN(debut) premier, MAX(fin) dernier FROM mesures WHERE type = 'sommeil' AND source = 'xiaomi'")
+(cd api && npx wrangler d1 execute DB --local --persist-to .wrangler/essai --command \
+  "SELECT json_extract(valeur, '$.erreur') erreur, json_extract(valeur, '$.sessions') n FROM cache_todoist WHERE cle = 'synchro_xiaomi'")
+```
+
+`erreur = jeton_xiaomi_expire` : passToken à renouveler dans `secrets.env`.
 
 **Faux Todoist** (sans `.dev.vars`) : écrire directement le cache, puis `GET /v1/taches`.
 

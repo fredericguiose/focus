@@ -4,6 +4,7 @@ import type { Condition, Config, Contexte } from '../../core/src/types';
 import { CLES_CACHE, type ContexteCharge, chargerContexte, ecrireCache, lireCache } from './contexte';
 import type { Dependances, Liaisons } from './env';
 import { cloturerEchues } from './sessions';
+import { identifiantsXiaomi, synchroniserSommeil } from './sommeil';
 import { dateLocale, ms, versInstant } from './temps';
 import type { SuiviDeadline } from './todoist';
 
@@ -42,6 +43,8 @@ async function pourUtilisateur(env: Liaisons, deps: Dependances, utilisateur: st
   // Une photo prise sur un cache périmé figerait de faux retards : on attend un passage réussi.
   if (todoistFrais) await etape('retards', () => photoDesRetards(env.DB, deps, utilisateur, charge.contexte, maintenant));
   await etape('nuit', () => photoDeLaNuit(env.DB, deps, utilisateur, charge, maintenant));
+  const xiaomi = identifiantsXiaomi(env);
+  if (xiaomi && deps.xiaomi) await etape('sommeil', () => synchroniserSommeil(env.DB, deps.xiaomi!(xiaomi), utilisateur, maintenant));
   if (jeton) await etape('etiquettes', () => verifierEtiquettes(env.DB, deps, jeton, utilisateur, charge.contexte, maintenant));
   return erreurs;
 }

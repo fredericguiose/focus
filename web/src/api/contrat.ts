@@ -125,10 +125,23 @@ export interface SessionOuverte {
   prochaine_question_a?: Instant | null;
 }
 
+/** Minutes de chaque phase d'une nuit mesurée (montre Xiaomi). */
+export interface PhasesSommeil {
+  legere: number;
+  profonde: number;
+  rem: number;
+  eveil: number;
+}
+
 /** Bilan d'une nuit passée : dette positive = moins dormi que la cible. */
 export interface NuitPassee {
   nuit: string;
+  /** Dette prévue : cible − (lever − coucher appliqué). */
   dette_min: number;
+  /** Dette réelle : cible − temps endormi mesuré ; null ou absente sans mesure. */
+  dette_reelle_min?: number | null;
+  endormi_min?: number | null;
+  phases?: PhasesSommeil | null;
 }
 
 /** Moment de la journée, décidé par l'API. */
@@ -167,6 +180,10 @@ export interface ReponseStatut {
   nuits?: NuitPassee[];
   /** Dette de sommeil cumulée sur ces nuits (optionnel, idem). */
   dette_cumulee_min?: number;
+  /** Somme des dettes réelles des nuits mesurées ; null si aucune ne l'est. */
+  dette_cumulee_reelle_min?: number | null;
+  /** État de la synchro du sommeil mesuré ; null si jamais tentée. */
+  sommeil_mesure?: { derniere_synchro: Instant | null; erreur: string | null } | null;
   /** Absents d'une API plus ancienne : l'interface n'invente alors rien (actions désactivées). */
   phase?: Phase;
   actions?: ActionsStatut;

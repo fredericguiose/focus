@@ -9,6 +9,7 @@ import type {
   EngagementDemain,
   EtapeParcours,
   Journee,
+  NuitPassee,
   Phase,
   PrixException,
   Priorite,
@@ -74,8 +75,10 @@ export interface StatutFil {
   appareil_principal?: string;
   sessions: SessionFil[];
   sessions_du_jour?: { cumul_min: number; plafond_min: number };
-  nuits?: { nuit: string; dette_min: number }[];
+  nuits?: NuitPassee[];
   dette_cumulee_min?: number;
+  dette_cumulee_reelle_min?: number | null;
+  sommeil_mesure?: ReponseStatut['sommeil_mesure'];
   phase?: Phase;
   actions?: ActionsStatut;
   engagements_demain?: EngagementDemain[];
@@ -157,6 +160,8 @@ export function statutDepuisFil(s: StatutFil): ReponseStatut {
     ...(s.sessions_du_jour ? { sessions_du_jour: s.sessions_du_jour } : {}),
     ...(s.nuits ? { nuits: s.nuits } : {}),
     ...(s.dette_cumulee_min !== undefined ? { dette_cumulee_min: s.dette_cumulee_min } : {}),
+    ...(s.dette_cumulee_reelle_min !== undefined ? { dette_cumulee_reelle_min: s.dette_cumulee_reelle_min } : {}),
+    ...(s.sommeil_mesure !== undefined ? { sommeil_mesure: s.sommeil_mesure } : {}),
     ...(s.phase ? { phase: s.phase } : {}),
     ...(s.actions ? { actions: s.actions } : {}),
     ...(s.engagements_demain ? { engagements_demain: s.engagements_demain } : {}),

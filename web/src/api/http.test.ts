@@ -129,8 +129,10 @@ describe('format réel de l’API', () => {
       engagements_demain: [
         { id: 'salle', nom: 'Salle', reveil: '2026-11-04T08:30:00Z', heure: '2026-11-04T09:00:00Z', annulable: true, decalable: false, origine: 'routine' },
       ],
-      nuits: [{ nuit: '2026-11-02', dette_min: 30 }],
+      nuits: [{ nuit: '2026-11-02', dette_min: 30, dette_reelle_min: 45, endormi_min: 435, phases: { legere: 250, profonde: 90, rem: 95, eveil: 20 } }],
       dette_cumulee_min: 30,
+      dette_cumulee_reelle_min: 45,
+      sommeil_mesure: { derniere_synchro: '2026-11-03T13:00:00Z', erreur: null },
     };
     const statut = await creerApiHttp('j', '', vi.fn<typeof fetch>(async () => reponse(200, JSON.stringify(corps)))).statut();
     expect(statut.phase).toBe('journee');
@@ -140,6 +142,9 @@ describe('format réel de l’API', () => {
     // API sans session_possible : repli sur `sessions`.
     expect(statut.appareils[0]).toMatchObject({ session_possible: true, session_motif: null });
     expect(statut.dette_cumulee_min).toBe(30);
+    expect(statut.dette_cumulee_reelle_min).toBe(45);
+    expect(statut.nuits?.[0]).toMatchObject({ dette_reelle_min: 45, phases: { profonde: 90 } });
+    expect(statut.sommeil_mesure?.erreur).toBeNull();
   });
 
   it('reprend apps_bloquees de /v1/statut sans interroger /v1/blocage', async () => {

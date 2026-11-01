@@ -9,6 +9,7 @@ export const CLES_CACHE = {
   suiviDeadlines: 'suivi_deadlines',
   idUtilisateurTodoist: 'id_utilisateur_todoist',
   etiquettes: 'etiquettes',
+  synchroXiaomi: 'synchro_xiaomi',
 } as const;
 
 /** Assez pour recalculer les 7 dernières nuits du statut (jour UTC et jour local peuvent différer d'un). */

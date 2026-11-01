@@ -13,7 +13,8 @@ import {
   tachesDuJour,
   type VueSession,
 } from './sessions';
-import { ajouterJours, decaler, heureLocale, ms, versInstant } from './temps';
+import { etatSynchro, lireSommeil, rattacherAuxNuits, type SommeilMesure } from './sommeil';
+import { ajouterJours, debutJourLocal, decaler, heureLocale, ms, versInstant } from './temps';
 
 export const HORIZON_H = 36;
 export const VERSION_FORMAT_PLANNING = 1;
@@ -176,14 +177,35 @@ function vueEngagement(e: EngagementPrevu) {
   return { id: e.id, nom: e.nom, reveil: e.reveil, heure: e.heure, annulable: e.annulable, decalable: e.decalable, origine: e.origine };
 }
 
-/** Les nuits terminées avant la journée courante, de la plus ancienne à la plus récente. */
-export function dernieresNuits(moteur: Moteur, contexte: Contexte, j: Journee) {
-  const nuits = [];
+/**
+ * Les nuits terminées avant la journée courante, de la plus ancienne à la plus récente : dette
+ * prévue (moteur) et, si le sommeil a été mesuré, dette réelle = cible − temps endormi.
+ */
+export function dernieresNuits(moteur: Moteur, contexte: Contexte, j: Journee, sommeil: SommeilMesure[] = []) {
+  const jours = [];
   for (let n = NUITS_DU_STATUT; n >= 1; n--) {
     const nuit = ajouterJours(j.date, -n);
-    nuits.push({ nuit, dette_min: moteur.journee(contexte, nuit).detteNuitMin });
+    const jn = moteur.journee(contexte, nuit);
+    jours.push({ nuit, fuseau: jn.fuseau, dette_min: jn.detteNuitMin });
   }
-  return nuits;
+  const mesurees = rattacherAuxNuits(sommeil, jours);
+  const cible = contexte.config.sommeil.cibleMin;
+  return jours.map(({ nuit, dette_min }) => {
+    const m = mesurees.get(nuit);
+    return {
+      nuit,
+      dette_min,
+      dette_reelle_min: m ? cible - m.endormi_min : null,
+      endormi_min: m ? m.endormi_min : null,
+      phases: m?.phases ?? null,
+    };
+  });
+}
+
+/** Somme des dettes réelles des nuits mesurées ; null si aucune ne l'est. */
+export function detteCumuleeReelle(nuits: { dette_reelle_min: number | null }[]): number | null {
+  const mesurees = nuits.filter((n) => n.dette_reelle_min !== null);
+  return mesurees.length === 0 ? null : mesurees.reduce((t, n) => t + n.dette_reelle_min!, 0);
 }
 
 export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuthentifie) {
@@ -191,7 +213,7 @@ export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuth
   const { contexte, version } = await chargerContexte(db, jeton.utilisateur, maintenant);
   const { config } = contexte;
   const journee = deps.moteur.journeeCourante(contexte);
-  const [pings, etiquettes, sessions, cumulS] = await Promise.all([
+  const [pings, etiquettes, sessions, cumulS, sommeil, synchro] = await Promise.all([
     db
       .prepare(
         `SELECT nom, MAX(vu_le) AS vu_le FROM appareils
@@ -202,10 +224,12 @@ export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuth
     lireCache<{ verifie_le: string; manquantes: string[] }>(db, jeton.utilisateur, CLES_CACHE.etiquettes),
     sessionsOuvertes(db, jeton.utilisateur, contexte, maintenant),
     cumulSessionsS(db, jeton.utilisateur, journee, maintenant),
+    lireSommeil(db, jeton.utilisateur, versInstant(debutJourLocal(ajouterJours(journee.date, -NUITS_DU_STATUT - 1), journee.fuseau))),
+    etatSynchro(db, jeton.utilisateur),
   ]);
   const vuLe = new Map(pings.results.map((p) => [p.nom, p.vu_le]));
   const phase = phaseDe(journee, maintenant);
-  const nuits = dernieresNuits(deps.moteur, contexte, journee);
+  const nuits = dernieresNuits(deps.moteur, contexte, journee, sommeil);
   return {
     heure_serveur: versInstant(maintenant),
     config_version: version,
@@ -215,6 +239,8 @@ export async function statut(deps: Dependances, db: D1Database, jeton: JetonAuth
     engagements_demain: deps.moteur.engagementsPrevus(contexte, ajouterJours(journee.date, 1)).map(vueEngagement),
     nuits,
     dette_cumulee_min: nuits.reduce((total, n) => total + n.dette_min, 0),
+    dette_cumulee_reelle_min: detteCumuleeReelle(nuits),
+    sommeil_mesure: synchro,
     appareils: Object.entries(config.appareils).map(([nom, def]) => {
       const etat = deps.moteur.etat(contexte, nom);
       const segment = deps.moteur.planifier(contexte, nom, HORIZON_H)[0];
