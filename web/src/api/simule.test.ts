@@ -97,6 +97,14 @@ describe('API simulée : dette de sommeil hebdomadaire', () => {
     expect(s.dette_semaine).toMatchObject({ debut: '2026-11-02', dette_min: 0, reste_min: 0, nuits_restantes: 7, nuits_total: 0 });
     // La semaine qui finit ce matin est close : elle passe dans les bilans.
     expect(s.bilans_semaines?.[0]).toMatchObject({ debut: '2026-10-26', nuits_total: 7 });
+    // Le graphique montre ses 7 nuits, de dimanche à lundi (25/10) à samedi à dimanche (31/10).
+    expect(s.nuits_semaine?.map((n) => n.nuit)).toEqual(['2026-10-25', '2026-10-26', '2026-10-27', '2026-10-28', '2026-10-29', '2026-10-30', '2026-10-31']);
+  });
+
+  it('nuits de la semaine affichée : un mercredi, celles de la semaine en cours, même forme que `nuits`', async () => {
+    const s = await creerApiSimulee({ maintenant: () => Date.parse('2026-11-04T14:00:00Z'), fuseau: 'Europe/Paris', phase: 'journee' }).statut();
+    expect(s.nuits_semaine?.map((n) => n.nuit)).toEqual(['2026-11-01', '2026-11-02', '2026-11-03']);
+    expect(s.nuits_semaine).toEqual(s.nuits!.slice(-3));
   });
 });
 

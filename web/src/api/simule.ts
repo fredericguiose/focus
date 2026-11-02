@@ -2,7 +2,7 @@
 // Horaires fictifs repris de config/exemple.yaml. Le fuseau est celui du navigateur, pour que la
 // journée simulée suive celle de la personne qui développe. Ce n'est pas le moteur : seules les
 // règles visibles par l'interface (§3.4 exceptions, §4.5 sessions) sont reproduites, simplifiées.
-import { dettesHebdomadaires, SEMAINES_DE_BILAN } from '../../../core/src/dette';
+import { dettesHebdomadaires, nuitsDeLaSemaine, SEMAINES_DE_BILAN, semaineAffichee } from '../../../core/src/dette';
 import { dateCourte } from '../../../core/src/temps';
 import type { DateLocale, HeureLocale } from '../../../core/src/types';
 import { PHRASE_NUIT, RAISON_MIN, longueurRaison } from '@/lib/decisionNuit';
@@ -897,13 +897,30 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
           endormi_min: a.endormi,
           siestes_min: a.sieste ?? 0,
         }));
-        const semaines = dettesHebdomadaires(j.date, [...anciennes.reverse(), ...nuits], CIBLE_MIN, siestesDuJourMin);
+        anciennes.reverse();
+        const semaines = dettesHebdomadaires(j.date, [...anciennes, ...nuits], CIBLE_MIN, siestesDuJourMin);
         // Scénario « dette » : la proposition doit s'ouvrir quel que soit le jour (le lundi, la
         // semaine n'a encore aucune nuit) ; à défaut de dette dans les nuits fictives, une semaine posée.
         if (options.scenario === 'dette' && semaines.dette_semaine.reste_min <= 5) {
           const finies = Math.max(1, semaines.dette_semaine.nuits_total);
           semaines.dette_semaine = { ...semaines.dette_semaine, ...SEMAINE_DETTE, nuits_mesurees: finies, nuits_total: finies };
         }
+        // Comme l'API : les nuits de la semaine que montre la carte (les anciennes, sans phases ni dette prévue).
+        const lundiAffiche = semaineAffichee(semaines.dette_semaine, semaines.bilans_semaines);
+        const toutes = [
+          ...anciennes.map((a) => ({
+            nuit: a.nuit,
+            dette_min: 0,
+            dette_reelle_min: a.endormi_min === null ? null : CIBLE_MIN - a.endormi_min,
+            endormi_min: a.endormi_min,
+            phases: null,
+            incomplete: false,
+            siestes_min: a.siestes_min,
+            siestes: [],
+          })),
+          ...nuits,
+        ];
+        const nuitsSemaine = lundiAffiche ? nuitsDeLaSemaine(lundiAffiche, toutes) : [];
         const cumulMin = sessions.reduce((total, s) => total + Math.max(0, Math.round((t - Date.parse(s.session.ouverte_le)) / MINUTE)), 0);
         return {
           heure_serveur: versInstant(t),
@@ -917,6 +934,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
           })),
           sessions_du_jour: { cumul_min: Math.min(cumulMin + 35, PLAFOND_SESSIONS_MIN), plafond_min: PLAFOND_SESSIONS_MIN },
           nuits,
+          nuits_semaine: nuitsSemaine,
           dette_cumulee_min: nuits.reduce((total, n) => total + n.dette_min, 0),
           ...semaines,
           siestes_total_min: siestesTotal,

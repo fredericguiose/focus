@@ -4,9 +4,10 @@ import { Bar, BarChart, Cell, ReferenceLine, XAxis, YAxis } from 'recharts';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { type ChartConfig, ChartContainer, ChartTooltip } from '@/components/ui/chart';
-import type { BilanSemaine, DetteSemaine, NuitPassee, PhasesSommeil, ReponseStatut } from '@/api/contrat';
+import type { BilanSemaine, DateLocale, DetteSemaine, NuitPassee, PhasesSommeil, ReponseStatut } from '@/api/contrat';
 import { ajouterJours, formaterDateCourte, formaterDuree, formaterHeure } from '@/lib/temps';
 import { cn } from '@/lib/utils';
+import { semaineAffichee } from '../../../../core/src/dette';
 
 const OBJECTIF_PAR_DEFAUT_MIN = 8 * 60;
 /** En deçà, l'écart n'est pas dit : « objectif atteint ». */
@@ -109,28 +110,84 @@ export function detailNuit(minutes: number | null, siestes: number): string {
   return `${nuit} + ${formaterDuree(siestes)} de sieste`;
 }
 
-function GraphiqueNuits({ nuits, objectif, aujourdhui, siestesDuJour }: { nuits: NuitPassee[]; objectif: number; aujourdhui: string; siestesDuJour: number }) {
-  const donnees = nuits.map((n) => {
-    const m = dormi(n);
-    const sieste = siesteApresNuit(n.nuit, nuits, aujourdhui, siestesDuJour);
+/** « dim. 1er », « lun. 2 » : jour de la semaine et quantième d'une date locale. */
+function jourEtQuantieme(date: DateLocale): string {
+  const [a, m, j] = date.split('-').map(Number);
+  const jour = new Intl.DateTimeFormat('fr-FR', { timeZone: 'UTC', weekday: 'short' }).format(new Date(Date.UTC(a ?? 0, (m ?? 1) - 1, j ?? 1)));
+  return `${jour} ${j === 1 ? '1er' : j}`;
+}
+
+/** « nuit du dim. 1er au lun. 2 nov. », « nuit du sam. 31 oct. au dim. 1er nov. » : la nuit D, du soir D au matin D + 1. */
+export function nuitEnMots(nuit: DateLocale): string {
+  const matin = ajouterJours(nuit, 1);
+  const mois = (d: DateLocale) => jourEtMois(d).replace(/^\d+\s*/, '');
+  const soir = nuit.slice(5, 7) === matin.slice(5, 7) ? jourEtQuantieme(nuit) : `${jourEtQuantieme(nuit)} ${mois(nuit)}`;
+  return `nuit du ${soir} au ${jourEtQuantieme(matin)} ${mois(matin)}`;
+}
+
+/** Une colonne du graphique : la nuit D, nommée par le matin où elle se termine (« lun. » : de dimanche à lundi). */
+export interface ColonneNuit {
+  nuit: DateLocale;
+  /** « lun. » … « dim. ». */
+  jour: string;
+  /** Nuit pas encore finie (ce soir ou plus tard) : colonne vide en pointillés. */
+  avenir: boolean;
+  /** Minutes dormies mesurées ; null sans mesure (ou à venir). */
+  minutes: number | null;
+  /** Sieste de la journée D + 1, rangée sur la nuit D. */
+  siesteMin: number;
+}
+
+/**
+ * Les 7 colonnes de la semaine du lundi `debut` (lun. → dim.), même règle que la dette hebdomadaire :
+ * la colonne « lun. » est la nuit de dimanche à lundi, « dim. » celle de samedi à dimanche. `nuits` :
+ * toutes les nuits connues (celles de la semaine et les 7 dernières, pour la sieste du lendemain).
+ * Une nuit qui commence ce soir (`aujourdhui`) ou plus tard est à venir.
+ */
+export function colonnesDeLaSemaine(debut: DateLocale, nuits: NuitPassee[], aujourdhui: DateLocale, siestesDuJour: number): ColonneNuit[] {
+  return Array.from({ length: 7 }, (_, i) => {
+    const nuit = ajouterJours(debut, i - 1);
+    const avenir = nuit >= aujourdhui;
+    const n = nuits.find((x) => x.nuit === nuit);
     return {
-      jour: formaterDateCourte(n.nuit).split(' ')[0] ?? n.nuit,
-      date: formaterDateCourte(n.nuit),
-      // 0 plutôt que null : la barre est invisible mais l'infobulle dit « pas de mesure ».
-      heures: m === null ? 0 : m / 60,
-      sieste: sieste / 60,
-      minutes: m,
-      siesteMin: sieste,
+      nuit,
+      jour: formaterDateCourte(ajouterJours(nuit, 1)).split(' ')[0] ?? nuit,
+      avenir,
+      minutes: avenir || !n ? null : dormi(n),
+      siesteMin: avenir ? 0 : siesteApresNuit(nuit, nuits, aujourdhui, siestesDuJour),
     };
   });
+}
+
+/** Étiquette d'une colonne, atténuée pour une nuit à venir. */
+function EtiquetteJour({ x, y, payload, avenirs }: { x?: number; y?: number; payload?: { value: string; index: number }; avenirs: boolean[] }) {
+  const avenir = payload ? avenirs[payload.index] : false;
+  return (
+    <text x={x} y={y} dy={10} textAnchor="middle" fontSize={11} className="fill-muted-foreground" opacity={avenir ? 0.45 : 1}>
+      {payload?.value}
+    </text>
+  );
+}
+
+function GraphiqueNuits({ colonnes, objectif }: { colonnes: ColonneNuit[]; objectif: number }) {
+  const donnees = colonnes.map((c) => ({
+    ...c,
+    date: nuitEnMots(c.nuit),
+    // 0 plutôt que null : la barre est invisible mais l'infobulle dit « pas de mesure ».
+    heures: c.minutes === null ? 0 : c.minutes / 60,
+    sieste: c.siesteMin / 60,
+    // Nuit à venir : un contour en pointillés à la hauteur de l'objectif.
+    aVenir: c.avenir ? objectif / 60 : 0,
+  }));
   const max = Math.max(objectif / 60, ...donnees.map((d) => d.heures + d.sieste)) * 1.08;
-  const sansMesure = donnees.some((d) => d.minutes === null && d.siesteMin === 0);
+  const sansMesure = donnees.some((d) => !d.avenir && d.minutes === null && d.siesteMin === 0);
   const avecSieste = donnees.some((d) => d.siesteMin > 0);
+  const detail = (d: (typeof donnees)[number]) => (d.avenir ? 'à venir' : detailNuit(d.minutes, d.siesteMin));
   return (
     <div className="grid gap-1.5">
       <ChartContainer config={config} className="aspect-auto h-32 w-full [&_.recharts-wrapper]:outline-none [&_g]:outline-none">
         <BarChart data={donnees} margin={{ top: 6, right: 4, left: 4, bottom: 0 }} accessibilityLayer={false}>
-          <XAxis dataKey="jour" tickLine={false} axisLine={false} tickMargin={6} fontSize={11} />
+          <XAxis dataKey="jour" tickLine={false} axisLine={false} tickMargin={6} interval={0} tick={<EtiquetteJour avenirs={donnees.map((d) => d.avenir)} />} />
           <YAxis hide domain={[0, max]} />
           <ChartTooltip
             cursor={false}
@@ -140,25 +197,30 @@ function GraphiqueNuits({ nuits, objectif, aujourdhui, siestesDuJour }: { nuits:
               return (
                 <div className="border-border/50 bg-background grid gap-0.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-xl">
                   <span className="font-medium">{d.date}</span>
-                  <span className="text-muted-foreground">{detailNuit(d.minutes, d.siesteMin)}</span>
+                  <span className="text-muted-foreground">{detail(d)}</span>
                 </div>
               );
             }}
           />
           <Bar dataKey="heures" stackId="sommeil" maxBarSize={28} isAnimationActive={false}>
             {donnees.map((d) => (
-              <Cell key={d.date} fill="var(--sommeil-nuit)" radius={(d.siesteMin > 0 ? [0, 0, 4, 4] : 4) as never} />
+              <Cell key={d.nuit} fill="var(--sommeil-nuit)" radius={(d.siesteMin > 0 ? [0, 0, 4, 4] : 4) as never} />
             ))}
           </Bar>
           <Bar dataKey="sieste" stackId="sommeil" maxBarSize={28} isAnimationActive={false}>
             {donnees.map((d) => (
               <Cell
-                key={d.date}
+                key={d.nuit}
                 fill="var(--sommeil-sieste)"
                 stroke="var(--card)"
                 strokeWidth={d.minutes === null ? 0 : 2}
                 radius={(d.minutes === null ? 4 : [4, 4, 0, 0]) as never}
               />
+            ))}
+          </Bar>
+          <Bar dataKey="aVenir" stackId="sommeil" maxBarSize={28} isAnimationActive={false}>
+            {donnees.map((d) => (
+              <Cell key={d.nuit} fill="transparent" stroke="var(--muted-foreground)" strokeOpacity={0.5} strokeWidth={1.25} strokeDasharray="3 3" radius={4 as never} />
             ))}
           </Bar>
           <ReferenceLine y={objectif / 60} stroke="var(--muted-foreground)" strokeDasharray="4 3" strokeWidth={1.5} ifOverflow="extendDomain" />
@@ -180,8 +242,8 @@ function GraphiqueNuits({ nuits, objectif, aujourdhui, siestesDuJour }: { nuits:
       </div>
       <ul className="sr-only">
         {donnees.map((d) => (
-          <li key={d.date}>
-            {d.date} : {detailNuit(d.minutes, d.siesteMin)}
+          <li key={d.nuit}>
+            {d.date} : {detail(d)}
           </li>
         ))}
       </ul>
@@ -204,6 +266,8 @@ function Case({ icone: Icone, valeur, mot, classe, titre }: { icone: typeof Moon
 
 /** Ce que le bloc « semaine » affiche : la semaine en cours, ou la dernière semaine close. */
 interface SemaineAffichee {
+  /** Lundi de la semaine : le graphique des nuits montre la même. */
+  debut: DateLocale;
   /** « Cette semaine » ou « Semaine du 26 oct. · close ». */
   titre: string;
   close: boolean;
@@ -230,11 +294,12 @@ export function semaineAAfficher(
   semaine: DetteSemaine | undefined,
   bilans: BilanSemaine[] | undefined,
 ): { semaine: SemaineAffichee; precedente: BilanSemaine | undefined } | null {
-  if (semaine && semaine.nuits_mesurees > 0) {
+  const debut = semaineAffichee(semaine, bilans);
+  if (debut === null) return null;
+  if (semaine && debut === semaine.debut) {
     return { semaine: { ...semaine, titre: 'Cette semaine', close: false }, precedente: bilans?.[0] };
   }
-  const close = bilans?.[0];
-  if (!close || close.nuits_mesurees === 0) return null;
+  const close = bilans![0]!;
   return {
     semaine: { ...close, reste_min: close.non_rattrape_min, titre: `Semaine du ${jourEtMois(close.debut)} · close`, close: true },
     precedente: bilans?.[1],
@@ -360,6 +425,13 @@ export function CarteSommeil({ statut }: { statut: ReponseStatut }) {
   // Semaine en cours, ou la dernière close tant que la nouvelle n'a aucune nuit mesurée.
   const blocSemaine = semaineAAfficher(statut.dette_semaine, statut.bilans_semaines);
   const tardive = statut.sieste_tardive ?? null;
+  // Graphique : la même semaine que le bloc, lun. → dim. (nuits de la semaine, et les 7 dernières pour
+  // la sieste du lendemain ; `nuits_semaine` absent d'une API plus ancienne : les 7 dernières seules).
+  const connues = [...(statut.nuits_semaine ?? []), ...nuits.filter((n) => !statut.nuits_semaine?.some((x) => x.nuit === n.nuit))];
+  const colonnes = blocSemaine ? colonnesDeLaSemaine(blocSemaine.semaine.debut, connues, statut.journee.date, statut.siestes_du_jour_min ?? 0) : null;
+  const titreGraphique = blocSemaine ? `Semaine du ${jourEtMois(blocSemaine.semaine.debut)}` : '';
+  const colonnesFinies = colonnes?.filter((c) => !c.avenir).length ?? 0;
+  const colonnesMesurees = colonnes?.filter((c) => c.minutes !== null).length ?? 0;
 
   return (
     <Card className="gap-4">
@@ -398,17 +470,17 @@ export function CarteSommeil({ statut }: { statut: ReponseStatut }) {
             {blocSemaine.precedente ? <Tendance semaine={blocSemaine.semaine} precedente={blocSemaine.precedente} /> : null}
           </div>
         ) : null}
-        {mesurees.length > 0 ? (
-          <section className="grid gap-2" aria-label={`${nuits.length} dernières nuits`}>
+        {colonnes ? (
+          <section className="grid gap-2" aria-label={titreGraphique}>
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-sm">
-              <span className="text-muted-foreground">{nuits.length} dernières nuits</span>
-              {mesurees.length < nuits.length ? (
+              <span className="text-muted-foreground">{titreGraphique}</span>
+              {colonnesMesurees < colonnesFinies ? (
                 <span className="text-muted-foreground text-xs">
-                  {mesurees.length}/{nuits.length} mesurées
+                  {colonnesMesurees}/{colonnesFinies} mesurées
                 </span>
               ) : null}
             </div>
-            <GraphiqueNuits nuits={nuits} objectif={objectif} aujourdhui={statut.journee.date} siestesDuJour={statut.siestes_du_jour_min ?? 0} />
+            <GraphiqueNuits colonnes={colonnes} objectif={objectif} />
           </section>
         ) : null}
         {tardive ? (

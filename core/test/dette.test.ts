@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compteSemaine, dettesHebdomadaires, lundiDe, lundiDeLaNuit } from '../src/dette';
+import { compteSemaine, dettesHebdomadaires, lundiDe, lundiDeLaNuit, nuitsDeLaSemaine, semaineAffichee } from '../src/dette';
 
 describe('dette de sommeil hebdomadaire (CDC §4, 01/11)', () => {
   const n = (nuit: string, endormi_min: number | null, siestes_min = 0) => ({ nuit, endormi_min, siestes_min });
@@ -71,5 +71,34 @@ describe('dette de sommeil hebdomadaire (CDC §4, 01/11)', () => {
     ]);
     expect(dettesHebdomadaires('2026-11-07', [], 480, 0).dette_semaine.nuits_restantes).toBe(1); // samedi : cette dernière nuit
     expect(dettesHebdomadaires('2026-11-09', nuits, 480, 0).dette_semaine).toMatchObject({ debut: '2026-11-09', nuits_restantes: 6, nuits_total: 0, dette_min: 0 });
+  });
+
+  describe('semaine affichée par la carte Sommeil (bloc et graphique)', () => {
+    const nuits = [n('2026-10-25', 430), n('2026-10-31', 450), n('2026-11-01', 400), n('2026-11-02', 420), n('2026-11-03', null), n('2026-11-07', 470), n('2026-11-08', 300)];
+
+    it('un mercredi : la semaine en cours, ses nuits de dimanche à lundi jusqu’à hier', () => {
+      const r = dettesHebdomadaires('2026-11-04', nuits.slice(0, 5), 480, 0);
+      const lundi = semaineAffichee(r.dette_semaine, r.bilans_semaines);
+      expect(lundi).toBe('2026-11-02');
+      expect(nuitsDeLaSemaine(lundi!, nuits.slice(0, 5)).map((x) => x.nuit)).toEqual(['2026-11-01', '2026-11-02', '2026-11-03']);
+    });
+
+    it('le dimanche : la semaine en cours n’a aucune nuit, la semaine qui vient de se clore', () => {
+      const finies = nuits.filter((x) => x.nuit < '2026-11-08');
+      const r = dettesHebdomadaires('2026-11-08', finies, 480, 0);
+      expect(r.dette_semaine.debut).toBe('2026-11-09');
+      const lundi = semaineAffichee(r.dette_semaine, r.bilans_semaines);
+      expect(lundi).toBe('2026-11-02');
+      // La nuit du samedi 31/10 au dimanche est dans la semaine d'avant ; celle du samedi 07/11 clôt celle-ci.
+      expect(nuitsDeLaSemaine(lundi!, finies).map((x) => x.nuit)).toEqual(['2026-11-01', '2026-11-02', '2026-11-03', '2026-11-07']);
+    });
+
+    it('semaine en cours sans mesure : la close ; rien de mesuré : null', () => {
+      const courante = { debut: '2026-11-09', nuits_mesurees: 0 };
+      expect(semaineAffichee(courante, [{ debut: '2026-11-02', nuits_mesurees: 5 }])).toBe('2026-11-02');
+      expect(semaineAffichee(courante, [{ debut: '2026-11-02', nuits_mesurees: 0 }])).toBeNull();
+      expect(semaineAffichee(undefined, undefined)).toBeNull();
+      expect(semaineAffichee({ ...courante, nuits_mesurees: 1 }, [])).toBe('2026-11-09');
+    });
   });
 });

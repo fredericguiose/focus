@@ -11,6 +11,7 @@ export const CLES_STATUT = [
   'actions',
   'engagements_demain',
   'nuits',
+  'nuits_semaine',
   'dette_cumulee_min',
   'dette_semaine',
   'bilans_semaines',

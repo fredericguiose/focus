@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { creerApiSimulee } from '@/api/simule';
 import type { ReponseStatut } from '@/api/contrat';
-import { alerteAgenda, tendanceEnMots, CarteSommeil, detailNuit, ecartEnMots, ecartNuitEnMots, rattrapee } from '@/composants/statut/CarteSommeil';
+import { alerteAgenda, colonnesDeLaSemaine, tendanceEnMots, CarteSommeil, detailNuit, ecartEnMots, ecartNuitEnMots, nuitEnMots, rattrapee } from '@/composants/statut/CarteSommeil';
 
 const MARDI_15H = Date.parse('2026-11-03T14:00:00Z');
 const statut = () => creerApiSimulee({ maintenant: () => MARDI_15H, fuseau: 'Europe/Paris', phase: 'journee' }).statut();
@@ -16,7 +16,7 @@ describe('carte « Sommeil »', () => {
     expect(ecartEnMots(-107, ' au total').texte).toBe('1 h 47 de moins au total');
   });
 
-  it('mode simulé : temps dormi cette nuit, écart, phases, semaine, 7 dernières nuits, semaines passées', async () => {
+  it('mode simulé : temps dormi cette nuit, écart, phases, semaine, graphique de la semaine, tendance', async () => {
     const s = await statut();
     const { container } = render(<CarteSommeil statut={s} />);
     expect(screen.getByText('Sommeil')).toBeTruthy();
@@ -31,10 +31,22 @@ describe('carte « Sommeil »', () => {
     // Semaine du lundi 02/11 : nuits de dimanche à lundi (1 h) et de lundi à mardi (22 min), la sieste de mardi (45 min).
     expect(screen.getByText('Cette semaine')).toBeTruthy();
     expect(screen.getByText('Cette semaine : 1 h 22 manquée, 45 min rattrapées (nuits plus longues et siestes), 37 min à rattraper.')).toBeTruthy();
-    expect(screen.getByText('7 dernières nuits')).toBeTruthy();
-    expect(screen.getByText('6/7 mesurées')).toBeTruthy();
+    // Graphique : la même semaine, lun. → dim. ; mardi, deux nuits finies (mesurées), cinq à venir.
+    const graphique = screen.getByLabelText('Semaine du 2 nov.');
+    expect(graphique.textContent).not.toMatch(/mesurées/);
+    const lignes = [...graphique.querySelectorAll('li')].map((li) => li.textContent);
+    expect(lignes).toEqual([
+      'nuit du dim. 1er au lun. 2 nov. : 7 h dormies',
+      'nuit du lun. 2 au mar. 3 nov. : 7 h 38 de nuit + 45 min de sieste',
+      'nuit du mar. 3 au mer. 4 nov. : à venir',
+      'nuit du mer. 4 au jeu. 5 nov. : à venir',
+      'nuit du jeu. 5 au ven. 6 nov. : à venir',
+      'nuit du ven. 6 au sam. 7 nov. : à venir',
+      'nuit du sam. 7 au dim. 8 nov. : à venir',
+    ]);
+    // Nuits à venir : pas « pas de mesure ».
+    expect(screen.queryByText('pas de barre : pas de mesure')).toBeNull();
     expect(screen.queryByText(/incompl/)).toBeNull();
-    expect(screen.getByText(/pas de mesure$/, { selector: 'li' })).toBeTruthy();
     // Plus de tableau des semaines passées : une ligne de tendance face à la semaine dernière.
     expect(screen.queryByLabelText('Semaines passées')).toBeNull();
     expect(screen.getByText(/de manque en (plus|moins) par nuit que la semaine dernière|comme la semaine dernière/)).toBeTruthy();
@@ -109,7 +121,7 @@ describe('carte « Sommeil »', () => {
       const s = await statut();
       const lundi = { ...vide, dette_min: 30, reste_min: 30, nuits_restantes: 6, nuits_mesurees: 1, nuits_total: 1 };
       render(<CarteSommeil statut={{ ...s, dette_semaine: lundi, bilans_semaines: [close, avant] }} />);
-      expect(screen.queryByLabelText(/Semaine du/)).toBeNull();
+      expect(screen.queryByLabelText(/· close/)).toBeNull();
       expect(screen.getByLabelText('Cette semaine').textContent).toContain('30 min à rattraper');
       expect(screen.getByText('comme la semaine dernière')).toBeTruthy();
     });
@@ -191,7 +203,8 @@ describe('carte « Sommeil »', () => {
     const s = await statut();
     render(<CarteSommeil statut={s} />);
     expect(screen.getByText('sieste')).toBeTruthy();
-    expect(screen.getByText(/de nuit \+ 1 h de sieste$/, { selector: 'li' })).toBeTruthy();
+    // La sieste d'aujourd'hui (mardi) rattrape la nuit de lundi à mardi.
+    expect(screen.getByText(/^nuit du lun\. 2 au mar\. 3 nov\. : 7 h 38 de nuit \+ 45 min de sieste$/, { selector: 'li' })).toBeTruthy();
     // « Cette nuit » reste la nuit seule.
     expect(screen.getByText('7 h 38')).toBeTruthy();
     expect(screen.getByText("22 min de moins que l'objectif, rattrapées en sieste")).toBeTruthy();
@@ -231,23 +244,90 @@ describe('carte « Sommeil »', () => {
     expect(screen.getByText(/Sieste tardive : vous endormir à 18:30 pourrait être plus difficile\./)).toBeTruthy();
   });
 
-  it('graphique : la sieste est un segment vert empilé sur la nuit d’avant', async () => {
-    // jsdom ne mesure rien : on donne une taille au conteneur du graphique.
+  /** jsdom ne mesure rien : on donne une taille au conteneur du graphique, le temps du rendu. */
+  async function rendreGraphique(s: ReponseStatut) {
     const espion = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, top: 0, left: 0, right: 600, bottom: 128, width: 600, height: 128, toJSON: () => ({}) });
-    const s = await statut();
-    // Sans la sieste d'aujourd'hui : il ne reste qu'une sieste passée.
-    const { container } = render(<CarteSommeil statut={{ ...s, siestes_du_jour: [], siestes_du_jour_min: 0 }} />);
+    const { container } = render(<CarteSommeil statut={s} />);
     await new Promise((r) => setTimeout(r, 0));
     const rect = (e: Element) => ({ x: Number(e.getAttribute('x')), y: Number(e.getAttribute('y')), h: Number(e.getAttribute('height')) });
-    const nuits = [...container.querySelectorAll('.recharts-bar-rectangle path[fill="var(--sommeil-nuit)"]')].map(rect);
-    const siestes = [...container.querySelectorAll('.recharts-bar-rectangle path[fill="var(--sommeil-sieste)"]')].map(rect);
+    const barres = (selecteur: string) => [...container.querySelectorAll(`.recharts-bar-rectangle path${selecteur}`)].map(rect).sort((p, q) => p.x - q.x);
+    const res = {
+      nuits: barres('[fill="var(--sommeil-nuit)"]'),
+      siestes: barres('[fill="var(--sommeil-sieste)"]'),
+      avenir: barres('[fill="transparent"]'),
+      etiquettes: [...container.querySelectorAll('text')].filter((t) => /^\S+\.$/.test(t.textContent ?? '')).map((t) => [t.textContent, t.getAttribute('opacity')]),
+    };
     espion.mockRestore();
-    expect(nuits).toHaveLength(6);
-    expect(siestes).toHaveLength(1);
-    // Posée sur le sommet d'une barre de nuit (la nuit d'avant la sieste).
-    const nuit = nuits.find((n) => Math.abs(n.x - siestes[0]!.x) < 0.5)!;
-    expect(nuit).toBeTruthy();
-    expect(siestes[0]!.y + siestes[0]!.h).toBeCloseTo(nuit.y, 0);
+    return res;
+  }
+
+  it('graphique : la sieste du lundi se pose sur la nuit de dimanche à lundi (colonne « lun. »)', async () => {
+    const s = await statut();
+    // Mardi 03/11, sans la sieste du jour : une sieste lundi 02/11 (journée de la nuit du 02/11).
+    const avecSieste = <T extends { nuit: string }>(n: T) => (n.nuit === '2026-11-02' ? { ...n, siestes_min: 30 } : { ...n, siestes_min: 0, siestes: [] });
+    const g = await rendreGraphique({ ...s, nuits: s.nuits!.map(avecSieste), nuits_semaine: s.nuits_semaine!.map(avecSieste), siestes_du_jour: [], siestes_du_jour_min: 0 });
+    expect(g.nuits).toHaveLength(2);
+    expect(g.siestes).toHaveLength(1);
+    // Posée sur le sommet de la première barre : la nuit de dimanche à lundi.
+    expect(Math.abs(g.siestes[0]!.x - g.nuits[0]!.x)).toBeLessThan(0.5);
+    expect(g.siestes[0]!.y + g.siestes[0]!.h).toBeCloseTo(g.nuits[0]!.y, 0);
+    expect(screen.getByText(/^nuit du dim\. 1er au lun\. 2 nov\. : 7 h de nuit \+ 30 min de sieste$/, { selector: 'li' })).toBeTruthy();
+  });
+
+  it('graphique : nuits à venir en pointillés, à la hauteur de l’objectif, étiquettes atténuées', async () => {
+    const g = await rendreGraphique(await statut());
+    expect(g.etiquettes.map(([t]) => t)).toEqual(['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.']);
+    expect(g.etiquettes.map(([, o]) => o)).toEqual(['1', '1', '0.45', '0.45', '0.45', '0.45', '0.45']);
+    expect(g.avenir).toHaveLength(5);
+    // Au-delà des deux nuits finies.
+    for (const a of g.avenir) expect(a.x).toBeGreaterThan(g.nuits[1]!.x);
+  });
+});
+
+describe('graphique de la semaine (lun. → dim., comme la dette hebdomadaire)', () => {
+  it('nuit en mots : du soir au matin, mois une fois, « 1er »', () => {
+    expect(nuitEnMots('2026-11-01')).toBe('nuit du dim. 1er au lun. 2 nov.');
+    expect(nuitEnMots('2026-10-31')).toBe('nuit du sam. 31 oct. au dim. 1er nov.');
+    expect(nuitEnMots('2026-11-07')).toBe('nuit du sam. 7 au dim. 8 nov.');
+  });
+
+  it('un mercredi : la semaine en cours, trois nuits finies, quatre à venir', async () => {
+    const s = await creerApiSimulee({ maintenant: () => Date.parse('2026-11-04T14:00:00Z'), fuseau: 'Europe/Paris', phase: 'journee' }).statut();
+    const cols = colonnesDeLaSemaine('2026-11-02', s.nuits_semaine!, '2026-11-04', 0);
+    expect(cols.map((c) => [c.jour, c.nuit, c.avenir])).toEqual([
+      ['lun.', '2026-11-01', false],
+      ['mar.', '2026-11-02', false],
+      ['mer.', '2026-11-03', false],
+      ['jeu.', '2026-11-04', true],
+      ['ven.', '2026-11-05', true],
+      ['sam.', '2026-11-06', true],
+      ['dim.', '2026-11-07', true],
+    ]);
+    render(<CarteSommeil statut={s} />);
+    expect(screen.getByLabelText('Cette semaine')).toBeTruthy();
+    expect(screen.getByLabelText('Semaine du 2 nov.').querySelectorAll('li')).toHaveLength(7);
+  });
+
+  it('le dimanche : la semaine qui vient de se clore, ses 7 nuits finies ; non mesurée : pas de barre', async () => {
+    const s = await creerApiSimulee({ maintenant: () => Date.parse('2026-11-01T14:00:00Z'), fuseau: 'Europe/Paris', phase: 'journee' }).statut();
+    render(<CarteSommeil statut={s} />);
+    expect(screen.getByLabelText(/^Semaine du 26 oct\. · close$/)).toBeTruthy();
+    const graphique = screen.getByLabelText('Semaine du 26 oct.');
+    const lignes = [...graphique.querySelectorAll('li')].map((li) => li.textContent ?? '');
+    expect(lignes[0]).toMatch(/^nuit du dim\. 25 au lun\. 26 oct\. : /);
+    expect(lignes[6]).toMatch(/^nuit du sam\. 31 oct\. au dim\. 1er nov\. : /);
+    expect(lignes.some((l) => l.endsWith('à venir'))).toBe(false);
+    // La nuit fictive sans mesure (25/10, de dimanche à lundi) : « pas de mesure », et la légende le dit.
+    expect(lignes[0]).toBe('nuit du dim. 25 au lun. 26 oct. : pas de mesure');
+    expect(graphique.textContent).toContain('6/7 mesurées');
+    expect(graphique.textContent).toContain('pas de barre : pas de mesure');
+  });
+
+  it('API sans `nuits_semaine` : les 7 dernières nuits remplissent les colonnes', async () => {
+    const s = await statut();
+    const { nuits_semaine: _, ...ancienne } = s;
+    render(<CarteSommeil statut={ancienne} />);
+    expect(screen.getByLabelText('Semaine du 2 nov.').querySelectorAll('li')[1]!.textContent).toBe('nuit du lun. 2 au mar. 3 nov. : 7 h 38 de nuit + 45 min de sieste');
   });
 });
 

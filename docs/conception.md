@@ -676,6 +676,7 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
                "endormi_min": number | null, "incomplete": bool,
                "phases": { "legere", "profonde", "rem", "eveil" } | null,
                "siestes_min": number, "siestes": [ { "debut": "…Z", "fin": "…Z", "minutes": number } ] } ],
+  "nuits_semaine": [ /* même forme que "nuits" */ ],
   "dette_cumulee_min": number,
   "dette_semaine": { "debut": "YYYY-MM-DD", "fin": "YYYY-MM-DD", "dette_min": number, "rattrape_min": number,
                      "reste_min": number, "nuits_restantes": number, "nuits_mesurees": number, "nuits_total": number },
@@ -729,6 +730,13 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
 - `nuits` : les 7 nuits terminées J−7 … J−1, de la plus ancienne à la plus récente, `dette_min` =
   `journee(D).detteNuitMin` recalculée par le moteur avec la config active et les exceptions
   enregistrées ; `dette_cumulee_min` = leur somme.
+- `nuits_semaine` (02/11) : les nuits finies de la semaine que montre la carte Sommeil, même
+  forme que `nuits`, de la nuit de dimanche à lundi à la plus récente. Semaine choisie **côté
+  API**, par la même règle que le bloc « semaine » de la carte (`semaineAffichee` du cœur,
+  partagée avec la web app) : `dette_semaine` dès qu'elle a une nuit mesurée, sinon (le
+  dimanche, où elle commence ce soir) la dernière close (`bilans_semaines[0]`) si elle en a une,
+  sinon `[]`. Tirée des nuits déjà lues pour les bilans (`nuitsALire`), sans lecture de plus.
+  `nuits` reste : « Cette nuit » et la sieste du lendemain d'une nuit hors de la semaine en dépendent.
 - **Dette réelle** (sommeil mesuré, §4.4) : `dette_reelle_min` = cible − temps endormi de la nuit
   (somme des sessions de la nuit, siestes exclues ; null sans mesure). Une session appartient à
   la nuit du jour du soir : date locale de son milieu moins 12 h. **Rendormissement** (01/11) :
@@ -773,7 +781,7 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   plus ancienne semaine close, `nuitsALire`, et
   `moteur.journee` pour chaque jour sert à reconnaître les siestes). Conséquence assumée : changer
   `sommeil.cible` ou réimporter des mesures réécrit les bilans passés. Calcul pur dans
-  `core/src/dette.ts` (`lundiDeLaNuit`, `compteSemaine`, `dettesHebdomadaires`), partagé par l'API et le mode
+  `core/src/dette.ts` (`lundiDeLaNuit`, `compteSemaine`, `dettesHebdomadaires`, `semaineAffichee`, `nuitsDeLaSemaine`), partagé par l'API et le mode
   simulé de la web app. Remplace `dette_cumulee_reelle_min` (fenêtre glissante de 7 nuits, qui
   oubliait une dette au bout de 7 jours), supprimé.
 - **Fenêtre « Je vais dormir »** (web app, fusion du 01/11 avec la popup « rattraper le
@@ -807,9 +815,15 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   en vert (à 5 min près), « n/total mesurées » si une nuit finie n'est pas mesurée ; dessous, une
   ligne de tendance face à la semaine close la plus récente (`bilans_semaines[0]`), comparée par
   nuit mesurée (manque net moyen) : flèche + « 10 min de manque en plus/en moins par nuit que la
-  semaine dernière » ou « comme la semaine dernière » (à 5 min près) ; puis « 7 dernières nuits »
-  en barres (heures dormies, trait de l'objectif, pas de barre sans mesure, barre pâle si
-  incomplète). Pas de tableau des semaines passées (01/11 : « pas besoin de les afficher », juste
+  semaine dernière » ou « comme la semaine dernière » (à 5 min près) ; puis le graphique de **la
+  même semaine** (02/11 ; titre « Semaine du 2 nov. », date du lundi, « n/total mesurées » sur
+  les nuits finies) : 7 colonnes lun. → dim., chacune nommée par le matin où sa nuit se termine
+  (« lun. » = nuit de dimanche à lundi, « dim. » = de samedi à dimanche, comme la dette
+  hebdomadaire), barres des heures dormies, trait de l'objectif, pas de barre sans mesure
+  (légende « pas de barre : pas de mesure ») ; une nuit à venir (ce soir et après) a sa colonne,
+  un contour en pointillés à la hauteur de l'objectif et une étiquette atténuée ; infobulle « nuit
+  du dim. 1er au lun. 2 nov. » et le détail (« à venir » pour une nuit future). Données :
+  `nuits_semaine`, complétées par `nuits` (repli pour une API plus ancienne). Pas de tableau des semaines passées (01/11 : « pas besoin de les afficher », juste
   plus ou moins que la dernière) ; `bilans_semaines` reste dans l'API. Participes accordés à la durée, jamais de
   signe collé aux chiffres. Elle ne montre plus la dette prévue (`dette_min`, toujours renvoyée) ; le coucher prévu est dans « Ce soir ».
   Siestes : le chiffre de la dernière nuit reste la nuit seule ; dessous, si la nuit manque

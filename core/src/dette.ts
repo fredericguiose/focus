@@ -84,3 +84,26 @@ export function dettesHebdomadaires(jour: DateLocale, nuits: NuitDuCompte[], cib
     bilans_semaines: bilans,
   };
 }
+
+/** Ce qu'il faut d'une semaine pour choisir celle à afficher : son lundi et ses nuits mesurées. */
+interface SemaineComptee {
+  debut: DateLocale;
+  nuits_mesurees: number;
+}
+
+/**
+ * Lundi de la semaine que montre la carte Sommeil (bloc « semaine » et graphique des nuits, même
+ * règle) : la semaine en cours (celle de la nuit de ce soir) dès qu'elle a une nuit mesurée ; sinon
+ * (le dimanche : elle commence avec la nuit de ce soir) la dernière close, si elle en a une ; null
+ * s'il n'y a rien à montrer. `closes` : la plus récente d'abord.
+ */
+export function semaineAffichee(courante: SemaineComptee | undefined, closes: readonly SemaineComptee[] | undefined): DateLocale | null {
+  if (courante && courante.nuits_mesurees > 0) return courante.debut;
+  const close = closes?.[0];
+  return close && close.nuits_mesurees > 0 ? close.debut : null;
+}
+
+/** Les nuits de `nuits` qui appartiennent à la semaine du lundi `debut` (nuit D : semaine du matin D + 1), dans leur ordre. */
+export function nuitsDeLaSemaine<T extends { nuit: DateLocale }>(debut: DateLocale, nuits: readonly T[]): T[] {
+  return nuits.filter((n) => lundiDeLaNuit(n.nuit) === debut);
+}

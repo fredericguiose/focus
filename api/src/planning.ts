@@ -1,7 +1,7 @@
 // Planning d'un appareil (§4.3), statut pour l'interface, tâches du jour, raison d'un blocage.
 import type { ActionsIphone, ActionsPc, Config, Contexte, DateLocale, FaitsTodoist, EngagementPrevu, JournalDesCouchers, JournalDesLevers, Journee, Mesure, Moteur, Segment, SortieMode } from '../../core/src/types';
 import { tachesQuiRetiennent } from '../../core/src/conditions';
-import { dettesHebdomadaires, lundiDe, SEMAINES_DE_BILAN } from '../../core/src/dette';
+import { dettesHebdomadaires, lundiDe, nuitsDeLaSemaine, SEMAINES_DE_BILAN, semaineAffichee } from '../../core/src/dette';
 import { JOURS_DU_JOURNAL_DES_LEVERS } from '../../core/src/levers';
 import { dateCourte, JOURS_SEMAINE, jourSemaine } from '../../core/src/temps';
 import { etatSynchroAgenda } from './agenda';
@@ -392,6 +392,9 @@ async function calculerStatut(deps: Dependances, db: D1Database, jeton: JetonAut
   const { aujourdhui } = lues;
   const nuits = lues.nuits.slice(-NUITS_DU_STATUT);
   const siestesTotalMin = nuits.reduce((t, n) => t + n.siestes_min, 0) + somme(aujourdhui);
+  const semaines = dettesHebdomadaires(journee.date, lues.nuits, config.sommeil.cibleMin, somme(aujourdhui));
+  // Graphique de la carte Sommeil : les nuits finies de la semaine que montre le bloc « semaine ».
+  const lundiAffiche = semaineAffichee(semaines.dette_semaine, semaines.bilans_semaines);
   return {
     heure_serveur: versInstant(maintenant),
     config_version: version,
@@ -401,7 +404,8 @@ async function calculerStatut(deps: Dependances, db: D1Database, jeton: JetonAut
     engagements_demain: deps.moteur.engagementsPrevus(contexte, ajouterJours(journee.date, 1)).map(vueEngagement),
     nuits,
     dette_cumulee_min: nuits.reduce((total, n) => total + n.dette_min, 0),
-    ...dettesHebdomadaires(journee.date, lues.nuits, config.sommeil.cibleMin, somme(aujourdhui)),
+    ...semaines,
+    nuits_semaine: lundiAffiche ? nuitsDeLaSemaine(lundiAffiche, lues.nuits) : [],
     siestes_total_min: siestesTotalMin,
     siestes_du_jour: aujourdhui,
     siestes_du_jour_min: somme(aujourdhui),

@@ -76,6 +76,7 @@ export interface StatutFil {
   sessions: SessionFil[];
   sessions_du_jour?: { cumul_min: number; plafond_min: number };
   nuits?: NuitPassee[];
+  nuits_semaine?: NuitPassee[];
   dette_cumulee_min?: number;
   dette_semaine?: ReponseStatut['dette_semaine'];
   bilans_semaines?: ReponseStatut['bilans_semaines'];
@@ -175,6 +176,7 @@ export function statutDepuisFil(s: StatutFil): ReponseStatut {
     sessions: s.sessions.filter((x) => !x.fermee_le).map(sessionDepuisFil),
     ...(s.sessions_du_jour ? { sessions_du_jour: s.sessions_du_jour } : {}),
     ...(s.nuits ? { nuits: s.nuits } : {}),
+    ...(s.nuits_semaine ? { nuits_semaine: s.nuits_semaine } : {}),
     ...(s.dette_cumulee_min !== undefined ? { dette_cumulee_min: s.dette_cumulee_min } : {}),
     ...(s.dette_semaine ? { dette_semaine: s.dette_semaine } : {}),
     ...(s.bilans_semaines ? { bilans_semaines: s.bilans_semaines } : {}),

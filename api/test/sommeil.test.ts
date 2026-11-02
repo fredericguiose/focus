@@ -389,6 +389,8 @@ describe('GET /v1/statut : dette réelle (§4.6)', () => {
     });
     expect(r.corps.dette_cumulee_min).toBe(0);
     expect(r.corps.sommeil_mesure).toBeNull();
+    // Ni la semaine en cours ni la close n'ont de mesure : pas de graphique de semaine.
+    expect(r.corps.nuits_semaine).toEqual([]);
   });
 
   it('dette réelle = cible − endormi par nuit, siestes exclues ; cumul sur les nuits mesurées', async () => {
@@ -416,6 +418,8 @@ describe('GET /v1/statut : dette réelle (§4.6)', () => {
       debut: '2026-10-26', fin: '2026-11-01', dette_min: 0, rattrape_min: 30, non_rattrape_min: 0, nuits_mesurees: 1, nuits_total: 7,
     });
     expect(r.corps.dette_cumulee_min).toBe(0);
+    // Graphique de la semaine (mardi) : les nuits finies de la semaine du 02/11, même forme que `nuits`.
+    expect(r.corps.nuits_semaine).toEqual([par['2026-11-01'], par['2026-11-02']]);
   });
 
   it('sieste sans indicateur Xiaomi (fin d\'après-midi) : comptée à part de la nuit, et dans le total', async () => {
@@ -486,6 +490,19 @@ describe('dette de sommeil hebdomadaire (CDC §4, 01/11)', () => {
       });
       expect(r.corps.nuits).toHaveLength(7);
       expect(r.corps.nuits[0].nuit).toBe('2026-10-27');
+    });
+
+    it('nuits de la semaine affichée : le dimanche, celles de la semaine qui vient de se clore', async () => {
+      await poser('n2', '2026-11-02T21:00:00Z', '2026-11-03T05:00:00Z', 420); // nuit du lun. 02/11
+      await poser('n7', '2026-11-07T21:00:00Z', '2026-11-08T05:00:00Z', 450); // nuit du sam. 07/11 : clôt la semaine
+      horloge.regler('2026-11-08T10:00:00Z'); // dimanche 08/11 : la semaine en cours commence ce soir
+      const r = await api.get('/v1/statut', await creerJeton('interface', 'web'));
+      expect(r.corps.dette_semaine).toMatchObject({ debut: '2026-11-09', nuits_mesurees: 0, nuits_total: 0 });
+      expect(r.corps.nuits_semaine.map((n: { nuit: string }) => n.nuit)).toEqual([
+        '2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05', '2026-11-06', '2026-11-07',
+      ]);
+      expect(r.corps.nuits_semaine.map((n: { endormi_min: number | null }) => n.endormi_min)).toEqual([null, 420, null, null, null, null, 450]);
+      expect(r.corps.nuits_semaine.at(-1)).toEqual(r.corps.nuits.at(-1));
     });
   });
 });

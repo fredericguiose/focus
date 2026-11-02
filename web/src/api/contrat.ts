@@ -326,6 +326,13 @@ export interface ReponseStatut {
   sessions_du_jour?: { cumul_min: number; plafond_min: number };
   /** Dernières nuits, de la plus ancienne à la plus récente (optionnel : pas encore renvoyé par l'API réelle). */
   nuits?: NuitPassee[];
+  /**
+   * Nuits finies de la semaine que montre la carte Sommeil (même règle que le bloc « semaine » :
+   * en cours dès qu'elle a une nuit mesurée, sinon la dernière close ; `semaineAffichee` du cœur),
+   * de la nuit de dimanche à lundi à la plus récente ; vide s'il n'y a rien à montrer. Absent d'une
+   * API plus ancienne.
+   */
+  nuits_semaine?: NuitPassee[];
   /** Dette de sommeil cumulée sur ces nuits (optionnel, idem). */
   dette_cumulee_min?: number;
   /** Dette de sommeil de la semaine en cours, lundi → dimanche (absente d'une API plus ancienne). */
