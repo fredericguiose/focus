@@ -854,18 +854,26 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   un coucher décalé par exception compte donc comme un écart).
 - `levers` : `journalDesLevers(contexte, J, prévus figés)` (§3.1) ; prévus figés = colonne
   `lever` des photos de la table `nuits` (nuit D−1 → lever de D). Carte **« Régularité »** de la
-  web app, onglets « Couchers » (ouvert par défaut) et « Levers », même présentation : pour les
-  couchers, « Endormissements sur 7 nuits : de 22:10 à 01:12 · écart 3 h 02 (repère 2 h) »
-  (orange au-delà du repère, sans phrase de plus : ce n'est pas une règle ; « · 2 nuits
-  exclues » en cas de décalage horaire), puis une ligne par nuit (date du soir) : heure
-  d'endormissement et « 3 h 12 plus tard que prévu (22:00) », « comme prévu », « prévu 22:00, pas
-  de mesure » ou « décalage horaire, non compté ». Sans `couchers` (API plus ancienne), les
-  levers seuls, sans onglets. Pour les levers : « Levers sur 7 jours : de 04:32 à 06:10 · écart 1 h 38 (limite
-  2 h) » (« écart 2 h 20, au-dessus de la limite de 2 h » en orange ; « pas encore assez de
-  mesures » sous 2 mesures), puis une ligne par jour : heure mesurée, et « comme prévu » (à 5 min
-  près), « 20 min plus tard que prévu (05:50) », « 8 min plus tôt que prévu (04:30) », ou
-  « prévu 04:30, pas de mesure » (« pas encore mesuré » aujourd'hui), ou « décalage horaire, non
-  compté » (heure grisée) ; le résumé finit alors par « · 2 jours exclus ».
+  web app, onglets « Couchers » (ouvert par défaut) et « Levers », même présentation (refonte du
+  02/11 : un graphique au lieu d'une ligne de texte par jour). En tête, l'écart chiffré en grand,
+  vert sous le repère (couchers) ou la limite (levers), orange au-dessus : « 1 h 38 d'écart sur
+  5 nuits · repère 2 h » (« · 2 nuits non comptées (voyage) » en cas de décalage horaire) ; sous
+  2 mesures comptées, une phrase courte unique : « Voyage : 6 nuits non comptées » ou « Pas encore
+  assez de mesures ». Puis un graphique, une colonne par nuit (étiquette : jour du soir) ou par
+  jour (« auj. » pour la journée en cours), heures en ordonnée qui descendent comme dans un agenda
+  (minutes depuis midi du soir pour les couchers, pour franchir minuit ; depuis minuit pour les
+  levers), chaque heure lue dans le fuseau du lieu (`fuseau` de l'entrée) : petit trait = prévu,
+  point = mesuré (orange hors de la bande, creux et gris si non compté pour décalage horaire, rien
+  sans mesure), fil entre les deux = l'écart. **Bande de régularité** en fond : la largeur du
+  repère (`limite_min`), centrée sur le milieu entre la mesure comptée la plus tôt et la plus
+  tard ; toutes les mesures comptées y tiennent exactement quand l'écart est sous le repère, la
+  bande montre donc la même règle que le chiffre (une bande centrée sur la médiane ne le ferait
+  pas). Pas de bande sous 2 mesures comptées. Légende : mesuré, prévu, bande, « non compté
+  (voyage) » et « heures du lieu (Paris pendant le voyage) » une seule fois s'il y a lieu.
+  Infobulle par colonne : nuit en toutes lettres, mesuré, prévu, écart (« 3 h 25 plus tard »,
+  « comme prévu » à 5 min près), « Non compté : décalage horaire ». Lecteurs d'écran : le
+  résumé en une phrase et une ligne par jour (« endormi à 23:14 (heure de Paris), décalage
+  horaire, non compté »). Sans `couchers` (API plus ancienne), les levers seuls, sans onglets.
 - **Engagements vérifiés** (§3.8) : `aujourdhui` = date civile de maintenant dans le fuseau de la
   journée courante ; `engagements_verifies` = `verifierEngagements` sur les séances mesurées, des 7
   derniers jours à la fin de la semaine en cours (dimanche) : les jours après aujourd'hui sont

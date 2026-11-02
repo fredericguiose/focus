@@ -106,6 +106,23 @@ describe('rattachement d\'une session à sa nuit', () => {
     });
     expect(nuits.has('2026-11-02')).toBe(false);
   });
+
+  // Production, 02/11 : la carte Régularité disait « dim. 1 nov. : pas de mesure ». La nuit
+  // (01:57–10:57 heure de Cayenne, finie après le lever prévu) est bien celle du 01/11 : elle
+  // n'était simplement pas encore reçue (synchro Xiaomi à 12:45, après la capture).
+  it('nuit tardive à Cayenne, finie après le lever prévu : nuit du soir, endormissement compté', () => {
+    const CAYENNE = 'America/Cayenne';
+    const nuit: SommeilMesure = { debut: '2026-11-02T04:57:00Z', fin: '2026-11-02T13:57:00Z', endormi_min: 510, sieste: false, phases: null };
+    // Journées du plan : dimanche 01/11 (coucher 22:00) et lundi 02/11 (lever 06:00).
+    const journees = [
+      { date: '2026-11-01', fuseau: CAYENNE, lever: '2026-11-01T10:00:00Z', coucher: '2026-11-02T01:00:00Z' },
+      { date: '2026-11-02', fuseau: CAYENNE, lever: '2026-11-02T09:00:00Z', coucher: '2026-11-03T01:00:00Z' },
+    ];
+    const { nuits, siestes } = separerSiestes([nuit], journees, CAYENNE);
+    expect(siestes.size).toBe(0);
+    const mesurees = rattacherAuxNuits(nuits, [{ nuit: '2026-11-01', fuseau: CAYENNE }]);
+    expect(mesurees.get('2026-11-01')).toMatchObject({ endormissement: '2026-11-02T04:57:00Z', incomplete: false, endormi_min: 510 });
+  });
 });
 
 describe('siestes : classement nuit / sieste (§4.6)', () => {
