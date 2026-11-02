@@ -19,7 +19,7 @@ import { libelleAppareil } from '@/lib/appareils';
 import { basculerGroupe, etatGroupe, type GroupeAffiche, regrouperApps } from '@/lib/groupes';
 import { phrase } from '@/lib/texte';
 import { ATTENTE_OUVERTURE_S, tacheEligible } from '@/lib/attente';
-import { formaterHeure } from '@/lib/temps';
+import { formaterDuree, formaterHeure } from '@/lib/temps';
 import { cn } from '@/lib/utils';
 import { ErreurAffichee } from './ErreurAffichee';
 
@@ -55,6 +55,37 @@ function CaseApp({ app, choisies, surChoix, prefixe }: { app: AppBloquee; choisi
   );
 }
 
+/** App hors groupe : même ligne que les groupes (nom + description courte), pour des hauteurs égales. */
+function LigneApp({
+  app,
+  description,
+  choisies,
+  surChoix,
+}: {
+  app: AppBloquee;
+  description: string;
+  choisies: string[];
+  surChoix: (a: string[]) => void;
+}) {
+  const id = `app-${app.id}`;
+  const coche = choisies.includes(app.id);
+  return (
+    <div className={cn('rounded-lg border', coche && 'border-primary bg-accent/20')}>
+      <div className="flex min-h-14 items-center gap-2.5 px-3 py-2">
+        <Checkbox
+          id={id}
+          checked={coche}
+          onCheckedChange={(c) => surChoix(c === true ? [...choisies, app.id] : choisies.filter((x) => x !== app.id))}
+        />
+        <Label htmlFor={id} className="grid min-w-0 flex-1 cursor-pointer gap-0.5 font-normal">
+          <span className="font-medium">{app.nom}</span>
+          <span className="text-muted-foreground truncate text-xs">{description}</span>
+        </Label>
+      </div>
+    </div>
+  );
+}
+
 function Groupe({ groupe, choisies, surChoix }: { groupe: GroupeAffiche; choisies: string[]; surChoix: (a: string[]) => void }) {
   const [ouvert, setOuvert] = useState(false);
   const etat = etatGroupe(groupe, choisies);
@@ -62,12 +93,12 @@ function Groupe({ groupe, choisies, surChoix }: { groupe: GroupeAffiche; choisie
   const n = groupe.apps.filter((a) => choisies.includes(a.id)).length;
   return (
     <div className={cn('rounded-lg border', etat !== false && 'border-primary bg-accent/20')}>
-      <div className="flex items-center gap-2.5 px-3 py-2.5">
+      <div className="flex min-h-14 items-center gap-2.5 px-3 py-2">
         <Checkbox id={id} checked={etat} onCheckedChange={() => surChoix(basculerGroupe(groupe, choisies))} aria-label={`Tout le groupe ${groupe.nom}`} />
         <Label htmlFor={id} className="grid min-w-0 flex-1 cursor-pointer gap-0.5 font-normal">
           <span className="font-medium">{groupe.nom}</span>
-          <span className="text-muted-foreground text-xs">
-            {etat === 'indeterminate' ? `${n} sur ${groupe.apps.length}` : 'Tout le groupe'} · {groupe.apps.map((a) => a.nom).join(', ')}
+          <span className="text-muted-foreground truncate text-xs">
+            {etat === 'indeterminate' ? `${n} sur ${groupe.apps.length}` : `${groupe.apps.length} apps`}
           </span>
         </Label>
         <Button
@@ -107,21 +138,19 @@ function ChoixApps({
   surChoix: (a: string[]) => void;
 }) {
   const r = regrouperApps(apps, groupes);
+  const plafonds = useStatut().sessions_du_jour?.par_app ?? [];
+  const descriptionApp = (id: string) => {
+    const p = plafonds.find((x) => x.app === id);
+    return p ? `Plafond propre · ${formaterDuree(p.plafond_min)}` : 'App seule';
+  };
   return (
     <div className="grid gap-2">
       {r.groupes.map((g) => (
         <Groupe key={g.id} groupe={g} choisies={choisies} surChoix={surChoix} />
       ))}
-      {r.seules.length > 0 ? (
-        <div className="grid gap-2">
-          {r.groupes.length > 0 ? <span className="text-muted-foreground text-xs">Autres apps</span> : null}
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {r.seules.map((a) => (
-              <CaseApp key={a.id} app={a} choisies={choisies} surChoix={surChoix} prefixe="app" />
-            ))}
-          </div>
-        </div>
-      ) : null}
+      {r.seules.map((a) => (
+        <LigneApp key={a.id} app={a} description={descriptionApp(a.id)} choisies={choisies} surChoix={surChoix} />
+      ))}
     </div>
   );
 }
