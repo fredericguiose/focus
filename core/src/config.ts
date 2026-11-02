@@ -317,6 +317,17 @@ const schemaConfig = z.strictObject({
     prioritaires: z.array(priorite).min(1).default(['p1', 'p2']),
     etiquettes_exclues: z.array(texte).default([]),
   }),
+  google_agenda: z
+    .strictObject({
+      agenda: z
+        .string()
+        .trim()
+        .refine((v) => v === 'primary' || /^[^\s@/]+@[^\s@/]+$/.test(v), {
+          error: 'identifiant d\'agenda invalide : attendu « primary » ou « …@group.calendar.google.com »',
+        })
+        .optional(),
+    })
+    .optional(),
   prix_du_report: z.strictObject({
     par_report: duree,
     plafond: duree,
@@ -461,6 +472,7 @@ function normaliser(b: ConfigBrute): Config {
       hevyMin: b.synchro.hevy,
       googleAgendaMin: b.synchro.google_agenda,
     },
+    ...(b.google_agenda?.agenda ? { googleAgenda: { agenda: b.google_agenda.agenda } } : {}),
   };
 }
 
@@ -701,7 +713,7 @@ const CLES_CONNUES = [
   'prioritaires', 'etiquettes_exclues', 'prix_du_report', 'par_report', 'plafond', 'commentaire_min', 'deadline',
   'reports_max', 'jours_minimum', 'plafond_quotidien', 'attentes_s', 'delai_nouvelle_tache',
   'expiration_question_s', 'intervalle_question', 'pc', 'apres', 'avant', 'decale_par', 'filtre', 'au_plus',
-  'priorites', 'etiquettes_incluses', 'verification', 'mesure', 'synchro', 'xiaomi', 'hevy', 'google_agenda',
+  'priorites', 'etiquettes_incluses', 'verification', 'mesure', 'synchro', 'xiaomi', 'hevy', 'google_agenda', 'agenda',
 ];
 
 /** Clés retirées du schéma : un message qui dit quoi faire plutôt que « clé inconnue ». */

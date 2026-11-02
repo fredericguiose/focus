@@ -53,10 +53,10 @@ export interface NuitAgenda {
 }
 
 export interface ClientAgenda {
-  /** Crée ou remplace l'événement de la nuit. */
-  ecrireNuit(n: NuitAgenda): Promise<void>;
-  /** Supprime l'événement de la nuit ; déjà absent : rien. */
-  supprimerNuit(nuit: string): Promise<void>;
+  /** Crée ou remplace l'événement de la nuit dans `agenda` (défaut : agenda principal). */
+  ecrireNuit(n: NuitAgenda, agenda?: string): Promise<void>;
+  /** Supprime l'événement de la nuit dans `agenda` ; déjà absent : rien. */
+  supprimerNuit(nuit: string, agenda?: string): Promise<void>;
   /** Refresh token renvoyé par Google lors de l'échange (rare), sinon null. */
   refreshTokenRecu?(): string | null;
 }
@@ -66,13 +66,19 @@ export interface OptionsAgenda extends IdentifiantsGoogle {
 }
 
 export const URL_JETON_GOOGLE = 'https://oauth2.googleapis.com/token';
-export const URL_EVENEMENTS = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
+export const AGENDA_PRINCIPAL = 'primary';
+/** URL des événements d'un agenda (« primary » ou identifiant `…@group.calendar.google.com`). */
+export const urlEvenements = (agenda: string) => `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(agenda)}/events`;
+export const URL_EVENEMENTS = urlEvenements(AGENDA_PRINCIPAL);
 const DELAI_MS = 15_000;
 
-/** Seul gris de la palette d'événements (colorId 8, #e1e1e1, vérifié via /colors le 02/11). Bouleau (#cabdbf) n'existe que pour les agendas (id 20), pas pour un événement. */
-export const COULEUR_NUIT = '8';
+/**
+ * Pas de couleur sur l'événement : il prend celle de son agenda. Un événement n'accepte que les
+ * couleurs 1 à 11 (/colors, vérifié le 02/11) ; le Bouleau (#cabdbf) voulu par Frédéric n'existe que
+ * pour un agenda, d'où l'agenda « Sommeil » à part (`google_agenda.agenda` du YAML).
+ */
 /** Version du titre et de la couleur : la monter fait réécrire les nuits déjà écrites. */
-export const FORMAT_NUIT = 4;
+export const FORMAT_NUIT = 5;
 
 /** Heure locale du lever, format « 06h30 », dans le fuseau de la routine. */
 export function heureLever(instant: string, fuseau: string): string {
@@ -100,7 +106,6 @@ export function corpsEvenement(n: NuitAgenda) {
     id: idEvenementNuit(n.nuit),
     status: 'confirmed',
     summary: titreNuit(n),
-    colorId: COULEUR_NUIT,
     description: DESCRIPTION_NUIT,
     start: { dateTime: n.debut, timeZone: n.fuseau },
     end: { dateTime: n.fin, timeZone: n.fuseau },
@@ -208,19 +213,20 @@ export function creerClientAgenda(o: OptionsAgenda): ClientAgenda {
   }
 
   return {
-    async ecrireNuit(n) {
+    async ecrireNuit(n, agenda = AGENDA_PRINCIPAL) {
+      const base = urlEvenements(agenda);
       const id = idEvenementNuit(n.nuit);
       const corps = JSON.stringify(corpsEvenement(n));
-      const maj = await appeler(`${URL_EVENEMENTS}/${id}`, { method: 'PUT', headers: await entetes(), body: corps }, 'mise à jour');
+      const maj = await appeler(`${base}/${id}`, { method: 'PUT', headers: await entetes(), body: corps }, 'mise à jour');
       if (maj.ok) return liberer(maj);
       if (maj.status !== 404) throw await erreurApi(maj, 'mise à jour');
       await liberer(maj);
-      const creation = await appeler(URL_EVENEMENTS, { method: 'POST', headers: await entetes(), body: corps }, 'création');
+      const creation = await appeler(base, { method: 'POST', headers: await entetes(), body: corps }, 'création');
       if (!creation.ok) throw await erreurApi(creation, 'création');
       await liberer(creation);
     },
-    async supprimerNuit(nuit) {
-      const r = await appeler(`${URL_EVENEMENTS}/${idEvenementNuit(nuit)}`, { method: 'DELETE', headers: await entetes() }, 'suppression');
+    async supprimerNuit(nuit, agenda = AGENDA_PRINCIPAL) {
+      const r = await appeler(`${urlEvenements(agenda)}/${idEvenementNuit(nuit)}`, { method: 'DELETE', headers: await entetes() }, 'suppression');
       // 404 : jamais créé ; 410 : déjà supprimé.
       if (r.ok || r.status === 404 || r.status === 410) return liberer(r);
       throw await erreurApi(r, 'suppression');

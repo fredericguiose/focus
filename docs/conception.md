@@ -185,6 +185,14 @@ synchro: { todoist: "2min", xiaomi: "15min", hevy: "1h", google_agenda: "15min" 
 Planchers : 1 min (Todoist), **10 min (Xiaomi, API non officielle)**, 10 min (Hevy), 5 min
 (Google Agenda) ; 24 h au plus. Une seule source lourde par minute (§4.4).
 
+### 2.10 Agenda des nuits (facultatif)
+```yaml
+google_agenda: { agenda: "<id>@group.calendar.google.com" }   # absent : agenda principal (« primary »)
+```
+Agenda où le bloc de chaque nuit est écrit (titre « 🛌 Dormir c'est important lever 06h30 »,
+sans couleur propre : il prend celle de l'agenda, seule façon d'avoir une couleur hors des 11 des
+événements). Changer l'agenda retire les nuits à venir de l'ancien et les réécrit dans le nouveau.
+
 ## 3. Le moteur
 
 ### 3.1 Journée

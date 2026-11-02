@@ -10,7 +10,7 @@ import { chargerContexte, lireCache } from '../src/contexte';
 import type { Liaisons } from '../src/env';
 import { type ClientAgenda, ErreurAgenda, type IdentifiantsGoogle, type NuitAgenda, URL_EVENEMENTS, URL_JETON_GOOGLE, creerClientAgenda, idEvenementNuit } from '../src/google-agenda';
 import { executerTachesPlanifiees } from '../src/planifie';
-import { Horloge, MARDI, client, creerJeton, installerConfig } from './aides';
+import { Horloge, MARDI, client, configExemple, creerJeton, installerConfig } from './aides';
 
 const IDS: IdentifiantsGoogle = { clientId: 'client-id', clientSecret: 'secret-du-client', refreshToken: 'refresh-initial' };
 const SECRETS = {
@@ -54,7 +54,6 @@ describe('client Google Agenda (fetch simulé)', () => {
       id: 'focussommeil20261103',
       status: 'confirmed',
       summary: "🛌 Dormir c'est important lever 06h30",
-      colorId: '8',
       description: 'Tenu à jour par Focus',
       start: { dateTime: nuit.debut, timeZone: 'Europe/Paris' },
       end: { dateTime: nuit.fin, timeZone: 'Europe/Paris' },
@@ -124,6 +123,7 @@ describe('client Google Agenda (fetch simulé)', () => {
 /** Client simulé : journal des appels, panne réglable par refresh token. */
 function fauxAgenda() {
   const appels: string[] = [];
+  const agendas: string[] = [];
   const ecrits: NuitAgenda[] = [];
   const refuses = new Set<string>();
   let recu: string | null = null;
@@ -134,19 +134,21 @@ function fauxAgenda() {
       if (refuses.has(ids.refreshToken)) throw new ErreurAgenda('jeton_google_revoque', 'jeton : invalid_grant');
     };
     return {
-      async ecrireNuit(n) {
+      async ecrireNuit(n, agenda) {
         verifier();
         appels.push(`ecrire ${n.nuit}`);
+        agendas.push(`ecrire ${n.nuit} ${agenda}`);
         ecrits.push(n);
       },
-      async supprimerNuit(nuit) {
+      async supprimerNuit(nuit, agenda) {
         verifier();
         appels.push(`supprimer ${nuit}`);
+        agendas.push(`supprimer ${nuit} ${agenda}`);
       },
       refreshTokenRecu: () => recu,
     };
   };
-  return { appels, ecrits, refuses, jetonsUtilises, fabrique, recevoir: (j: string | null) => (recu = j) };
+  return { appels, agendas, ecrits, refuses, jetonsUtilises, fabrique, recevoir: (j: string | null) => (recu = j) };
 }
 
 /** Moteur dont le coucher appliqué d'une nuit est décalé (simule une exception). */
@@ -203,6 +205,21 @@ describe('synchro du bloc « Dormir »', () => {
     expect(faux.appels).toEqual(['ecrire 2026-11-03', 'ecrire 2026-11-04', 'ecrire 2026-11-03']);
     expect(faux.ecrits.at(-1)!.debut).toBe('2026-11-03T21:00:00Z');
     expect((await etat())!.nuits['2026-11-03']!.debut).toBe('2026-11-03T21:00:00Z');
+  });
+
+  it('google_agenda.agenda posé dans le YAML : nuits retirées de l’agenda principal puis écrites dans le nouveau, une seule fois', async () => {
+    await passer(MARDI.matin);
+    expect(faux.agendas).toEqual(['ecrire 2026-11-03 primary', 'ecrire 2026-11-04 primary']);
+    await installerConfig({ ...configExemple(), googleAgenda: { agenda: 'sommeil@group.calendar.google.com' } }, 'c0ffee2');
+    await passer('2026-11-03T10:15:00Z');
+    expect(faux.agendas.slice(2)).toEqual([
+      'supprimer 2026-11-03 primary',
+      'supprimer 2026-11-04 primary',
+      'ecrire 2026-11-03 sommeil@group.calendar.google.com',
+      'ecrire 2026-11-04 sommeil@group.calendar.google.com',
+    ]);
+    await passer('2026-11-03T10:30:00Z');
+    expect(faux.agendas).toHaveLength(6);
   });
 
   it('nuit passée (lever atteint) : jamais réécrite ni supprimée, retirée de l’état ; la nouvelle nuit entre', async () => {

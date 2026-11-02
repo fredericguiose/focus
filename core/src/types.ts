@@ -153,6 +153,8 @@ export interface Config {
    * `googleAgendaMin` absent avant le 02/11).
    */
   synchro?: { todoistMin: number; xiaomiMin: number; hevyMin: number; googleAgendaMin?: number };
+  /** Google Agenda : agenda où écrire les nuits (identifiant `…@group.calendar.google.com`) ; absent : agenda principal. */
+  googleAgenda?: { agenda?: string };
 }
 
 export type ResultatValidation =

@@ -8,7 +8,7 @@ import { type Chiffre, chiffrer, dechiffrer } from './chiffrement';
 import { prendreVerrou, rendreVerrou } from './cache';
 import { CLES_CACHE, ecrireCache, lireCache } from './contexte';
 import type { Liaisons } from './env';
-import { type ClientAgenda, ErreurAgenda, FORMAT_NUIT, type IdentifiantsGoogle, type NuitAgenda } from './google-agenda';
+import { AGENDA_PRINCIPAL, type ClientAgenda, ErreurAgenda, FORMAT_NUIT, type IdentifiantsGoogle, type NuitAgenda } from './google-agenda';
 import { ajouterJours, versInstant } from './temps';
 
 /** Nuits tenues à jour : celle de la journée en cours (ce soir) et la suivante. */
@@ -23,6 +23,8 @@ export interface EcritAgenda {
   fin: string;
   /** FORMAT_NUIT au moment de l'écriture ; absent = écrit avant le format 2. */
   format?: number;
+  /** Agenda où la nuit est écrite ; absent = agenda principal (écrit avant le réglage google_agenda.agenda). */
+  agenda?: string;
 }
 
 export interface EtatAgenda {
@@ -202,6 +204,10 @@ async function synchroniserSousVerrou(
   for (const [nuit, e] of Object.entries(avant?.nuits ?? {})) if (Date.parse(e.fin) > t) ecrits[nuit] = e;
   const etat: EtatAgenda = { tentee_le: tentee, reussie_le: avant?.reussie_le ?? null, erreur: null, nuits: ecrits };
 
+  // Agenda cible : `google_agenda.agenda` du YAML, sinon l'agenda principal. Nuits écrites dans un
+  // autre agenda (réglage posé ou changé) : retirées de l'ancien, puis réécrites dans le bon.
+  const agenda = contexte.config.googleAgenda?.agenda ?? AGENDA_PRINCIPAL;
+  const aDeplacer = Object.entries(ecrits).filter(([, e]) => (e.agenda ?? AGENDA_PRINCIPAL) !== agenda);
   const voulues = nuitsVoulues(moteur, contexte, maintenant);
   const aEcrire = voulues.filter((n) => ecrits[n.nuit]?.debut !== n.debut || ecrits[n.nuit]?.fin !== n.fin || ecrits[n.nuit]?.format !== FORMAT_NUIT);
   const aSupprimer = Object.keys(ecrits)
@@ -231,12 +237,18 @@ async function synchroniserSousVerrou(
   };
 
   try {
+    for (const [nuit, e] of aDeplacer) {
+      await avecClient((c) => c.supprimerNuit(nuit, e.agenda ?? AGENDA_PRINCIPAL));
+      delete ecrits[nuit];
+    }
+    for (const n of voulues.filter((v) => !ecrits[v.nuit] && !aEcrire.includes(v))) aEcrire.push(n);
     for (const n of aEcrire) {
-      await avecClient((c) => c.ecrireNuit(n));
-      ecrits[n.nuit] = { debut: n.debut, fin: n.fin, format: FORMAT_NUIT };
+      await avecClient((c) => c.ecrireNuit(n, agenda));
+      ecrits[n.nuit] = { debut: n.debut, fin: n.fin, format: FORMAT_NUIT, agenda };
     }
     for (const nuit of aSupprimer) {
-      await avecClient((c) => c.supprimerNuit(nuit));
+      if (!ecrits[nuit]) continue;
+      await avecClient((c) => c.supprimerNuit(nuit, ecrits[nuit]!.agenda ?? AGENDA_PRINCIPAL));
       delete ecrits[nuit];
     }
     etat.reussie_le = tentee;
