@@ -54,7 +54,7 @@ describe('client Google Agenda (fetch simulé)', () => {
       id: 'focussommeil20261103',
       status: 'confirmed',
       summary: "🛌 Dormir c'est important lever 06h30",
-      colorId: '9',
+      colorId: '8',
       description: 'Tenu à jour par Focus',
       start: { dateTime: nuit.debut, timeZone: 'Europe/Paris' },
       end: { dateTime: nuit.fin, timeZone: 'Europe/Paris' },
