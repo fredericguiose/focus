@@ -14,6 +14,7 @@ import { EnTete } from '@/composants/coquille/EnTete';
 import { type Ecran, estEcran } from '@/composants/coquille/navigation';
 import { OngletsBas } from '@/composants/coquille/OngletsBas';
 import { Accueil } from '@/ecrans/Accueil';
+import { EcranConnecteurs } from '@/ecrans/Connecteurs';
 import { EcranSessions } from '@/ecrans/Sessions';
 import { EcranStatut, SqueletteStatut } from '@/ecrans/Statut';
 import { FournisseurFocus, useFocus } from '@/hooks/useFocus';
@@ -73,8 +74,10 @@ function Coquille() {
             )
           ) : ecran === 'statut' ? (
             <EcranStatut />
-          ) : (
+          ) : ecran === 'sessions' ? (
             <EcranSessions />
+          ) : (
+            <EcranConnecteurs />
           )}
         </div>
       </SidebarInset>

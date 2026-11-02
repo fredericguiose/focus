@@ -443,6 +443,10 @@ désactivé. En local, un seul hôte sert tout. Détails, routes par hôte et mi
 | POST | `/v1/exceptions` | interface | enregistrer (mêmes règles) |
 | POST | `/v1/config` | config | `{ yaml, commit }` : valide, enregistre une nouvelle version |
 | GET | `/v1/config/version` | tous | version active |
+| GET | `/v1/connecteurs` | interface | état de chaque connecteur (§4.4) ; 404 sur l'hôte API |
+| POST | `/v1/connecteurs/google/connecter` | interface | `{ url }` d'autorisation Google (state + PKCE, 10 min) ; 404 sur l'hôte API |
+| GET | `/v1/connecteurs/google/retour` | interface (Access) | retour OAuth de Google : redirection vers `/?google=ok\|erreur#connecteurs` ; 404 sur l'hôte API |
+| POST | `/v1/connecteurs/google/deconnecter` | interface | révoque chez Google, efface le jeton : `{ revoque }` ; 404 sur l'hôte API |
 | GET | `/confidentialite`, `/conditions` | aucun | pages publiques statiques (politique de confidentialité, conditions d'utilisation), exigées par l'écran de consentement Google ; hôte web seulement, sans JWT Access (exemption exacte, docs/mise-en-ligne.md) ; 404 sur l'hôte API |
 | POST | `/v1/dev/horloge` | interface | **local seulement** (`FOCUS_ENVIRONNEMENT=local`, sinon 404) : `{ horloge: "+3h" \| instant \| null }` règle l'horloge de l'API (docs/essai-local.md) |
 
@@ -619,6 +623,33 @@ Google (2 au plus par passage).
   simultanés ne font pas tourner le jeton ensemble.
 - **Bornes** : au plus 2 nuits × 2 appels + 2 suppressions + 2 échanges de jeton (repli) = 8
   appels Google par passage, plus ~6 requêtes D1.
+- **Connexion depuis la page Connecteurs** (02/11, `api/src/connecteurs.ts`) : flux OAuth web
+  (client « Web application », secrets `GOOGLE_WEB_CLIENT_ID` / `GOOGLE_WEB_CLIENT_SECRET`, repli
+  sur `GOOGLE_CLIENT_*`). `POST /v1/connecteurs/google/connecter` tire un `state` et un
+  vérificateur PKCE (32 octets chacun), garde l'empreinte SHA-256 du state, le vérificateur,
+  l'adresse de retour et l'échéance (10 min) dans le cache `oauth_google` de l'utilisateur (une
+  seule autorisation en cours), et renvoie l'URL d'autorisation (portée `calendar.events`,
+  `access_type=offline`, `prompt=consent`, S256 ; retour `https://<HOTE_WEB>/v1/connecteurs/google/retour`,
+  en local l'origine de la requête). `GET …/retour` (navigation, identité Access) supprime la
+  ligne en la lisant (`DELETE … RETURNING` : usage unique, liée à l'utilisateur), vérifie state et
+  échéance, échange le code (avec le vérificateur), exige la portée (consentement partiel : jeton
+  révoqué, refus) et un refresh token, le garde chiffré dans le cache `connexion_google`
+  (`{ client_id, connecte_le, jeton }`, données associées `connexion_google:<utilisateur>:<client_id>`),
+  oublie `jeton_google` et `synchro_agenda` (les nuits sont réécrites, idempotent) et pose
+  `agenda_a_refaire` ; puis redirige vers `/?google=ok#connecteurs` ou
+  `/?google=erreur&raison=<code>#connecteurs` (l'écran vit dans l'ancre ; codes : `etat_invalide`,
+  `etat_expire`, `refuse`, `google_erreur`, `code_absent`, `echange_refuse`, `portee_refusee`,
+  `jeton_absent`, `google_indisponible`, `google_non_configure`). **Propriétaire** : un utilisateur
+  connecté par la page est synchronisé avec ce jeton (prioritaire) ; sinon `GOOGLE_UTILISATEUR`
+  avec les secrets, comme avant. Connexion illisible (clé ou client changés) : ignorée, signalée
+  `connexion_illisible`. `POST …/deconnecter` efface la connexion, `jeton_google` et
+  `synchro_agenda`, puis révoque chez Google (`oauth2.googleapis.com/revoke`, jeton tournant puis
+  initial ; `{ revoque }` dit si Google l'a confirmé). Aucune valeur de jeton n'est renvoyée ni
+  journalisée. Sans `CLE_CHIFFREMENT` ou sans client : 503 `google_non_configure`.
+- **État des connecteurs** : `GET /v1/connecteurs` (route dédiée, le statut n'est pas alourdi) →
+  `{ connecteurs: [{ id, origine: page|serveur|null, connectable, connecte_le, derniere_synchro,
+  erreur }] }` pour `google_agenda`, `todoist`, `xiaomi`, `hevy`. Todoist note désormais l'issue
+  de chaque passage dans `synchro_todoist` (`reussie_le`, `erreur: todoist_indisponible`).
 
 ### 4.5 Sessions
 - **Session possible** sur un appareil seulement si (1) le mode en vigueur sur l'appareil a

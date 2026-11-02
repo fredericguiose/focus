@@ -87,7 +87,7 @@ describe('POST /v1/actualiser', () => {
   it('la synchro forcée compte pour la cadence du cron', async () => {
     await appeler('POST', '/v1/actualiser', web);
     const etat = await env.DB.prepare(`SELECT valeur FROM cache_todoist WHERE utilisateur = 'alice' AND cle = 'synchro_todoist'`).first<{ valeur: string }>();
-    expect(JSON.parse(etat!.valeur)).toEqual({ tentee_le: MARDI.matin });
+    expect(JSON.parse(etat!.valeur)).toEqual({ tentee_le: MARDI.matin, reussie_le: MARDI.matin, erreur: null });
   });
 
   it('sans Todoist pour cet utilisateur : statut frais, aucun appel', async () => {

@@ -4,7 +4,7 @@
 // le plan gratuit de Workers donne 10 ms de CPU et 50 sous-requêtes (D1 compris) par invocation.
 import type { Condition, Config, Contexte } from '../../core/src/types';
 import { cadencesDeSynchro } from '../../core/src/config';
-import { type EtatAgenda, reglagesGoogle, retardAgenda, synchroniserAgenda } from './agenda';
+import { type ConnexionGoogle, type EtatAgenda, reglagesGooglePour, retardAgenda, synchroniserAgenda } from './agenda';
 import { instructionsInvalider, invaliderCache } from './cache';
 import { CLES_CACHE, type ContexteCharge, chargerContexte, ecrireCache, lireCache, lireCaches } from './contexte';
 import type { Dependances, Liaisons } from './env';
@@ -33,9 +33,22 @@ export async function executerTachesPlanifiees(env: Liaisons, deps: Dependances)
 /** Sources lourdes (appels réseau, écritures en lot) : une seule par invocation (§4.7). */
 export type SourceLourde = 'todoist' | 'xiaomi' | 'hevy' | 'agenda';
 
-/** État de la synchro Todoist : seulement l'heure du dernier passage tenté (pour la cadence). */
-interface EtatSynchroTodoist {
+/** État de la synchro Todoist : heure du dernier passage tenté (cadence), et son issue (page Connecteurs). */
+export interface EtatSynchroTodoist {
   tentee_le: string;
+  reussie_le?: string | null;
+  erreur?: string | null;
+}
+
+/** Passage Todoist commencé (pour la cadence, même si l'invocation est interrompue), puis son issue. */
+export async function noterSynchroTodoist(db: D1Database, utilisateur: string, maintenant: Date, issue: boolean | null): Promise<void> {
+  const avant = (await lireCache<EtatSynchroTodoist>(db, utilisateur, CLES_CACHE.synchroTodoist))?.valeur;
+  const tentee = versInstant(maintenant);
+  const etat: EtatSynchroTodoist =
+    issue === null
+      ? { tentee_le: tentee, reussie_le: avant?.reussie_le ?? null, erreur: avant?.erreur ?? null }
+      : { tentee_le: tentee, reussie_le: issue ? tentee : (avant?.reussie_le ?? null), erreur: issue ? null : 'todoist_indisponible' };
+  await ecrireCache(db, utilisateur, CLES_CACHE.synchroTodoist, etat, maintenant);
 }
 
 /**
@@ -85,17 +98,18 @@ async function pourUtilisateur(env: Liaisons, deps: Dependances, utilisateur: st
   const avecXiaomi = !!(xiaomi && deps.xiaomi && xiaomi.utilisateur === utilisateur);
   const hevy = reglagesHevy(env);
   const avecHevy = !!(hevy && deps.hevy && hevy.utilisateur === utilisateur);
-  const google = reglagesGoogle(env);
-  const avecAgenda = !!(google && deps.agenda && google.utilisateur === utilisateur);
 
-  // Une seule lecture pour décider : l'état des synchros (et le signal « agenda à refaire »).
+  // Une seule lecture pour décider : l'état des synchros (signal « agenda à refaire » et connexion Google compris).
   const etats = await lireCaches(env.DB, utilisateur, [
     CLES_CACHE.synchroTodoist,
     CLES_CACHE.synchroXiaomi,
     CLES_CACHE.synchroHevy,
     CLES_CACHE.synchroAgenda,
     CLES_CACHE.agendaARefaire,
+    CLES_CACHE.connexionGoogle,
   ]);
+  const google = deps.agenda ? await reglagesGooglePour(env, utilisateur, (etats[CLES_CACHE.connexionGoogle] as ConnexionGoogle | undefined) ?? null) : null;
+  const avecAgenda = google !== null;
   const source = choisirSource({
     todoist: jeton ? retardTodoist(etats[CLES_CACHE.synchroTodoist] as EtatSynchroTodoist | undefined, maintenant, cadences.todoist) : null,
     xiaomi: avecXiaomi ? retardSommeil(etats[CLES_CACHE.synchroXiaomi] as EtatSynchro | undefined, maintenant, cadences.xiaomi * 60) : null,
@@ -107,8 +121,9 @@ async function pourUtilisateur(env: Liaisons, deps: Dependances, utilisateur: st
 
   let todoistFrais = false;
   if (source === 'todoist' && jeton) {
-    await ecrireCache(env.DB, utilisateur, CLES_CACHE.synchroTodoist, { tentee_le: versInstant(maintenant) }, maintenant);
+    await noterSynchroTodoist(env.DB, utilisateur, maintenant, null);
     todoistFrais = await etape('todoist', () => rafraichirTodoist(env.DB, deps, jeton, utilisateur, charge, maintenant));
+    await etape('todoist (issue)', () => noterSynchroTodoist(env.DB, utilisateur, maintenant, todoistFrais));
   }
   await etape('sessions', () => cloturerEchues(env.DB, deps.moteur, charge.contexte, utilisateur, maintenant));
   // Une photo prise sur un cache périmé figerait de faux retards : on attend un passage réussi.

@@ -1,4 +1,4 @@
-import type { ApiFocus, AppBloquee, StatutAppareil } from './contrat';
+import type { ApiFocus, AppBloquee, ReponseConnecteurs, StatutAppareil } from './contrat';
 import { ErreurFocus, estCorpsErreur } from './erreur';
 import {
   type PrixFil,
@@ -114,5 +114,8 @@ export function creerApiHttp(jeton: string | null, base = '', recuperer: typeof 
     enregistrerException: async (corps) => {
       await requete('POST', '/v1/exceptions', corpsExceptionVersFil(corps));
     },
+    connecteurs: () => requete<ReponseConnecteurs>('GET', '/v1/connecteurs'),
+    connecterGoogle: () => requete<{ url: string }>('POST', '/v1/connecteurs/google/connecter'),
+    deconnecterGoogle: () => requete<{ revoque: boolean }>('POST', '/v1/connecteurs/google/deconnecter'),
   };
 }

@@ -1,11 +1,11 @@
 // POST /v1/actualiser (bouton « actualiser » de la web app) : synchro Todoist forcée, avec le code
 // du cron (src/planifie.ts), puis statut recalculé.
-import { instructionMarquerAgenda, reglagesGoogle } from './agenda';
+import { instructionMarquerAgenda, reglagesGooglePour } from './agenda';
 import { instructionsInvalider, invaliderCache, prendreVerrou } from './cache';
-import { CLES_CACHE, chargerContexte, ecrireCache } from './contexte';
+import { chargerContexte } from './contexte';
 import type { Dependances, JetonAuthentifie, Liaisons } from './env';
 import { ErreurApi } from './erreurs';
-import { jetonTodoist, rafraichirTodoist } from './planifie';
+import { jetonTodoist, noterSynchroTodoist, rafraichirTodoist } from './planifie';
 import { statut } from './planning';
 import { versInstant } from './temps';
 
@@ -26,17 +26,19 @@ export async function actualiser(env: Liaisons, deps: Dependances, jeton: JetonA
   const jetonTd = jetonTodoist(env, utilisateur);
   if (jetonTd && (await prendreVerrou(env.DB, `synchro_forcee:${utilisateur}`, maintenant, INTERVALLE_SYNCHRO_FORCEE_S))) {
     const charge = await chargerContexte(env.DB, utilisateur, maintenant);
-    await ecrireCache(env.DB, utilisateur, CLES_CACHE.synchroTodoist, { tentee_le: versInstant(maintenant) }, maintenant);
+    await noterSynchroTodoist(env.DB, utilisateur, maintenant, null);
     try {
       await rafraichirTodoist(env.DB, deps, jetonTd, utilisateur, charge, maintenant);
+      await noterSynchroTodoist(env.DB, utilisateur, maintenant, true);
     } catch (e) {
+      await noterSynchroTodoist(env.DB, utilisateur, maintenant, false);
       console.error(`Actualisation (${utilisateur}) : synchro Todoist en échec :`, e);
       await invaliderCache(env.DB, utilisateur);
       throw new ErreurApi(502, 'todoist_indisponible', 'Todoist ne répond pas : tâches non synchronisées.');
     }
   }
   // Le bloc « Dormir » de Google Agenda est revu au prochain passage de la tâche planifiée.
-  const agenda = reglagesGoogle(env)?.utilisateur === utilisateur ? [instructionMarquerAgenda(env.DB, utilisateur, versInstant(maintenant))] : [];
+  const agenda = (await reglagesGooglePour(env, utilisateur)) ? [instructionMarquerAgenda(env.DB, utilisateur, versInstant(maintenant))] : [];
   await env.DB.batch([...instructionsInvalider(env.DB, utilisateur), ...agenda]);
   return statut(deps, env.DB, jeton);
 }

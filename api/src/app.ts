@@ -4,6 +4,7 @@ import { actualiser } from './actualiser';
 import { TOUS, exigerJeton } from './auth';
 import { invaliderTout } from './cache';
 import { recevoirConfig, versionActive } from './config';
+import { adresseRetour, connecterGoogle, deconnecterGoogle, etatConnecteurs, retourGoogle } from './connecteurs';
 import type { Dependances, EnvApp } from './env';
 import { ErreurApi, repondreErreur } from './erreurs';
 import { enregistrerAccuse, enregistrerEvenements } from './evenements';
@@ -44,6 +45,32 @@ export function creerApp(deps: Dependances) {
   app.post('/v1/actualiser', ...interfaceSeule, async (c) => {
     c.header('Cache-Control', 'no-store');
     return c.json(await actualiser(c.env, deps, c.get('jeton')));
+  });
+
+  // Page « Connecteurs » (src/connecteurs.ts) : hôte web ou local seulement.
+  app.get('/v1/connecteurs', ...interfaceSeule, async (c) => {
+    c.header('Cache-Control', 'no-store');
+    return c.json(await etatConnecteurs(c.env, c.get('jeton').utilisateur));
+  });
+
+  app.post('/v1/connecteurs/google/connecter', ...interfaceSeule, async (c) => {
+    c.header('Cache-Control', 'no-store');
+    const redirection = adresseRetour(c.env, c.get('hote'), c.req.url);
+    return c.json(await connecterGoogle(c.env, deps, c.get('jeton').utilisateur, redirection));
+  });
+
+  // Retour de Google (navigation du navigateur, identité Access) : toujours une redirection vers la page.
+  app.get('/v1/connecteurs/google/retour', ...interfaceSeule, async (c) => {
+    const cible = await retourGoogle(c.env, deps, c.get('jeton').utilisateur, new URL(c.req.url).searchParams);
+    c.header('Cache-Control', 'no-store');
+    // L'URL de retour porte le code d'autorisation : jamais transmise en Referer.
+    c.header('Referrer-Policy', 'no-referrer');
+    return c.redirect(cible, 303);
+  });
+
+  app.post('/v1/connecteurs/google/deconnecter', ...interfaceSeule, async (c) => {
+    c.header('Cache-Control', 'no-store');
+    return c.json(await deconnecterGoogle(c.env, deps, c.get('jeton').utilisateur));
   });
 
   app.get('/v1/taches', interfaceOuAppareil, async (c) => c.json(await tachesEligibles(deps, c.env.DB, c.get('jeton'))));

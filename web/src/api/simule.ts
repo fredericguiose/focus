@@ -853,6 +853,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
     };
   }
 
+  let googleConnecte = false;
   async function servir<T>(calcul: () => T): Promise<T> {
     if (latenceMs > 0) await new Promise((r) => setTimeout(r, latenceMs));
     return copie(calcul());
@@ -1066,6 +1067,30 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
           raison: corps.friction?.raison,
           pendantNuit: prix.friction === 'raison_phrase',
         });
+      }),
+    connecteurs: () =>
+      servir(() => {
+        const il_y_a = (min: number) => versInstant(maintenant() - min * MINUTE);
+        const serveur = { origine: 'serveur' as const, connectable: false, connecte_le: null, erreur: null };
+        return {
+          connecteurs: [
+            { id: 'google_agenda' as const, origine: googleConnecte ? ('page' as const) : null, connectable: true, connecte_le: googleConnecte ? il_y_a(60 * 24) : null, derniere_synchro: googleConnecte ? il_y_a(7) : null, erreur: null },
+            { id: 'todoist' as const, ...serveur, derniere_synchro: il_y_a(3) },
+            { id: 'xiaomi' as const, ...serveur, derniere_synchro: il_y_a(12) },
+            { id: 'hevy' as const, ...serveur, derniere_synchro: null, erreur: 'cle_hevy_refusee' },
+          ],
+        };
+      }),
+    // Démonstration : pas de Google ; la connexion est simulée sur place (aucune redirection).
+    connecterGoogle: () =>
+      servir(() => {
+        googleConnecte = true;
+        return { url: '' };
+      }),
+    deconnecterGoogle: () =>
+      servir(() => {
+        googleConnecte = false;
+        return { revoque: true };
       }),
     // Rien à synchroniser en démonstration : le statut relu (late binding, comme le remplacerait un test).
     actualiser: () => api.statut(),

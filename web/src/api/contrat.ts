@@ -411,6 +411,21 @@ export interface CorpsException {
  * ne lisent pas le corps de la réponse : l'interface relit /v1/statut, ce qui la rend insensible
  * à la forme exacte de ces réponses.
  */
+/** GET /v1/connecteurs : un état par connecteur, sans aucune valeur secrète. */
+export interface EtatConnecteur {
+  id: 'google_agenda' | 'todoist' | 'xiaomi' | 'hevy';
+  /** « page » : connecté depuis la web app ; « serveur » : par secret Worker ; null : non configuré. */
+  origine: 'page' | 'serveur' | null;
+  connectable: boolean;
+  connecte_le: Instant | null;
+  derniere_synchro: Instant | null;
+  erreur: string | null;
+}
+
+export interface ReponseConnecteurs {
+  connecteurs: EtatConnecteur[];
+}
+
 export interface ApiFocus {
   statut(): Promise<ReponseStatut>;
   /** POST /v1/actualiser : synchro Todoist forcée côté serveur, cache effacé, statut frais. */
@@ -424,4 +439,8 @@ export interface ApiFocus {
   fermerSession(sessionId: string): Promise<void>;
   prixException(corps: CorpsException): Promise<PrixException>;
   enregistrerException(corps: CorpsException): Promise<void>;
+  connecteurs(): Promise<ReponseConnecteurs>;
+  /** URL d'autorisation Google, où envoyer le navigateur. */
+  connecterGoogle(): Promise<{ url: string }>;
+  deconnecterGoogle(): Promise<{ revoque: boolean }>;
 }

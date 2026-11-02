@@ -34,8 +34,11 @@ export interface Liaisons {
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   GOOGLE_REFRESH_TOKEN?: string;
-  /** Utilisateur Focus à qui appartient l'agenda Google ; seul synchronisé. Absent : pas de synchro. */
+  /** Utilisateur Focus à qui appartient l'agenda Google (secrets ci-dessus). Absent : seule la page Connecteurs compte. */
   GOOGLE_UTILISATEUR?: string;
+  /** Client OAuth « Web application » de la page Connecteurs ; absents : repli sur GOOGLE_CLIENT_*. */
+  GOOGLE_WEB_CLIENT_ID?: string;
+  GOOGLE_WEB_CLIENT_SECRET?: string;
   /** Adresse de contact affichée sur les pages publiques (/confidentialite, /conditions) ; absente : pas de ligne de contact. */
   CONTACT_EMAIL?: string;
   /** Secret de chiffrement des jetons gardés en base ; absent : le passToken reçu n'est pas gardé. */
@@ -96,6 +99,8 @@ export interface Dependances {
    * tests l'activent explicitement (ils écrivent souvent en base sans passer par l'API).
    */
   cacheCalculs?: boolean;
+  /** Appels OAuth à Google (échange du code, révocation) ; absent : `fetch`. Les tests les simulent. */
+  fetchGoogle?: (url: string, init: RequestInit) => Promise<Response>;
   /** Lecture des certificats Access ; absent : `fetch`. Les tests la simulent. */
   recupererCertsAcces?: (url: string) => Promise<Response>;
 }

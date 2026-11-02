@@ -230,7 +230,10 @@ https://focus.fredericguiose.com/confidentialite` → `200` (et `…/conditions`
 ### 9. Google Agenda : bloc « Dormir » (02/11)
 
 Le Worker écrit un événement « Dormir » par nuit dans l'agenda principal (docs/conception.md
-§4.4). Il lui faut un client OAuth Google et un refresh token obtenu une fois sur le PC.
+§4.4). Il lui faut un client OAuth Google, puis une connexion depuis la page **Connecteurs** de
+la web app (flux OAuth web, étape g). L'ancienne voie (client « Desktop app », script local
+`google:autoriser` et secret `GOOGLE_REFRESH_TOKEN`, étapes c à e) reste prise en charge mais
+devient **facultative** ; une connexion faite depuis la page prend le pas sur elle.
 
 **a. Projet et API** (console Google Cloud, compte Google de l'agenda) :
 1. Créer (ou choisir) un projet `Focus`.
@@ -290,6 +293,29 @@ soir et de demain apparaît dans Google Agenda ; `/v1/statut` → `agenda.erreur
 Journaux du Worker : lignes `Google Agenda (…)` en cas d'échec (code seul, jamais de jeton).
 Révocation : <https://myaccount.google.com/permissions> → la web app affiche « La connexion à
 Google Agenda a expiré » dans la carte Sommeil.
+
+**g. Connexion depuis la page Connecteurs** (flux OAuth web, recommandé) :
+1. Console Google Cloud, même projet : **Clients → Create client → Web application**, nom
+   `Focus web`. **Authorized redirect URIs**, exactement :
+   `https://focus.fredericguiose.com/v1/connecteurs/google/retour` (et, pour un essai local,
+   `http://127.0.0.1:8799/v1/connecteurs/google/retour`). Pas d'origine JavaScript à déclarer.
+2. Secrets du Worker (valeurs collées à l'invite, jamais dans l'historique du shell) :
+   ```sh
+   cd api
+   npx wrangler secret put GOOGLE_WEB_CLIENT_ID
+   npx wrangler secret put GOOGLE_WEB_CLIENT_SECRET
+   ```
+   Absents : repli sur `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (un client « Desktop app »
+   n'accepte pas cette adresse de retour : le client web est nécessaire en pratique).
+   `CLE_CHIFFREMENT` est obligatoire (le refresh token est gardé chiffré en base).
+3. Déployer, puis web app → **Connecteurs → Google Agenda → Connecter** : Google, consentement
+   (cocher l'accès à l'agenda), retour sur la page avec « Google Agenda connecté ». Le bloc
+   « Dormir » est réécrit au passage suivant de la tâche planifiée.
+4. Ensuite, `GOOGLE_REFRESH_TOKEN` et `GOOGLE_UTILISATEUR` peuvent être supprimés
+   (`npx wrangler secret delete …`) ; tant qu'ils restent, ils ne servent que si la page n'a pas
+   de connexion. **Déconnecter** révoque l'accès chez Google et efface le jeton ; avec le même
+   client OAuth, la révocation peut aussi invalider le jeton du secret. Les événements déjà
+   écrits restent dans l'agenda.
 
 ## Limites connues
 

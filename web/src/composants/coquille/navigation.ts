@@ -1,8 +1,9 @@
-import { Gauge, Layers, type LucideIcon } from 'lucide-react';
+import { Gauge, Layers, type LucideIcon, Plug } from 'lucide-react';
 
 export const ECRANS = {
   statut: { libelle: 'Tableau de bord', icone: Gauge },
   sessions: { libelle: 'Sessions', icone: Layers },
+  connecteurs: { libelle: 'Connecteurs', icone: Plug },
 } as const satisfies Record<string, { libelle: string; icone: LucideIcon }>;
 
 export type Ecran = keyof typeof ECRANS;

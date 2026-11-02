@@ -23,6 +23,10 @@ export const CLES_CACHE = {
   agendaARefaire: 'agenda_a_refaire',
   /** Refresh token Google renvoyé par Google, chiffré (AES-GCM) ; prioritaire sur le secret. */
   jetonGoogle: 'jeton_google',
+  /** Connexion Google faite depuis la page Connecteurs : refresh token chiffré (prioritaire). */
+  connexionGoogle: 'connexion_google',
+  /** Autorisation Google en cours : empreinte du state, vérificateur PKCE, échéance (10 min). */
+  oauthGoogle: 'oauth_google',
 } as const;
 
 /** Assez pour recalculer les 7 dernières nuits du statut (jour UTC et jour local peuvent différer d'un). */

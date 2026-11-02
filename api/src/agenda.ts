@@ -33,6 +33,8 @@ export interface EtatAgenda {
 
 export interface ReglagesGoogle {
   identifiants: IdentifiantsGoogle;
+  /** « page » : connecté depuis la page Connecteurs (jeton en base) ; « serveur » : secrets Worker. */
+  origine?: 'page' | 'serveur';
   /** Seul utilisateur synchronisé : l'agenda Google est le sien. */
   utilisateur: string;
   /** Secret de chiffrement du refresh token gardé en base ; absent : un jeton reçu n'est pas gardé. */
@@ -47,6 +49,50 @@ export function reglagesGoogle(env: Liaisons): ReglagesGoogle | null {
   const utilisateur = env.GOOGLE_UTILISATEUR?.trim();
   if (!clientId || !clientSecret || !refreshToken || !utilisateur) return null;
   return { identifiants: { clientId, clientSecret, refreshToken }, utilisateur, cle: env.CLE_CHIFFREMENT?.trim() || null };
+}
+
+/** Client OAuth « Web application » (GOOGLE_WEB_CLIENT_*), sinon repli sur GOOGLE_CLIENT_*. */
+export function clientGoogleWeb(env: Liaisons): { clientId: string; clientSecret: string } | null {
+  const id = env.GOOGLE_WEB_CLIENT_ID?.trim();
+  const secret = env.GOOGLE_WEB_CLIENT_SECRET?.trim();
+  if (id && secret) return { clientId: id, clientSecret: secret };
+  const idRepli = env.GOOGLE_CLIENT_ID?.trim();
+  const secretRepli = env.GOOGLE_CLIENT_SECRET?.trim();
+  return idRepli && secretRepli ? { clientId: idRepli, clientSecret: secretRepli } : null;
+}
+
+/** Connexion Google faite depuis la page Connecteurs : refresh token chiffré, lié au client. */
+export interface ConnexionGoogle {
+  client_id: string;
+  connecte_le: string;
+  jeton: Chiffre;
+}
+
+export const contexteConnexion = (utilisateur: string, clientId: string) => `connexion_google:${utilisateur}:${clientId}`;
+
+export async function lireConnexionGoogle(db: D1Database, utilisateur: string): Promise<ConnexionGoogle | null> {
+  return (await lireCache<ConnexionGoogle>(db, utilisateur, CLES_CACHE.connexionGoogle))?.valeur ?? null;
+}
+
+/**
+ * Réglages de l'agenda pour cet utilisateur, ou null. La connexion faite depuis la page prend le
+ * pas sur les secrets (GOOGLE_REFRESH_TOKEN, GOOGLE_UTILISATEUR) ; illisible (clé ou client
+ * changés) : ignorée, repli sur les secrets. `connexion` : déjà lue (undefined : lue ici).
+ */
+export async function reglagesGooglePour(
+  env: Liaisons,
+  utilisateur: string,
+  connexion?: ConnexionGoogle | null,
+): Promise<ReglagesGoogle | null> {
+  const cle = env.CLE_CHIFFREMENT?.trim() || null;
+  const c = connexion === undefined ? await lireConnexionGoogle(env.DB, utilisateur) : connexion;
+  const client = clientGoogleWeb(env);
+  if (c && cle && client && client.clientId === c.client_id) {
+    const refreshToken = await dechiffrer(cle, c.jeton, contexteConnexion(utilisateur, c.client_id));
+    if (refreshToken) return { identifiants: { ...client, refreshToken }, utilisateur, cle, origine: 'page' };
+  }
+  const secrets = reglagesGoogle(env);
+  return secrets?.utilisateur === utilisateur ? { ...secrets, origine: 'serveur' } : null;
 }
 
 // ── « À resynchroniser » ──────────────────────────────────────────────────────
@@ -95,7 +141,7 @@ export function nuitsVoulues(moteur: Moteur, contexte: Contexte, maintenant: Dat
 
 // ── Refresh token tournant ────────────────────────────────────────────────────
 
-const contexteJeton = (utilisateur: string, clientId: string) => `jeton_google:${utilisateur}:${clientId}`;
+export const contexteJeton = (utilisateur: string, clientId: string) => `jeton_google:${utilisateur}:${clientId}`;
 
 async function lireJetonGarde(db: D1Database, r: ReglagesGoogle, cle: string): Promise<string | null> {
   const c = (await lireCache<Chiffre>(db, r.utilisateur, CLES_CACHE.jetonGoogle))?.valeur;
