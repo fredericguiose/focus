@@ -359,6 +359,8 @@ export interface ReponseStatut {
   sautes_semaine?: number;
   /** État de la synchro des séances (Hevy) ; null si jamais tentée. */
   seances_mesurees?: { derniere_synchro: Instant | null; erreur: string | null } | null;
+  /** État de la synchro du bloc « Dormir » dans Google Agenda ; null si jamais tentée (ou non configurée). */
+  agenda?: { derniere_synchro: Instant | null; erreur: string | null } | null;
   /** Étiquettes Todoist manquantes (absent d'une API plus ancienne). */
   todoist?: EtatTodoist;
   /** Tâches qui retiennent les conditions de tâches (absent d'une API plus ancienne). */

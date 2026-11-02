@@ -295,15 +295,26 @@ describe('validerConfig — cadences de synchro (01/11)', () => {
   it('défauts : Todoist 2 min, Xiaomi 15 min, Hevy 1 h ; une config ancienne sans bloc les reçoit aussi', () => {
     const r = validerConfig(EXEMPLE);
     if (!r.ok) throw new Error(r.erreurs.join('\n'));
-    expect(cadencesDeSynchro(r.config)).toEqual({ todoist: 2, xiaomi: 15, hevy: 60 });
+    expect(cadencesDeSynchro(r.config)).toEqual({ todoist: 2, xiaomi: 15, hevy: 60, googleAgenda: 15 });
     const { synchro: _, ...ancienne } = r.config;
-    expect(cadencesDeSynchro(ancienne)).toEqual({ todoist: 2, xiaomi: 15, hevy: 60 });
+    expect(cadencesDeSynchro(ancienne)).toEqual({ todoist: 2, xiaomi: 15, hevy: 60, googleAgenda: 15 });
+    // Config normalisée du 01/11 : le bloc existe, sans Google Agenda.
+    expect(cadencesDeSynchro({ ...r.config, synchro: { todoistMin: 3, xiaomiMin: 20, hevyMin: 60 } })).toEqual({
+      todoist: 3, xiaomi: 20, hevy: 60, googleAgenda: 15,
+    });
   });
 
   it('réglables ; Xiaomi jamais sous 10 min', () => {
     const r = validerConfig(`${EXEMPLE}\nsynchro: { todoist: "5min", xiaomi: "30min", hevy: "2h" }\n`);
     if (!r.ok) throw new Error(r.erreurs.join('\n'));
-    expect(r.config.synchro).toEqual({ todoistMin: 5, xiaomiMin: 30, hevyMin: 120 });
+    expect(r.config.synchro).toEqual({ todoistMin: 5, xiaomiMin: 30, hevyMin: 120, googleAgendaMin: 15 });
     expect(erreurs(`${EXEMPLE}\nsynchro: { xiaomi: "5min" }\n`)).toEqual(['synchro.xiaomi : entre 10 min et 24h']);
+  });
+
+  it('Google Agenda (02/11) : 15 min par défaut, réglable, jamais sous 5 min', () => {
+    const r = validerConfig(`${EXEMPLE}\nsynchro: { google_agenda: "5min" }\n`);
+    if (!r.ok) throw new Error(r.erreurs.join('\n'));
+    expect(cadencesDeSynchro(r.config).googleAgenda).toBe(5);
+    expect(erreurs(`${EXEMPLE}\nsynchro: { google_agenda: "4min" }\n`)).toEqual(['synchro.google_agenda : entre 5 min et 24h']);
   });
 });

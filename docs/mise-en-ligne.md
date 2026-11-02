@@ -44,6 +44,12 @@ Access filtre devant le Worker, mais le Worker ne lui fait pas une confiance ave
   y répondent **404** (elles n'existent pas sur cet hôte). Le jeton `interface` y est refusé
   partout (**403** `jeton_non_autorise`) : sans cela, un jeton d'interface volé ouvrirait des
   sessions sans passer par Access.
+- **Pages publiques** (02/11, écran de consentement Google) : `GET`/`HEAD` sur exactement
+  `/confidentialite` et `/conditions` de l'hôte web passent **sans JWT** (`estPagePublique`) ;
+  pages HTML statiques sans aucune donnée d'utilisateur (`api/src/pages-publiques.ts`), adresse de
+  contact lue dans `CONTACT_EMAIL` (secret, jamais dans le dépôt ; absente : pas de ligne de
+  contact). Rien d'autre n'est exempté : barre finale, sous-chemin, autre méthode → JWT exigé.
+  Sur l'hôte API : **404**. Access doit aussi les laisser passer (étape 8).
 - **Tout autre hôte** (workers.dev, IP…) : **403** `hote_inconnu`.
 - **Fail closed** : en production, si `ACCES_EQUIPE`, `ACCES_AUD` ou `ACCES_UTILISATEURS` manque
   (ou vaut encore `A-REMPLIR`, ou une entrée d'`ACCES_UTILISATEURS` est mal formée), l'hôte web refuse tout (**403** `acces_non_configure`) et les journaux
@@ -66,6 +72,7 @@ Sur l'hôte web, « interface » = sans en-tête `Authorization` (identité Acce
 | `GET /v1/config/version` | tous | appareil, config |
 | `GET /v1/statut`, `POST /v1/actualiser`, `POST /v1/exceptions/prix`, `POST /v1/exceptions` | interface | — (404) |
 | web app (fichiers statiques) | oui | — (404) |
+| `GET /confidentialite`, `GET /conditions` | public, sans JWT | — (404) |
 
 ## Mise en service, pas à pas
 
@@ -187,6 +194,102 @@ Dans un navigateur privé :
   `CF_Authorization` joint), sans jeton. Au démarrage, elle lit `/v1/statut` sans jeton : seul un
   **401** `jeton_absent` (local lancé sans `FOCUS_UTILISATEUR_LOCAL`) ramène à l'écran de jeton ;
   le jeton éventuellement gardé (`focus.jeton`) est effacé sinon. Mode simulé inchangé.
+
+### 8. Pages publiques : application Access « Bypass »
+
+Access filtre **devant** le Worker : sans règle, il redirige `/confidentialite` et `/conditions`
+vers sa page de connexion, et Google (écran de consentement) ne peut pas les lire. Il faut une
+**seconde application Access**, limitée à ces deux chemins, qui les laisse passer. Le chemin le
+plus précis l'emporte sur l'application `Focus` (doc Cloudflare « Application paths » : « the
+more specific rule takes precedence »).
+
+1. **Zero Trust → Access controls → Applications → Create new application → Self-hosted and
+   private** (ancien libellé : *Access → Applications → Add an application → Self-hosted*).
+2. Nom : `Focus — pages publiques`.
+3. **Add public hostname** : sous-domaine `focus`, domaine `fredericguiose.com`, chemin
+   `confidentialite`. Puis **Add public hostname** une seconde fois : même domaine, chemin
+   `conditions`. (Aucun autre chemin.)
+4. **Policy** : nom `Public`, action **Bypass**, règle **Include → Everyone**.
+5. **Create**.
+
+Access couvre aussi les sous-chemins (`/conditions/x`) : le Worker, lui, n'exempte que les
+chemins exacts et y exige toujours le JWT (403). Les pages ne contiennent rien de personnel.
+
+Adresse de contact affichée sur les deux pages (facultative, secret pour qu'elle n'apparaisse pas
+dans le dépôt public) :
+
+```sh
+cd api
+printf '%s' '<adresse de contact>' | npx wrangler secret put CONTACT_EMAIL
+```
+
+Vérifier, en navigation privée : `curl -s -o /dev/null -w '%{http_code}\n'
+https://focus.fredericguiose.com/confidentialite` → `200` (et `…/conditions`) ; `…/` → toujours
+`302` vers Access ; `https://api-focus.fredericguiose.com/confidentialite` → `404`.
+
+### 9. Google Agenda : bloc « Dormir » (02/11)
+
+Le Worker écrit un événement « Dormir » par nuit dans l'agenda principal (docs/conception.md
+§4.4). Il lui faut un client OAuth Google et un refresh token obtenu une fois sur le PC.
+
+**a. Projet et API** (console Google Cloud, compte Google de l'agenda) :
+1. Créer (ou choisir) un projet `Focus`.
+2. **APIs & Services → Library → Google Calendar API → Enable**.
+
+**b. Écran de consentement** (**Google Auth Platform**, ancien « OAuth consent screen ») :
+1. **Branding** : nom `Focus`, adresse d'assistance ; **Privacy policy** :
+   `https://focus.fredericguiose.com/confidentialite` ; **Terms of service** :
+   `https://focus.fredericguiose.com/conditions` ; **Authorized domains** : `fredericguiose.com`
+   (pages publiques de l'étape 8 en ligne d'abord).
+2. **Audience** : type **External**. **Publishing status : passer en « In production »**
+   (bouton **Publish app**). En mode Test, le refresh token **expire au bout de 7 jours** : doc
+   Google « Using OAuth 2.0 to Access Google APIs », section *Refresh token expiration* : « A
+   Google Cloud Platform project with an OAuth consent screen configured for an external user type
+   and a publishing status of "Testing" is issued a refresh token expiring in 7 days, unless the
+   only OAuth scopes requested are a subset of name, email address, and user profile » (vérifié le
+   02/11/2026). Autres causes de perte du jeton (même page) : accès révoqué, jeton inutilisé
+   pendant 6 mois.
+3. **Data access** : ajouter la seule portée `https://www.googleapis.com/auth/calendar.events`.
+4. Pas de demande de vérification : pour un usage personnel, l'avertissement **« Google n'a pas
+   validé cette application »** est acceptable (**Paramètres avancés → Accéder à Focus (non
+   sécurisé)** à l'autorisation).
+
+**c. Client OAuth** : **Clients → Create client → Desktop app** (type « installed »), nom
+`Focus PC`. Télécharger le JSON et l'enregistrer en `~/.config/focus/prod/google-client.json`
+(mode 600). Le script utilise l'adresse de retour « loopback » `http://127.0.0.1:<port libre>`,
+méthode recommandée par Google pour les applications de bureau (doc « OAuth 2.0 for iOS &
+Desktop Apps », *Loopback IP address* ; le port n'a pas à être déclaré), avec PKCE S256.
+
+**d. Autorisation, une fois** (sur le PC, avec le navigateur) :
+
+```sh
+cd api
+npm run google:autoriser   # ouvre Google ; « Autorisation enregistrée » → ~/.config/focus/prod/google-refresh-token (600)
+```
+
+Rien de secret n'est affiché. Relancer le script remplace le jeton (après une révocation par
+exemple, puis reposer `GOOGLE_REFRESH_TOKEN`).
+
+**e. Secrets du Worker** (valeurs lues dans les fichiers, jamais affichées) :
+
+```sh
+cd api
+node -e 'process.stdout.write(require(process.env.HOME + "/.config/focus/prod/google-client.json").installed.client_id)' | npx wrangler secret put GOOGLE_CLIENT_ID
+node -e 'process.stdout.write(require(process.env.HOME + "/.config/focus/prod/google-client.json").installed.client_secret)' | npx wrangler secret put GOOGLE_CLIENT_SECRET
+npx wrangler secret put GOOGLE_REFRESH_TOKEN < ~/.config/focus/prod/google-refresh-token
+printf '%s' '<utilisateur de la config>' | npx wrangler secret put GOOGLE_UTILISATEUR
+```
+
+`CLE_CHIFFREMENT` (déjà posé pour Xiaomi) sert aussi à garder chiffré un refresh token que Google
+renverrait. Sans l'un des quatre secrets `GOOGLE_*`, la synchro de l'agenda est simplement
+désactivée. Pas de migration D1 (cache et verrous existants).
+
+**f. Déployer** (`cd web && npm run build && cd ../api && npx wrangler deploy`), puis vérifier :
+au plus 15 min après (ou à la minute suivante après une exception), l'événement « Dormir » de ce
+soir et de demain apparaît dans Google Agenda ; `/v1/statut` → `agenda.erreur` à `null`.
+Journaux du Worker : lignes `Google Agenda (…)` en cas d'échec (code seul, jamais de jeton).
+Révocation : <https://myaccount.google.com/permissions> → la web app affiche « La connexion à
+Google Agenda a expiré » dans la carte Sommeil.
 
 ## Limites connues
 

@@ -1,9 +1,10 @@
 // Tâche planifiée unique (cron chaque minute, §4.4, §4.7). Chaque étape est indépendante : une
 // panne de Todoist n'empêche ni la fermeture des sessions échues ni la photo de la nuit. Une
-// seule source lourde (Todoist, Xiaomi ou Hevy) par invocation, à sa cadence (config `synchro`) :
+// seule source lourde (Todoist, Xiaomi, Hevy ou Google Agenda) par invocation, à sa cadence (config `synchro`) :
 // le plan gratuit de Workers donne 10 ms de CPU et 50 sous-requêtes (D1 compris) par invocation.
 import type { Condition, Config, Contexte } from '../../core/src/types';
 import { cadencesDeSynchro } from '../../core/src/config';
+import { type EtatAgenda, reglagesGoogle, retardAgenda, synchroniserAgenda } from './agenda';
 import { instructionsInvalider, invaliderCache } from './cache';
 import { CLES_CACHE, type ContexteCharge, chargerContexte, ecrireCache, lireCache, lireCaches } from './contexte';
 import type { Dependances, Liaisons } from './env';
@@ -30,7 +31,7 @@ export async function executerTachesPlanifiees(env: Liaisons, deps: Dependances)
 }
 
 /** Sources lourdes (appels réseau, écritures en lot) : une seule par invocation (§4.7). */
-export type SourceLourde = 'todoist' | 'xiaomi' | 'hevy';
+export type SourceLourde = 'todoist' | 'xiaomi' | 'hevy' | 'agenda';
 
 /** État de la synchro Todoist : seulement l'heure du dernier passage tenté (pour la cadence). */
 interface EtatSynchroTodoist {
@@ -39,12 +40,12 @@ interface EtatSynchroTodoist {
 
 /**
  * La source à synchroniser à cette invocation : parmi celles qui sont dues, la plus en retard sur
- * sa cadence (à égalité : Todoist, Xiaomi, Hevy). Le retard absolu, pas relatif : Todoist toutes
+ * sa cadence (à égalité : Todoist, Xiaomi, Hevy, Google Agenda). Le retard absolu, pas relatif : Todoist toutes
  * les 2 min n'affame pas Xiaomi (qui passe au plus une minute après son échéance).
  */
 export function choisirSource(retards: Partial<Record<SourceLourde, number | null>>): SourceLourde | null {
   let choix: SourceLourde | null = null;
-  for (const source of ['todoist', 'xiaomi', 'hevy'] as const) {
+  for (const source of ['todoist', 'xiaomi', 'hevy', 'agenda'] as const) {
     const r = retards[source];
     if (r === null || r === undefined) continue;
     if (choix === null || r > retards[choix]!) choix = source;
@@ -84,13 +85,24 @@ async function pourUtilisateur(env: Liaisons, deps: Dependances, utilisateur: st
   const avecXiaomi = !!(xiaomi && deps.xiaomi && xiaomi.utilisateur === utilisateur);
   const hevy = reglagesHevy(env);
   const avecHevy = !!(hevy && deps.hevy && hevy.utilisateur === utilisateur);
+  const google = reglagesGoogle(env);
+  const avecAgenda = !!(google && deps.agenda && google.utilisateur === utilisateur);
 
-  // Une seule lecture pour décider : l'état des trois synchros.
-  const etats = await lireCaches(env.DB, utilisateur, [CLES_CACHE.synchroTodoist, CLES_CACHE.synchroXiaomi, CLES_CACHE.synchroHevy]);
+  // Une seule lecture pour décider : l'état des synchros (et le signal « agenda à refaire »).
+  const etats = await lireCaches(env.DB, utilisateur, [
+    CLES_CACHE.synchroTodoist,
+    CLES_CACHE.synchroXiaomi,
+    CLES_CACHE.synchroHevy,
+    CLES_CACHE.synchroAgenda,
+    CLES_CACHE.agendaARefaire,
+  ]);
   const source = choisirSource({
     todoist: jeton ? retardTodoist(etats[CLES_CACHE.synchroTodoist] as EtatSynchroTodoist | undefined, maintenant, cadences.todoist) : null,
     xiaomi: avecXiaomi ? retardSommeil(etats[CLES_CACHE.synchroXiaomi] as EtatSynchro | undefined, maintenant, cadences.xiaomi * 60) : null,
     hevy: avecHevy ? retardSeances(etats[CLES_CACHE.synchroHevy] as EtatSynchroHevy | undefined, maintenant, cadences.hevy * 60) : null,
+    agenda: avecAgenda
+      ? retardAgenda(etats[CLES_CACHE.synchroAgenda] as EtatAgenda | undefined, etats[CLES_CACHE.agendaARefaire] as string | undefined, maintenant, cadences.googleAgenda * 60)
+      : null,
   });
 
   let todoistFrais = false;
@@ -105,7 +117,9 @@ async function pourUtilisateur(env: Liaisons, deps: Dependances, utilisateur: st
   // Le compte Xiaomi (Hevy) appartient à un seul utilisateur : les autres ne sont jamais synchronisés.
   if (source === 'xiaomi') await etape('sommeil', () => synchroniserSommeil(env.DB, deps.xiaomi!, xiaomi!, maintenant, false, cadences.xiaomi * 60));
   if (source === 'hevy') await etape('seances', () => synchroniserSeances(env.DB, deps.hevy!, hevy!, maintenant, false, cadences.hevy * 60));
-  // Vérification des étiquettes (deux requêtes, une fois par jour) : jamais avec Xiaomi ni Hevy.
+  // Bloc « Dormir » : nuits calculées sur le contexte chargé au début de ce passage.
+  if (source === 'agenda') await etape('agenda', () => synchroniserAgenda(env.DB, deps.agenda!, google!, deps.moteur, charge.contexte, maintenant));
+  // Vérification des étiquettes (deux requêtes, une fois par jour) : jamais avec Xiaomi, Hevy ni l'agenda.
   if (jeton && (source === null || source === 'todoist')) await etape('etiquettes', () => verifierEtiquettes(env.DB, deps, jeton, utilisateur, charge.contexte, maintenant));
   return erreurs;
 }

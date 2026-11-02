@@ -288,6 +288,46 @@ describe('Cloudflare Access', () => {
     });
   });
 
+  describe('pages publiques (écran de consentement Google)', () => {
+    it('GET et HEAD /confidentialite et /conditions : sans JWT sur l’hôte web, sans donnée', async () => {
+      for (const chemin of ['/confidentialite', '/conditions']) {
+        const r = await requete(WEB, chemin);
+        expect(r.statut).toBe(200);
+        expect(r.corps).toContain('<html lang="fr">');
+        expect(r.corps).not.toMatch(/alice|bob|@example\.com/i);
+        expect((await requete(WEB, chemin, { methode: 'HEAD' })).statut).toBe(200);
+      }
+      const conf = await requete(WEB, '/confidentialite');
+      expect(conf.corps).toContain('calendar.events');
+      expect(conf.corps).toContain('Limited Use');
+      expect(conf.corps).toContain('myaccount.google.com/permissions');
+      expect(conf.corps).not.toContain('mailto:');
+      expect(appelsCerts).toEqual([]);
+    });
+
+    it('CONTACT_EMAIL posée : ligne de contact (échappée) ; mal formée : aucune', async () => {
+      const r = await requete(WEB, '/conditions', { variables: { CONTACT_EMAIL: 'contact@exemple.fr' } });
+      expect(r.corps).toContain('<a href="mailto:contact@exemple.fr">contact@exemple.fr</a>');
+      const piege = await requete(WEB, '/conditions', { variables: { CONTACT_EMAIL: '<script>@x.fr' } });
+      expect(piege.corps).not.toContain('<script>');
+      expect(piege.corps).not.toContain('mailto:');
+    });
+
+    it('exemption exacte : autres chemins et autres méthodes toujours protégés', async () => {
+      for (const chemin of ['/confidentialite/', '/conditions/x', '/confidentialite.html', '/Conditions', '/', '/v1/statut']) {
+        expect((await requete(WEB, chemin)).statut).toBe(403);
+      }
+      expect((await requete(WEB, '/confidentialite', { methode: 'POST', corps: {} })).statut).toBe(403);
+      // Même avec Access mal configuré, l'exemption ne s'étend pas.
+      expect((await requete(WEB, '/', { variables: { ACCES_AUD: 'A-REMPLIR' } })).statut).toBe(403);
+    });
+
+    it('hôte de l’API : 404', async () => {
+      expect((await requete(API, '/confidentialite')).statut).toBe(404);
+      expect((await requete(API, '/conditions')).statut).toBe(404);
+    });
+  });
+
   describe('hôte API (sans Access)', () => {
     it('routes des appareils et de la config sans JWT : passent', async () => {
       expect((await requete(API, '/v1/planning', { jeton: jetons.pc })).statut).toBe(200);

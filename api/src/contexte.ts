@@ -17,6 +17,12 @@ export const CLES_CACHE = {
   synchroHevy: 'synchro_hevy',
   /** Heure du dernier passage Todoist tenté (cadence `synchro.todoist`). */
   synchroTodoist: 'synchro_todoist',
+  /** Bloc « Dormir » dans Google Agenda : état de la synchro et ce qui est écrit, par nuit. */
+  synchroAgenda: 'synchro_agenda',
+  /** Changement du coucher ou du lever signalé : agenda à resynchroniser au prochain passage. */
+  agendaARefaire: 'agenda_a_refaire',
+  /** Refresh token Google renvoyé par Google, chiffré (AES-GCM) ; prioritaire sur le secret. */
+  jetonGoogle: 'jeton_google',
 } as const;
 
 /** Assez pour recalculer les 7 dernières nuits du statut (jour UTC et jour local peuvent différer d'un). */

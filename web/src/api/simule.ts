@@ -932,6 +932,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
           engagements_demain: engagementsDemain(t),
           ...engagementsVerifies(t),
           seances_mesurees: { derniere_synchro: versInstant(t - 35 * MINUTE), erreur: null },
+          agenda: { derniere_synchro: versInstant(t - 5 * MINUTE), erreur: null },
           todoist: etatTodoist(t),
           taches_bloquantes: {
             prioritaires: tachesBloquantesSimulees(faits.prioritairesRestantes, j.date),

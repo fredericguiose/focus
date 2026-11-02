@@ -11,7 +11,8 @@
     "test": "vitest run",
     "types": "wrangler types",
     "migrations:locales": "wrangler d1 migrations apply focus --local",
-    "jeton:creer": "node scripts/creer-jeton.mjs"
+    "jeton:creer": "node scripts/creer-jeton.mjs",
+    "google:autoriser": "node scripts/google-autoriser.mjs"
   },
   "dependencies": {
     "hono": "4.13.14"

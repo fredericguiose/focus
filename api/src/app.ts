@@ -10,6 +10,7 @@ import { enregistrerAccuse, enregistrerEvenements } from './evenements';
 import { apercuException, enregistrerException } from './exceptions';
 import { planningAppareil, raisonDuBlocage, statut, tachesEligibles } from './planning';
 import { ajouterApps, fermerSession, ouvrirSession, repondreQuestion } from './sessions';
+import { CHEMINS_PUBLICS, pagePublique } from './pages-publiques';
 import { lireCorps } from './validation';
 
 /** Fabrique de l'app HTTP : le moteur, l'horloge et Todoist sont injectés. */
@@ -100,6 +101,17 @@ export function creerApp(deps: Dependances) {
     await invaliderTout(c.env.DB);
     return c.json({ environnement: 'local', ...regle });
   });
+
+  // Pages publiques (hôte web sans JWT, voir src/acces.ts ; 404 sur l'hôte de l'API, qui ne sert que /v1/*).
+  for (const chemin of CHEMINS_PUBLICS) {
+    app.get(chemin, (c) => {
+      c.header('Cache-Control', 'public, max-age=3600');
+      c.header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+      c.header('X-Content-Type-Options', 'nosniff');
+      c.header('Referrer-Policy', 'no-referrer');
+      return c.html(pagePublique(chemin, c.env.CONTACT_EMAIL));
+    });
+  }
 
   app.all('/v1/*', () => {
     throw new ErreurApi(404, 'introuvable', "Point d'entrée inconnu.");

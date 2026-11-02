@@ -7,6 +7,8 @@
 //     appartenir au même utilisateur.
 //   - HOTE_API (clients : PC, extension, iPhone, GitHub Actions) : pas d'Access ; seulement /v1/*,
 //     sans les routes réservées au jeton d'interface ni le jeton d'interface lui-même.
+// Exception unique : GET/HEAD /confidentialite et /conditions sur HOTE_WEB, pages statiques
+// publiques sans donnée (écran de consentement Google), servies sans JWT.
 // Tout autre hôte (dont l'adresse workers.dev) est refusé. En local (FOCUS_ENVIRONNEMENT=local),
 // rien de tout cela : un seul hôte sert tout ; sans Authorization, /v1/* vaut interface de
 // FOCUS_UTILISATEUR_LOCAL si cette variable est posée (scripts/local.mjs), sinon le jeton est exigé.
@@ -14,6 +16,7 @@ import type { MiddlewareHandler } from 'hono';
 import { getCookie } from 'hono/cookie';
 import type { Dependances, EnvApp, Liaisons } from './env';
 import { ErreurApi } from './erreurs';
+import { CHEMINS_PUBLICS } from './pages-publiques';
 
 export type Hote = 'local' | 'web' | 'api';
 
@@ -185,6 +188,16 @@ export function creerVerificateurAcces(recuperer: (url: string) => Promise<Respo
   };
 }
 
+/**
+ * Pages publiques de l'hôte web (src/pages-publiques.ts), exigées par l'écran de consentement
+ * OAuth de Google : GET ou HEAD sur l'un des deux chemins exacts, rien d'autre (ni sous-chemin,
+ * ni barre finale, ni autre méthode). Access doit aussi les laisser passer (application « Bypass »,
+ * docs/mise-en-ligne.md).
+ */
+export function estPagePublique(methode: string, chemin: string): boolean {
+  return (methode === 'GET' || methode === 'HEAD') && (CHEMINS_PUBLICS as readonly string[]).includes(chemin);
+}
+
 /** Hôte de la requête : local, web, api ; sinon refus (hôte inconnu, workers.dev compris). */
 export function gardeAcces(deps: Dependances): MiddlewareHandler<EnvApp> {
   const verifier = creerVerificateurAcces(deps.recupererCertsAcces ?? ((url) => fetch(url)), deps.maintenant);
@@ -200,6 +213,11 @@ export function gardeAcces(deps: Dependances): MiddlewareHandler<EnvApp> {
     const api = (c.env.HOTE_API ?? '').trim().toLowerCase();
 
     if (web && nom === web) {
+      // Seule exemption : les deux pages publiques (GET/HEAD, chemin exact), sans aucune donnée.
+      if (estPagePublique(c.req.method, new URL(c.req.url).pathname)) {
+        c.set('hote', 'web');
+        return suite();
+      }
       const reglages = lireReglagesAcces(c.env);
       if ('manquantes' in reglages) {
         console.error(`Access : variable(s) manquante(s) ou invalide(s) : ${reglages.manquantes.join(', ')}. Hôte web fermé.`);

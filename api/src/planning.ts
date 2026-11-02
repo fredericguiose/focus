@@ -4,6 +4,7 @@ import { tachesQuiRetiennent } from '../../core/src/conditions';
 import { dettesHebdomadaires, lundiDe, SEMAINES_DE_BILAN } from '../../core/src/dette';
 import { JOURS_DU_JOURNAL_DES_LEVERS } from '../../core/src/levers';
 import { dateCourte, JOURS_SEMAINE, jourSemaine } from '../../core/src/temps';
+import { etatSynchroAgenda } from './agenda';
 import { etatSynchroHevy, lireSeances } from './hevy';
 import { usagesDesEtiquettes } from './planifie';
 import { CLES_CALCUL, ecrireCalcul, lireCalcul } from './cache';
@@ -367,7 +368,7 @@ async function calculerStatut(deps: Dependances, db: D1Database, jeton: JetonAut
   const { config } = contexte;
   const journee = deps.moteur.journeeCourante(contexte);
   const jourCivil = dateLocale(maintenant, journee.fuseau);
-  const [pings, etiquettes, sessions, cumulS, sommeil, synchro, seances, synchroSeances, figes] = await Promise.all([
+  const [pings, etiquettes, sessions, cumulS, sommeil, synchro, seances, synchroSeances, figes, agenda] = await Promise.all([
     db
       .prepare(
         `SELECT nom, MAX(vu_le) AS vu_le FROM appareils
@@ -383,6 +384,7 @@ async function calculerStatut(deps: Dependances, db: D1Database, jeton: JetonAut
     lireSeances(db, jeton.utilisateur, versInstant(debutJourLocal(ajouterJours(jourCivil, -JOURS_VERIFIES - 1), journee.fuseau))),
     etatSynchroHevy(db, jeton.utilisateur),
     prevusFiges(db, jeton.utilisateur, ajouterJours(journee.date, -JOURS_DU_JOURNAL_DES_LEVERS - 1)),
+    etatSynchroAgenda(db, jeton.utilisateur),
   ]);
   const vuLe = new Map(pings.results.map((p) => [p.nom, p.vu_le]));
   const phase = phaseDe(journee, maintenant);
@@ -410,6 +412,7 @@ async function calculerStatut(deps: Dependances, db: D1Database, jeton: JetonAut
     couchers: vueCouchers(deps.moteur.journalDesCouchers(contexte, journee.date, lues.endormissements, figes.couchers)),
     ...engagementsVerifies(deps.moteur, contexte, seances, jourCivil),
     seances_mesurees: synchroSeances,
+    agenda,
     appareils: Object.entries(config.appareils).map(([nom, def]) => {
       const etat = deps.moteur.etat(contexte, nom);
       const segment = deps.moteur.planifier(contexte, nom, HORIZON_H)[0];

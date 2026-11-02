@@ -339,6 +339,7 @@ describe('conversion du statut : aucun champ de l’API perdu', () => {
     engagements_verifies: [],
     sautes_semaine: 0,
     seances_mesurees: null,
+    agenda: null,
     todoist: { dernier_changement: null, etiquettes_verifiees_le: null, etiquettes_manquantes: [] },
     taches_bloquantes: { prioritaires: { total: 0, taches: [] }, retard: { total: 0, taches: [] } },
   };

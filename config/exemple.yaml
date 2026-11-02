@@ -115,8 +115,9 @@ prix_du_report:
   commentaire_min: 15
   deadline: { reports_max: 3, jours_minimum: 2 }
 
-# Cadences de synchronisation (facultatif ; valeurs par défaut). Xiaomi jamais sous 10 min.
-# synchro: { todoist: "2min", xiaomi: "15min", hevy: "1h" }
+# Cadences de synchronisation (facultatif ; valeurs par défaut). Xiaomi jamais sous 10 min,
+# Google Agenda (bloc « Dormir ») jamais sous 5 min.
+# synchro: { todoist: "2min", xiaomi: "15min", hevy: "1h", google_agenda: "15min" }
 
 sessions:
   plafond_quotidien: "3h"

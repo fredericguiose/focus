@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, BedDouble, CircleCheck, Equal, Moon, TrendingDown, Undo2, Watch } from 'lucide-react';
+import { ArrowDown, ArrowUp, BedDouble, CalendarX, CircleCheck, Equal, Moon, TrendingDown, Undo2, Watch } from 'lucide-react';
 import { Bar, BarChart, Cell, ReferenceLine, XAxis, YAxis } from 'recharts';
 
 import { Badge } from '@/components/ui/badge';
@@ -331,12 +331,23 @@ function Tendance({ semaine, precedente }: { semaine: SemaineAffichee; precedent
   );
 }
 
+/** Alerte discrète du bloc « Dormir » dans Google Agenda ; null si la dernière synchro a réussi. */
+export function alerteAgenda(erreur: string | null | undefined): string | null {
+  if (!erreur) return null;
+  if (erreur === 'jeton_google_revoque' || erreur === 'client_google_refuse') {
+    return "La connexion à Google Agenda a expiré : le bloc « Dormir » n'est plus mis à jour.";
+  }
+  if (erreur === 'google_acces_refuse') return "Google Agenda refuse l'accès : le bloc « Dormir » n'est plus mis à jour.";
+  return "Google Agenda n'a pas répondu : le bloc « Dormir » n'est peut-être pas à jour.";
+}
+
 export function CarteSommeil({ statut }: { statut: ReponseStatut }) {
   const nuits = statut.nuits ?? [];
   const objectif = statut.objectif_sommeil_min ?? OBJECTIF_PAR_DEFAUT_MIN;
   const mesurees = nuits.filter((n) => dormi(n) !== null);
   const derniere = mesurees.at(-1);
   const jetonExpire = statut.sommeil_mesure?.erreur === 'jeton_xiaomi_expire';
+  const agenda = alerteAgenda(statut.agenda?.erreur);
 
   const titreNuit = derniere
     ? derniere.nuit === ajouterJours(statut.journee.date, -1)
@@ -408,6 +419,11 @@ export function CarteSommeil({ statut }: { statut: ReponseStatut }) {
         {jetonExpire ? (
           <p className="text-avertissement flex items-center gap-1.5 text-xs">
             <Watch className="size-3.5" /> La connexion au compte Xiaomi a expiré : le sommeil n'est plus mis à jour.
+          </p>
+        ) : null}
+        {agenda ? (
+          <p className="text-avertissement flex items-center gap-1.5 text-xs">
+            <CalendarX className="size-3.5 shrink-0" /> {agenda}
           </p>
         ) : null}
       </CardContent>

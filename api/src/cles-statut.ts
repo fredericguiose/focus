@@ -26,6 +26,7 @@ export const CLES_STATUT = [
   'engagements_verifies',
   'sautes_semaine',
   'seances_mesurees',
+  'agenda',
   'appareils',
   'appareil_principal',
   'sessions',

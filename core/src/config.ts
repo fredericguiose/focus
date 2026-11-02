@@ -47,10 +47,11 @@ const duree = z.string().transform((v, ctx) => {
 
 /**
  * Cadences de synchronisation des sources (docs/conception.md §4.4), en minutes. Planchers : la
- * tâche planifiée tourne chaque minute ; Xiaomi est une API non officielle, jamais sous 10 min.
+ * tâche planifiée tourne chaque minute ; Xiaomi est une API non officielle, jamais sous 10 min ;
+ * Google Agenda (bloc « Dormir ») jamais sous 5 min (un changement signalé passe sans attendre).
  */
-export const SYNCHRO_PAR_DEFAUT_MIN = { todoist: 2, xiaomi: 15, hevy: 60 } as const;
-export const SYNCHRO_MIN_MIN = { todoist: 1, xiaomi: 10, hevy: 10 } as const;
+export const SYNCHRO_PAR_DEFAUT_MIN = { todoist: 2, xiaomi: 15, hevy: 60, googleAgenda: 15 } as const;
+export const SYNCHRO_MIN_MIN = { todoist: 1, xiaomi: 10, hevy: 10, googleAgenda: 5 } as const;
 const SYNCHRO_MAX_MIN = 24 * 60;
 
 function cadence(minimum: number) {
@@ -60,11 +61,13 @@ function cadence(minimum: number) {
 }
 
 /** Cadences appliquées (une config normalisée plus ancienne, gardée en base, n'en a pas). */
-export function cadencesDeSynchro(config: Config): { todoist: number; xiaomi: number; hevy: number } {
+export function cadencesDeSynchro(config: Config): { todoist: number; xiaomi: number; hevy: number; googleAgenda: number } {
   const c = config.synchro;
-  const lire = (k: keyof typeof SYNCHRO_PAR_DEFAUT_MIN) =>
-    Number.isFinite(c?.[`${k}Min`]) ? Math.max(c![`${k}Min`], SYNCHRO_MIN_MIN[k]) : SYNCHRO_PAR_DEFAUT_MIN[k];
-  return { todoist: lire('todoist'), xiaomi: lire('xiaomi'), hevy: lire('hevy') };
+  const lire = (k: keyof typeof SYNCHRO_PAR_DEFAUT_MIN) => {
+    const v = c?.[`${k}Min`];
+    return v !== undefined && Number.isFinite(v) ? Math.max(v, SYNCHRO_MIN_MIN[k]) : SYNCHRO_PAR_DEFAUT_MIN[k];
+  };
+  return { todoist: lire('todoist'), xiaomi: lire('xiaomi'), hevy: lire('hevy'), googleAgenda: lire('googleAgenda') };
 }
 
 /** Durée, ou nombre seul = minutes (pour `preparation`). */
@@ -336,6 +339,7 @@ const schemaConfig = z.strictObject({
       todoist: cadence(SYNCHRO_MIN_MIN.todoist).default(SYNCHRO_PAR_DEFAUT_MIN.todoist),
       xiaomi: cadence(SYNCHRO_MIN_MIN.xiaomi).default(SYNCHRO_PAR_DEFAUT_MIN.xiaomi),
       hevy: cadence(SYNCHRO_MIN_MIN.hevy).default(SYNCHRO_PAR_DEFAUT_MIN.hevy),
+      google_agenda: cadence(SYNCHRO_MIN_MIN.googleAgenda).default(SYNCHRO_PAR_DEFAUT_MIN.googleAgenda),
     })
     .prefault({}),
 });
@@ -451,7 +455,12 @@ function normaliser(b: ConfigBrute): Config {
       expirationQuestionS: b.sessions.expiration_question_s,
       intervalleQuestionMin: b.sessions.intervalle_question,
     },
-    synchro: { todoistMin: b.synchro.todoist, xiaomiMin: b.synchro.xiaomi, hevyMin: b.synchro.hevy },
+    synchro: {
+      todoistMin: b.synchro.todoist,
+      xiaomiMin: b.synchro.xiaomi,
+      hevyMin: b.synchro.hevy,
+      googleAgendaMin: b.synchro.google_agenda,
+    },
   };
 }
 
@@ -692,7 +701,7 @@ const CLES_CONNUES = [
   'prioritaires', 'etiquettes_exclues', 'prix_du_report', 'par_report', 'plafond', 'commentaire_min', 'deadline',
   'reports_max', 'jours_minimum', 'plafond_quotidien', 'attentes_s', 'delai_nouvelle_tache',
   'expiration_question_s', 'intervalle_question', 'pc', 'apres', 'avant', 'decale_par', 'filtre', 'au_plus',
-  'priorites', 'etiquettes_incluses', 'verification', 'mesure', 'synchro', 'xiaomi', 'hevy',
+  'priorites', 'etiquettes_incluses', 'verification', 'mesure', 'synchro', 'xiaomi', 'hevy', 'google_agenda',
 ];
 
 /** Clés retirées du schéma : un message qui dit quoi faire plutôt que « clé inconnue ». */

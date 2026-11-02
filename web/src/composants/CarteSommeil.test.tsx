@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { creerApiSimulee } from '@/api/simule';
 import type { ReponseStatut } from '@/api/contrat';
-import { tendanceEnMots, CarteSommeil, detailNuit, ecartEnMots, ecartNuitEnMots, rattrapee } from '@/composants/statut/CarteSommeil';
+import { alerteAgenda, tendanceEnMots, CarteSommeil, detailNuit, ecartEnMots, ecartNuitEnMots, rattrapee } from '@/composants/statut/CarteSommeil';
 
 const MARDI_15H = Date.parse('2026-11-03T14:00:00Z');
 const statut = () => creerApiSimulee({ maintenant: () => MARDI_15H, fuseau: 'Europe/Paris', phase: 'journee' }).statut();
@@ -148,6 +148,20 @@ describe('carte « Sommeil »', () => {
     expect(screen.queryByText('7 dernières nuits')).toBeNull();
     expect(screen.queryByText('Profond')).toBeNull();
     expect(screen.getByText(/compte Xiaomi a expiré/)).toBeTruthy();
+  });
+
+  it('Google Agenda en erreur : une ligne discrète ; synchro réussie ou absente : rien', async () => {
+    const s = await statut();
+    const { unmount } = render(<CarteSommeil statut={{ ...s, agenda: { derniere_synchro: null, erreur: 'jeton_google_revoque' } }} />);
+    expect(screen.getByText(/connexion à Google Agenda a expiré/)).toBeTruthy();
+    unmount();
+    for (const agenda of [undefined, null, { derniere_synchro: '2026-11-03T13:55:00Z', erreur: null }]) {
+      const r = render(<CarteSommeil statut={{ ...s, agenda }} />);
+      expect(screen.queryByText(/Google Agenda/)).toBeNull();
+      r.unmount();
+    }
+    expect(alerteAgenda('google_quota')).toBe("Google Agenda n'a pas répondu : le bloc « Dormir » n'est peut-être pas à jour.");
+    expect(alerteAgenda('google_acces_refuse')).toMatch(/refuse l'accès/);
   });
 
   it('écart de la nuit avec la sieste du lendemain : « dont », plafonné à l’écart', () => {

@@ -148,8 +148,11 @@ export interface Config {
     expirationQuestionS: number;
     intervalleQuestionMin: { pc: number; iphone: number };
   };
-  /** Cadences de synchronisation, en minutes (absent dans une config normalisée d'avant le 01/11). */
-  synchro?: { todoistMin: number; xiaomiMin: number; hevyMin: number };
+  /**
+   * Cadences de synchronisation, en minutes (absent dans une config normalisée d'avant le 01/11 ;
+   * `googleAgendaMin` absent avant le 02/11).
+   */
+  synchro?: { todoistMin: number; xiaomiMin: number; hevyMin: number; googleAgendaMin?: number };
 }
 
 export type ResultatValidation =

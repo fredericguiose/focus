@@ -180,10 +180,10 @@ prix_du_report:
 
 ### 2.9 Cadences de synchronisation (facultatif)
 ```yaml
-synchro: { todoist: "2min", xiaomi: "15min", hevy: "1h" }   # valeurs par défaut
+synchro: { todoist: "2min", xiaomi: "15min", hevy: "1h", google_agenda: "15min" }   # valeurs par défaut
 ```
-Planchers : 1 min (Todoist), **10 min (Xiaomi, API non officielle)**, 10 min (Hevy) ; 24 h au
-plus. Une seule source lourde par minute (§4.4).
+Planchers : 1 min (Todoist), **10 min (Xiaomi, API non officielle)**, 10 min (Hevy), 5 min
+(Google Agenda) ; 24 h au plus. Une seule source lourde par minute (§4.4).
 
 ## 3. Le moteur
 
@@ -443,6 +443,7 @@ désactivé. En local, un seul hôte sert tout. Détails, routes par hôte et mi
 | POST | `/v1/exceptions` | interface | enregistrer (mêmes règles) |
 | POST | `/v1/config` | config | `{ yaml, commit }` : valide, enregistre une nouvelle version |
 | GET | `/v1/config/version` | tous | version active |
+| GET | `/confidentialite`, `/conditions` | aucun | pages publiques statiques (politique de confidentialité, conditions d'utilisation), exigées par l'écran de consentement Google ; hôte web seulement, sans JWT Access (exemption exacte, docs/mise-en-ligne.md) ; 404 sur l'hôte API |
 | POST | `/v1/dev/horloge` | interface | **local seulement** (`FOCUS_ENVIRONNEMENT=local`, sinon 404) : `{ horloge: "+3h" \| instant \| null }` règle l'horloge de l'API (docs/essai-local.md) |
 
 Erreurs : `{ erreur: code, message }` en français, codes HTTP usuels.
@@ -492,20 +493,22 @@ Règles côté client :
 ### 4.4 Tâches planifiées (une seule entrée cron `* * * * *`)
 **Cadences** (revue du 01/11, plan gratuit de Workers : 10 ms de CPU et 50 sous-requêtes par
 invocation, **D1 compris**, un `db.batch` comptant pour une) : réglables dans le YAML, bloc
-facultatif `synchro: { todoist: "2min", xiaomi: "15min", hevy: "1h" }` (valeurs par défaut ;
-planchers 1 min, **10 min pour Xiaomi** — API non officielle — et 10 min pour Hevy ; 24 h au plus ;
+facultatif `synchro: { todoist: "2min", xiaomi: "15min", hevy: "1h", google_agenda: "15min" }` (valeurs par défaut ;
+planchers 1 min, **10 min pour Xiaomi** — API non officielle —, 10 min pour Hevy, 5 min pour
+Google Agenda ; 24 h au plus ;
 `cadencesDeSynchro`, défauts appliqués aussi à une config normalisée plus ancienne). Chaque
-minute, la tâche ne lance **qu'une seule source lourde** (Todoist, Xiaomi ou Hevy) : parmi celles
+minute, la tâche ne lance **qu'une seule source lourde** (Todoist, Xiaomi, Hevy ou Google Agenda) : parmi celles
 qui sont dues (dernier passage tenté il y a au moins la cadence, à 30 s près ; un rattrapage en
-cours est dû chaque minute), la plus en retard en temps absolu, à égalité Todoist puis Xiaomi
-puis Hevy (`choisirSource`) ; les autres passent à la minute suivante (au plus une minute de
+cours est dû chaque minute ; un agenda signalé « à resynchroniser » aussi, son retard comptant
+depuis le signal), la plus en retard en temps absolu, à égalité Todoist, Xiaomi, Hevy puis
+Google Agenda (`choisirSource`) ; les autres passent à la minute suivante (au plus une minute de
 décalage, Todoist toutes les 2 min ne les affame pas). Dernier passage Todoist tenté : clé de
 cache `synchro_todoist`. Bornes par passage : Todoist 20 requêtes (au-delà, faits abandonnés,
 cache précédent gardé), Xiaomi 16 requêtes de données + 2 de connexion (morceaux de rattrapage :
 2 par passage), Hevy 10 pages (rattrapage initial en plusieurs passes, une par minute, reprise à
 la page suivante ; une lecture partielle n'efface rien). Les étapes légères (fermeture des
 sessions, photos) tournent à chaque minute ; la vérification des étiquettes (2 requêtes, une
-fois par jour) jamais avec Xiaomi ni Hevy.
+fois par jour) jamais avec Xiaomi, Hevy ni Google Agenda.
 Jeton Todoist : il n'appartient qu'à **un** utilisateur, `TODOIST_UTILISATEUR` (comme Xiaomi et
 Hevy) ; sans cette variable, pas de synchro Todoist.
 À sa cadence : rafraîchir les faits Todoist en cache (réécrits seulement s'ils changent).
@@ -568,6 +571,54 @@ identifiant Hevy, `valeur` = durée en minutes, `details` = `{ titre }`) : insé
 elle a changé ; une séance de la période absente de la réponse (supprimée chez Hevy) est effacée.
 État dans le cache (`synchro_hevy`) ; clé refusée (HTTP 401/403) : erreur `cle_hevy_refusee`,
 relancée à la cadence suivante. La clé n'est jamais journalisée. Secrets absents : étape sautée.
+
+**Bloc « Dormir » dans Google Agenda** (décision du 02/11, `api/src/agenda.ts`,
+`api/src/google-agenda.ts` ; mise en service : docs/mise-en-ligne.md §9). Si les secrets
+`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN` et `GOOGLE_UTILISATEUR` sont
+posés (sinon : étape sautée) : un événement par nuit dans le calendrier `primary` de
+`GOOGLE_UTILISATEUR` (seul synchronisé, comme Xiaomi), pour la nuit de la journée en cours et la
+suivante (2 nuits). Titre « Dormir », du **coucher appliqué** au **lever prévu** de la nuit
+(`journee(D).coucherApplique` → `journee(D).leverSuivant`), fuseau de la routine, description
+« Tenu à jour par Focus », aucun rappel (`reminders.useDefault: false`), `transparency: opaque`,
+propriétés privées `focus = "sommeil"` et `focusNuit = <nuit>`. Une nuit est modifiable jusqu'à
+son lever ; **une nuit passée n'est plus jamais modifiée** ni supprimée (elle sort de l'état sans
+appel). Une nuit future qui sort de la fenêtre (horloge reculée, en essai) est supprimée chez
+Google (2 au plus par passage).
+- **Identification** : id d'événement **déterministe** `focussommeil<AAAAMMJJ>` (base32hex : a-v
+  et 0-9, 5 à 1024 caractères, unique par calendrier — doc Events: insert). Préféré à une
+  recherche par `privateExtendedProperty` : écriture idempotente (pas de doublon possible si
+  l'appel réussit mais l'écriture en base échoue), aucune requête de recherche. Écriture = `PUT
+  events/<id>` (remplacement complet, `status: confirmed` : restaure aussi un événement supprimé
+  à la main), puis `POST` avec l'id si Google répond 404. Une modification faite à la main dans
+  Google est écrasée à la prochaine écriture de cette nuit.
+- **Seulement si l'heure change** : ce qui a été écrit (début, fin par nuit) est gardé dans le
+  cache `synchro_agenda` (avec `tentee_le`, `reussie_le`, `erreur`) ; un passage sans différence
+  n'appelle pas Google (pas même pour le jeton). Un événement supprimé à la main n'est donc recréé
+  qu'au prochain changement d'heure de sa nuit.
+- **Cadence** `synchro.google_agenda` (15 min par défaut, plancher 5 min). **Mise à jour rapide** :
+  une exception (dont « je vais dormir »), une config reçue et `POST /v1/actualiser` (si l'agenda
+  est configuré pour l'utilisateur) écrivent le signal `agenda_a_refaire` (heure du dernier
+  signal, dans le même `db.batch`) ; le passage suivant de la tâche planifiée (en général la
+  minute suivante) resynchronise sans attendre la cadence, puis efface le signal s'il est
+  antérieur à son début. Rien n'est fait dans la requête elle-même (pas de `waitUntil`) : la
+  requête a déjà son budget de CPU et de sous-requêtes, et le verrou ci-dessous resterait
+  nécessaire. Les changements venus d'ailleurs (Todoist qui change le prix du report, lever
+  mesuré) passent à la cadence.
+- **Jeton** : refresh token échangé contre un jeton d'accès (`oauth2.googleapis.com/token`) à la
+  première écriture d'un passage seulement. Si Google renvoie un nouveau refresh token et que
+  `CLE_CHIFFREMENT` est posé, il est gardé chiffré (cache `jeton_google`, AES-GCM, données
+  associées `jeton_google:<utilisateur>:<client_id>`) et sert en priorité ; refusé, il est oublié
+  et le passage reprend avec le secret.
+- **Erreurs** : `jeton_google_revoque` (`invalid_grant` à l'échange, ou 401), `client_google_refuse`
+  (`invalid_client`), `google_quota` (429, ou 403 `rateLimitExceeded` / `userRateLimitExceeded` /
+  `quotaExceeded`), `google_acces_refuse` (autre 403), `google_indisponible` (réseau, 5xx),
+  `google_reponse_invalide`. Notées dans `synchro_agenda`, journalisées (code seul, jamais de
+  jeton ni de corps de réponse), renvoyées par le statut (`agenda`), relancées à la cadence
+  suivante (pas à chaque minute). Une nuit écrite avant l'erreur reste notée comme écrite.
+- **Verrou** `google_agenda:<utilisateur>` (table `verrous`, échéance 5 min) : deux passages
+  simultanés ne font pas tourner le jeton ensemble.
+- **Bornes** : au plus 2 nuits × 2 appels + 2 suppressions + 2 échanges de jeton (repli) = 8
+  appels Google par passage, plus ~6 requêtes D1.
 
 ### 4.5 Sessions
 - **Session possible** sur un appareil seulement si (1) le mode en vigueur sur l'appareil a
@@ -650,6 +701,7 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
                                         | "facultatif_non_fait" | "a_faire" } ],
   "sautes_semaine": number,
   "seances_mesurees": { "derniere_synchro": "…Z" | null, "erreur": string | null } | null,
+  "agenda": { "derniere_synchro": "…Z" | null, "erreur": string | null } | null,
   "appareils": [ { "nom", "type", "mode", "sessions", "session_possible": bool,
                    "session_motif": string | null, "raison", "actions", "apps_bloquees",
                    "groupes_bloques": [ { "id", "nom", "apps": [id] } ],
@@ -807,6 +859,11 @@ Champs calculés à partir de la journée courante J (contrat partagé avec la w
   `saute_non_declare` du lundi à aujourd'hui (information seulement, rien n'est bloqué ;
   `facultatif_non_fait` n'y entre jamais).
   `seances_mesurees` : dernière synchro Hevy réussie et code d'erreur (null si jamais tentée).
+  `agenda` : dernier passage réussi de la synchro du bloc « Dormir » dans Google Agenda et code
+  d'erreur du dernier passage (null si jamais tentée, ou agenda non configuré). La carte
+  « Sommeil » de la web app affiche alors une ligne discrète : « La connexion à Google Agenda a
+  expiré… » (`jeton_google_revoque`, `client_google_refuse`), « Google Agenda refuse l'accès… »
+  (`google_acces_refuse`), sinon « Google Agenda n'a pas répondu… ».
 - **Carte « Engagements »** de la web app : pour aujourd'hui, chaque engagement vérifiable et son
   état (✓ vert fait, ✗ orange à faire, gris annulé à l'avance) ; puis la semaine lun → dim en cases
   pour les jours prévus (fait, annulé à l'avance, sauté sans l'annuler en rouge, non faite

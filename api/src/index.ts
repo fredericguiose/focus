@@ -4,6 +4,7 @@ import { creerApp } from './app';
 import type { Dependances, Liaisons } from './env';
 import { HorlogeLocale } from './horloge';
 import { executerTachesPlanifiees } from './planifie';
+import { creerClientAgenda } from './google-agenda';
 import { creerClientHevy } from './hevy';
 import { creerClientTodoist } from './todoist';
 import { creerClientXiaomi } from './xiaomi';
@@ -28,5 +29,6 @@ export default creerWorker({
   todoist: (jeton) => creerClientTodoist({ jeton }),
   xiaomi: (identifiants) => creerClientXiaomi(identifiants),
   hevy: (cle) => creerClientHevy({ cle }),
+  agenda: (identifiants) => creerClientAgenda(identifiants),
   cacheCalculs: true,
 });

@@ -1,6 +1,7 @@
 import type { Moteur } from '../../core/src/types';
 import type { Hote } from './acces';
 import type { HorlogeLocale } from './horloge';
+import type { ClientAgenda, IdentifiantsGoogle } from './google-agenda';
 import type { ClientHevy } from './hevy';
 import type { ClientTodoist } from './todoist';
 import type { ClientXiaomi, IdentifiantsXiaomi } from './xiaomi';
@@ -26,6 +27,17 @@ export interface Liaisons {
   HEVY_API_KEY?: string;
   /** Utilisateur Focus à qui appartient le compte Hevy ; seul synchronisé. */
   HEVY_UTILISATEUR?: string;
+  /**
+   * Secrets Worker de Google Agenda (bloc « Dormir ») : client OAuth (type « installed ») et
+   * refresh token initial (api/scripts/google-autoriser.mjs). Un seul absent : pas de synchro.
+   */
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  GOOGLE_REFRESH_TOKEN?: string;
+  /** Utilisateur Focus à qui appartient l'agenda Google ; seul synchronisé. Absent : pas de synchro. */
+  GOOGLE_UTILISATEUR?: string;
+  /** Adresse de contact affichée sur les pages publiques (/confidentialite, /conditions) ; absente : pas de ligne de contact. */
+  CONTACT_EMAIL?: string;
   /** Secret de chiffrement des jetons gardés en base ; absent : le passToken reçu n'est pas gardé. */
   CLE_CHIFFREMENT?: string;
   /** « local » seulement pour un essai sur la machine : autorise l'horloge réglable. */
@@ -75,6 +87,8 @@ export interface Dependances {
   xiaomi?: (identifiants: IdentifiantsXiaomi) => ClientXiaomi;
   /** Absent : la synchro des séances est sautée. */
   hevy?: (cle: string) => ClientHevy;
+  /** Absent : la synchro du bloc « Dormir » dans Google Agenda est sautée. */
+  agenda?: (identifiants: IdentifiantsGoogle) => ClientAgenda;
   /** Présente si l'horloge peut être réglée (en local seulement, voir horloge.ts). */
   horloge?: HorlogeLocale;
   /**

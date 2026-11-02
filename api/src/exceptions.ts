@@ -3,6 +3,7 @@
 import type { Contexte, DemandeException, FrictionFournie, Moteur, PrixException } from '../../core/src/types';
 import { PREPARATION_MAX_MIN } from '../../core/src/exceptions';
 import { dateCourte } from '../../core/src/temps';
+import { instructionMarquerAgenda } from './agenda';
 import { instructionsInvalider } from './cache';
 import { chargerContexte, nouvelIdentifiant } from './contexte';
 import type { Dependances, JetonAuthentifie } from './env';
@@ -135,6 +136,8 @@ export async function enregistrerException(deps: Dependances, db: D1Database, je
           contexte.maintenant,
         ),
       ...instructionsInvalider(db, jeton.utilisateur),
+      // Coucher ou lever changé : bloc « Dormir » de Google Agenda à resynchroniser.
+      instructionMarquerAgenda(db, jeton.utilisateur, contexte.maintenant),
     ]);
   } catch (e) {
     // Deux décisions de nuit simultanées : la seconde arrive ici, après la lecture des deux.

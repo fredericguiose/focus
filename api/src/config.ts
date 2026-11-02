@@ -1,5 +1,6 @@
 // Réception de la config (GitHub Actions). Une version invalide est gardée au journal mais
 // ne devient jamais active : l'API lit toujours la dernière version valide.
+import { instructionMarquerAgenda } from './agenda';
 import { instructionsInvalider } from './cache';
 import { chargerConfigActive } from './contexte';
 import type { Dependances, JetonAuthentifie } from './env';
@@ -36,6 +37,7 @@ export async function recevoirConfig(deps: Dependances, db: D1Database, jeton: J
   await db.batch([
     inserer.bind(jeton.utilisateur, commit, yaml, JSON.stringify(resultat.config), recueLe, 1, null),
     ...instructionsInvalider(db, jeton.utilisateur),
+    instructionMarquerAgenda(db, jeton.utilisateur, recueLe),
   ]);
   return { version: commit, valide: true, recue_le: recueLe };
 }
