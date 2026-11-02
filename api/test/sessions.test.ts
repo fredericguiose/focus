@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:workers';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { Horloge, MARDI, client, creerJeton, installerConfig, poserTaches, tache } from './aides';
+import { Horloge, MARDI, client, configExemple, creerJeton, installerConfig, poserTaches, tache } from './aides';
 
 const OUVERTURE = { appareil: 'pc_linux', tache_id: '1', apps: ['chatgpt'] };
 
@@ -269,5 +269,82 @@ describe('sessions — fin imposée par le mode et le plafond (revue 01/11)', ()
     const ligne = await env.DB.prepare('SELECT fermee_le, motif_fin FROM sessions').first();
     expect(ligne).toEqual({ fermee_le: MARDI.coucher, motif_fin: 'mode_interdit' });
     expect(r).toMatchObject({ statut: 409, corps: { erreur: 'session_fermee', motif_fin: 'mode_interdit' } });
+  });
+});
+
+// 02/11 : plafond propre à certaines apps (Claude Code, 3 h), séparé du plafond commun.
+describe('sessions — plafond propre à une app (02/11)', () => {
+  const horloge = Horloge.a(MARDI.matin); // 11:00 Paris, WORK
+  const api = client(horloge);
+  let web: string;
+
+  beforeEach(async () => {
+    horloge.regler(MARDI.matin);
+    const config = configExemple();
+    await installerConfig({ ...config, sessions: { ...config.sessions, plafondsAppsMin: { gemini: 60 } } });
+    await poserTaches([tache({ id: '1' })]);
+    web = await creerJeton('interface', 'web');
+  });
+
+  const inserer = (id: string, appareil: string, de: string, a: string, compteur: string | null) =>
+    env.DB.prepare(
+      `INSERT INTO sessions (id, utilisateur, type, tache_id, appareil, apps, ouverte_le, fermee_le, motif_fin, version_config, compteur, compteur_depuis)
+       VALUES (?, 'alice', 'travail', '1', ?, '[]', ?, ?, 'fermee', 'c0ffee1', ?, ?)`,
+    ).bind(id, appareil, de, a, compteur, compteur === null ? null : de);
+
+  it('une session avec l\'app compte sur son plafond, pas sur le commun ; et inversement', async () => {
+    // 3 h de commun déjà consommées : une session sur l'app à plafond propre reste possible.
+    await inserer('s_a', 'pc_linux', '2026-11-03T06:00:00Z', '2026-11-03T09:00:00Z', null).run();
+    const o = await api.post('/v1/sessions', web, { appareil: 'pc_linux', tache_id: '1', apps: ['gemini', 'chatgpt'] });
+    expect(o.statut).toBe(201);
+    expect(o.corps.session.fin_au_plus_tard).toBe('2026-11-03T11:00:00Z'); // 1 h de plafond propre
+    expect((await api.post('/v1/sessions', web, { appareil: 'iphone', tache_id: '1', apps: ['chatgpt'] })).corps).toMatchObject({
+      erreur: 'plafond_atteint',
+      plafond_min: 180,
+    });
+    horloge.regler('2026-11-03T10:30:00Z');
+    const st = await api.get('/v1/statut', web);
+    expect(st.corps.sessions_du_jour).toEqual({
+      cumul_min: 180,
+      plafond_min: 180,
+      par_app: [{ app: 'gemini', nom: 'Gemini', cumul_min: 30, plafond_min: 60 }],
+    });
+  });
+
+  it('plafond propre atteint : refus nommé, le commun reste ouvert', async () => {
+    await inserer('s_a', 'iphone', '2026-11-03T08:00:00Z', '2026-11-03T09:00:00Z', 'gemini').run();
+    const r = await api.post('/v1/sessions', web, { appareil: 'pc_linux', tache_id: '1', apps: ['gemini'] });
+    expect(r).toMatchObject({
+      statut: 409,
+      corps: { erreur: 'plafond_atteint', app: 'gemini', cumul_min: 60, plafond_min: 60, message: 'Plafond quotidien de Gemini atteint (60 min).' },
+    });
+    expect((await api.post('/v1/sessions', web, { appareil: 'pc_linux', tache_id: '1', apps: ['chatgpt'] })).statut).toBe(201);
+  });
+
+  it('ajouter l\'app en cours de session : le temps compte sur son plafond à partir de l\'ajout', async () => {
+    const o = await api.post('/v1/sessions', web, { appareil: 'pc_linux', tache_id: '1', apps: ['chatgpt'] });
+    horloge.regler('2026-11-03T10:20:00Z');
+    const r = await api.post(`/v1/sessions/${o.corps.session.id}/apps`, web, { app: 'gemini' });
+    expect(r.statut).toBe(200);
+    expect(r.corps.session.fin_au_plus_tard).toBe('2026-11-03T11:20:00Z');
+    // Sans question en attente, seule la fin imposée (plafond) ferme la session.
+    await env.DB.prepare('DELETE FROM questions').run();
+    horloge.regler('2026-11-03T10:50:00Z');
+    const st = await api.get('/v1/statut', web);
+    expect(st.corps.sessions_du_jour).toMatchObject({ cumul_min: 20, par_app: [{ app: 'gemini', cumul_min: 30 }] });
+    // Au plafond propre, la session est fermée.
+    horloge.regler('2026-11-03T11:21:00Z');
+    await api.get('/v1/statut', web);
+    const ligne = await env.DB.prepare('SELECT fermee_le, motif_fin FROM sessions').first();
+    expect(ligne).toEqual({ fermee_le: '2026-11-03T11:20:00Z', motif_fin: 'plafond_atteint' });
+  });
+
+  it('ajout refusé si le plafond propre est déjà atteint ; la session reste sur le commun', async () => {
+    await inserer('s_a', 'iphone', '2026-11-03T08:00:00Z', '2026-11-03T09:00:00Z', 'gemini').run();
+    const o = await api.post('/v1/sessions', web, { appareil: 'pc_linux', tache_id: '1', apps: ['chatgpt'] });
+    const r = await api.post(`/v1/sessions/${o.corps.session.id}/apps`, web, { app: 'gemini' });
+    expect(r).toMatchObject({ statut: 409, corps: { erreur: 'plafond_atteint', app: 'gemini' } });
+    const ligne = await env.DB.prepare(`SELECT apps, compteur FROM sessions WHERE id = ?`).bind(o.corps.session.id).first();
+    expect(ligne).toEqual({ apps: '["chatgpt"]', compteur: null });
   });
 });

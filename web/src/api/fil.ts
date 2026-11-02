@@ -10,6 +10,7 @@ import type {
   EtapeParcours,
   Journee,
   NuitPassee,
+  PlafondApp,
   Phase,
   PrixException,
   Priorite,
@@ -74,7 +75,7 @@ export interface StatutFil {
   }[];
   appareil_principal?: string;
   sessions: SessionFil[];
-  sessions_du_jour?: { cumul_min: number; plafond_min: number };
+  sessions_du_jour?: { cumul_min: number; plafond_min: number; par_app?: PlafondApp[] };
   nuits?: NuitPassee[];
   nuits_semaine?: NuitPassee[];
   dette_cumulee_min?: number;

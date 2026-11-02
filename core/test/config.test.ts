@@ -43,6 +43,7 @@ describe('validerConfig — exemple', () => {
     expect(c.prixDuReport).toEqual({ parReportMin: 20, plafondMin: 90, commentaireMin: 15, deadline: { reportsMax: 3, joursMinimum: 2 } });
     expect(c.sessions).toEqual({
       plafondQuotidienMin: 180,
+      plafondsAppsMin: {},
       attentesS: [0, 3, 5, 10, 15, 20],
       delaiNouvelleTacheMin: 15,
       expirationQuestionS: 60,
@@ -90,6 +91,17 @@ describe('validerConfig — références inconnues', () => {
     const yaml = remplacer(EXEMPLE, 'sauf: [claude_code]', 'sauf: [claude_cod]');
     expect(erreurs(yaml)).toEqual([
       'modes.NIGHT_LOCK.effets.sauf[0] : groupe ou app inconnu « claude_cod » (vouliez-vous dire « claude_code » ?)',
+    ]);
+  });
+
+  it('plafonds_apps : app du catalogue, ni groupe ni inconnue ; normalisé en minutes', () => {
+    const ok = validerConfig(remplacer(EXEMPLE, '  plafond_quotidien: "3h"\n', '  plafond_quotidien: "3h"\n  plafonds_apps: { claude_code: "3h" }\n'));
+    if (!ok.ok) throw new Error(ok.erreurs.join('\n'));
+    expect(ok.config.sessions.plafondsAppsMin).toEqual({ claude_code: 180 });
+    const yaml = remplacer(EXEMPLE, '  plafond_quotidien: "3h"\n', '  plafond_quotidien: "3h"\n  plafonds_apps: { claude_cod: "3h", divertissement: "1h" }\n');
+    expect(erreurs(yaml)).toEqual([
+      'sessions.plafonds_apps.claude_cod : app inconnue « claude_cod » (vouliez-vous dire « claude_code » ?)',
+      'sessions.plafonds_apps.divertissement : « divertissement » est un groupe ; un plafond propre vise une app',
     ]);
   });
 

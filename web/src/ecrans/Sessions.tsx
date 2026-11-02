@@ -15,6 +15,7 @@ import { useHeureServeur, useStatut } from '@/hooks/useFocus';
 import { motifsSansSession } from '@/lib/appareils';
 import { infoMode, raisonLisible } from '@/lib/modes';
 import { appareilPrincipal } from '@/lib/parcours';
+import { PlafondsApps } from '@/composants/statut/PlafondsApps';
 import { formaterDuree, formaterHeureRelative } from '@/lib/temps';
 
 /** Pourquoi aucune session ne peut s'ouvrir (null si un appareil le peut), avec le motif de chaque appareil. */
@@ -86,6 +87,7 @@ export function EcranSessions() {
                 <div className="grid w-full gap-1.5">
                   <Progress value={Math.min(100, (cumul.cumul_min / cumul.plafond_min) * 100)} aria-label="Cumul des sessions du jour" />
                   <span>plafond {formaterDuree(cumul.plafond_min)}</span>
+                  <PlafondsApps plafonds={cumul.par_app} />
                 </div>
               ) : undefined
             }

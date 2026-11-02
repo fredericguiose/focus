@@ -933,7 +933,11 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
             ...s.session,
             prochaine_question_a: s.prochaineQuestion === null ? null : versInstant(s.prochaineQuestion),
           })),
-          sessions_du_jour: { cumul_min: Math.min(cumulMin + 35, PLAFOND_SESSIONS_MIN), plafond_min: PLAFOND_SESSIONS_MIN },
+          sessions_du_jour: {
+            cumul_min: Math.min(cumulMin + 35, PLAFOND_SESSIONS_MIN),
+            plafond_min: PLAFOND_SESSIONS_MIN,
+            par_app: [{ app: 'claude_code', nom: 'Claude Code', cumul_min: 70, plafond_min: 180 }],
+          },
           nuits,
           nuits_semaine: nuitsSemaine,
           dette_cumulee_min: nuits.reduce((total, n) => total + n.dette_min, 0),

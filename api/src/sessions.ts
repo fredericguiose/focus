@@ -20,6 +20,9 @@ interface LigneSession {
   ouverte_le: string;
   fermee_le: string | null;
   motif_fin: MotifFin | null;
+  /** App dont le plafond s'applique depuis `compteur_depuis` ; null = plafond commun (migration 0004). */
+  compteur: string | null;
+  compteur_depuis: string | null;
 }
 
 interface LigneQuestion {
@@ -55,7 +58,7 @@ export interface VueSession {
   fin_au_plus_tard: string | null;
 }
 
-const COLONNES_SESSION = `s.id, s.type, s.tache_id, s.tache_nom, s.appareil, s.apps, s.ouverte_le, s.fermee_le, s.motif_fin`;
+const COLONNES_SESSION = `s.id, s.type, s.tache_id, s.tache_nom, s.appareil, s.apps, s.ouverte_le, s.fermee_le, s.motif_fin, s.compteur, s.compteur_depuis`;
 
 async function chargerSessions(db: D1Database, utilisateur: string, filtre: string, valeurs: unknown[]): Promise<SessionChargee[]> {
   const { results } = await db
@@ -89,12 +92,42 @@ function instructionsFermeture(db: D1Database, s: SessionChargee, fin: Instant, 
 /** Horizon dans lequel on cherche le prochain mode qui interdit les sessions (celui du planning). */
 const HORIZON_FIN_H = 36;
 
-/** Secondes de session de travail entre `debut` et `maintenant`, sur les lignes données. */
-function cumulDepuis(lignes: Pick<LigneSession, 'type' | 'ouverte_le' | 'fermee_le'>[], debut: number, maintenant: number): number {
+// ─── Plafonds : le commun, et ceux propres à certaines apps (02/11) ────────────
+
+/** Compteur d'une session : null = plafond commun, sinon l'app dont le plafond s'applique. */
+export type Compteur = string | null;
+
+/** Première app de la session (dans l'ordre de `plafonds_apps`) qui a un plafond propre ; null sinon. */
+export function compteurDesApps(config: Config, apps: string[]): Compteur {
+  return Object.keys(config.sessions.plafondsAppsMin ?? {}).find((id) => apps.includes(id)) ?? null;
+}
+
+export function plafondMin(config: Config, compteur: Compteur): number {
+  return compteur === null ? config.sessions.plafondQuotidienMin : (config.sessions.plafondsAppsMin?.[compteur] ?? config.sessions.plafondQuotidienMin);
+}
+
+/** « Plafond quotidien de sessions » ou « Plafond quotidien de Claude Code ». */
+function libellePlafond(config: Config, compteur: Compteur): string {
+  return compteur === null ? 'Plafond quotidien de sessions' : `Plafond quotidien de ${config.apps[compteur]?.nom ?? compteur}`;
+}
+
+type LigneCumul = Pick<LigneSession, 'type' | 'ouverte_le' | 'fermee_le' | 'compteur' | 'compteur_depuis'>;
+
+/** Compteur de la session à l'instant `t` (avant `compteur_depuis`, elle comptait sur le commun). */
+function compteurA(s: LigneCumul, t: number): Compteur {
+  return s.compteur !== null && s.compteur_depuis !== null && ms(s.compteur_depuis) <= t ? s.compteur : null;
+}
+
+/** Secondes de session de travail sur ce compteur entre `debut` et `maintenant`, sur les lignes données. */
+function cumulDepuis(lignes: LigneCumul[], debut: number, maintenant: number, compteur: Compteur): number {
   const total = lignes.reduce((somme, s) => {
     if (s.type !== 'travail') return somme;
+    const ouverture = ms(s.ouverte_le);
     const fin = Math.min(s.fermee_le ? ms(s.fermee_le) : maintenant, maintenant);
-    return somme + Math.max(0, fin - Math.max(ms(s.ouverte_le), debut));
+    const bascule = s.compteur !== null && s.compteur_depuis !== null ? Math.max(ms(s.compteur_depuis), ouverture) : Infinity;
+    // Commun : de l'ouverture à la bascule ; compteur propre : de la bascule à la fin.
+    const [de, a] = compteur === null ? [ouverture, Math.min(fin, bascule)] : s.compteur === compteur ? [bascule, fin] : [0, 0];
+    return somme + Math.max(0, a - Math.max(de, debut));
   }, 0);
   return Math.floor(total / 1000);
 }
@@ -128,11 +161,15 @@ export async function cloturerEchues(db: D1Database, moteur: Moteur, contexte: C
   const lues = await chargerSessions(db, utilisateur, 's.fermee_le IS NULL OR s.fermee_le > ?', [journee.lever]);
   const ouvertes = lues.filter((s) => s.session.fermee_le === null);
   const terminees = new Map(contexte.faits.taches.filter((x) => x.terminee).map((x) => [x.id, x]));
-  const plafondS = contexte.config.sessions.plafondQuotidienMin * 60;
-  // Plafond : le cumul du jour avance d'autant de secondes par seconde qu'il y a de sessions de travail ouvertes.
+  // Plafond, par compteur : le cumul du jour avance d'autant de secondes par seconde qu'il y a de
+  // sessions de travail ouvertes sur ce compteur.
   const enCours = ouvertes.filter((s) => s.session.type === 'travail' && ms(s.session.ouverte_le) <= t);
-  const resteS = plafondS - cumulDepuis(lues.map((x) => x.session), lever, t);
-  const plafondA = enCours.length === 0 ? null : t + (resteS * 1000) / enCours.length;
+  const plafondsA = new Map<Compteur, number>();
+  for (const c of new Set(enCours.map((s) => compteurA(s.session, t)))) {
+    const n = enCours.filter((s) => compteurA(s.session, t) === c).length;
+    const resteS = plafondMin(contexte.config, c) * 60 - cumulDepuis(lues.map((x) => x.session), lever, t, c);
+    plafondsA.set(c, t + (resteS * 1000) / n);
+  }
 
   const instructions: D1PreparedStatement[] = [];
   const restantes: SessionChargee[] = [];
@@ -149,6 +186,7 @@ export async function cloturerEchues(db: D1Database, moteur: Moteur, contexte: C
       candidates.push({ fin: Math.max(termineeLe, ouverture), motif: 'tache_terminee' });
     }
     const travail = s.session.type === 'travail' && ouverture <= t;
+    const plafondA = travail ? (plafondsA.get(compteurA(s.session, t)) ?? null) : null;
     if (travail && plafondA !== null && plafondA <= t) candidates.push({ fin: Math.max(plafondA, ouverture), motif: 'plafond_atteint' });
     // Mode qui interdit les sessions maintenant : la session finit au début de l'interdiction.
     const interditMaintenant = !contexte.config.appareils[s.session.appareil] || moteur.etat(contexte, s.session.appareil).sessions === 'interdites';
@@ -160,7 +198,7 @@ export async function cloturerEchues(db: D1Database, moteur: Moteur, contexte: C
     if (candidates.length === 0) {
       restantes.push(s);
       const prochaine = debutInterdiction(moteur, contexte, s.session.appareil, t, HORIZON_FIN_H);
-      const finPlafond = travail && plafondA !== null ? plafondA : null;
+      const finPlafond = plafondA;
       const fin = [prochaine, finPlafond].filter((x): x is number => x !== null);
       fins.set(s.session.id, fin.length > 0 ? versInstant(Math.ceil(Math.min(...fin) / 1000) * 1000) : null);
       continue;
@@ -193,21 +231,29 @@ export function vueSession(config: Config, s: SessionChargee, finAuPlusTard: str
   };
 }
 
-/** Secondes de session de travail cumulées depuis le lever de la journée courante. */
-export async function cumulSessionsS(db: D1Database, utilisateur: string, journee: Journee, maintenant: Date): Promise<number> {
+/** Secondes de session de travail cumulées depuis le lever de la journée courante, par compteur. */
+export async function cumulsSessionsS(db: D1Database, utilisateur: string, journee: Journee, maintenant: Date): Promise<Map<Compteur, number>> {
   const { results } = await db
     .prepare(
-      `SELECT ouverte_le, fermee_le FROM sessions
+      `SELECT type, ouverte_le, fermee_le, compteur, compteur_depuis FROM sessions
        WHERE utilisateur = ? AND type = 'travail' AND ouverte_le < ? AND (fermee_le IS NULL OR fermee_le > ?)`,
     )
     .bind(utilisateur, versInstant(maintenant), journee.lever)
-    .all<{ ouverte_le: string; fermee_le: string | null }>();
-  const debut = ms(journee.lever);
-  const total = results.reduce((somme, s) => {
-    const fin = Math.min(s.fermee_le ? ms(s.fermee_le) : maintenant.getTime(), maintenant.getTime());
-    return somme + Math.max(0, fin - Math.max(ms(s.ouverte_le), debut));
-  }, 0);
-  return Math.floor(total / 1000);
+    .all<LigneCumul>();
+  const compteurs = new Set<Compteur>([null, ...results.map((s) => s.compteur)]);
+  return new Map([...compteurs].map((c) => [c, cumulDepuis(results, ms(journee.lever), maintenant.getTime(), c)]));
+}
+
+function exigerSousPlafond(config: Config, cumuls: Map<Compteur, number>, compteur: Compteur): void {
+  const cumulS = cumuls.get(compteur) ?? 0;
+  const plafond = plafondMin(config, compteur);
+  if (cumulS >= plafond * 60) {
+    throw new ErreurApi(409, 'plafond_atteint', `${libellePlafond(config, compteur)} atteint (${plafond} min).`, {
+      cumul_min: Math.floor(cumulS / 60),
+      plafond_min: plafond,
+      ...(compteur !== null ? { app: compteur } : {}),
+    });
+  }
 }
 
 /** Nombre de « continue » déjà acceptés pour cette tâche depuis le lever. */
@@ -363,13 +409,10 @@ export async function ouvrirSession(deps: Dependances, db: D1Database, jeton: Je
       eligible_le: eligible,
     });
   }
-  const cumulS = await cumulSessionsS(db, jeton.utilisateur, journee, maintenant);
-  if (cumulS >= config.sessions.plafondQuotidienMin * 60) {
-    throw new ErreurApi(409, 'plafond_atteint', `Plafond quotidien de sessions atteint (${config.sessions.plafondQuotidienMin} min).`, {
-      cumul_min: Math.floor(cumulS / 60),
-      plafond_min: config.sessions.plafondQuotidienMin,
-    });
-  }
+  const compteur = compteurDesApps(config, apps);
+  const cumuls = await cumulsSessionsS(db, jeton.utilisateur, journee, maintenant);
+  exigerSousPlafond(config, cumuls, compteur);
+  const cumulS = cumuls.get(compteur) ?? 0;
 
   const rang = await compterContinues(db, jeton.utilisateur, tache.id, journee);
   const session: LigneSession = {
@@ -382,16 +425,21 @@ export async function ouvrirSession(deps: Dependances, db: D1Database, jeton: Je
     ouverte_le: versInstant(maintenant),
     fermee_le: null,
     motif_fin: null,
+    compteur,
+    compteur_depuis: compteur === null ? null : versInstant(maintenant),
   };
   const question = nouvelleQuestion(deps.moteur, config, appareil, maintenant, rang);
   try {
     await db.batch([
       db
         .prepare(
-          `INSERT INTO sessions (id, utilisateur, type, tache_id, tache_nom, appareil, apps, ouverte_le, version_config)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO sessions (id, utilisateur, type, tache_id, tache_nom, appareil, apps, ouverte_le, version_config, compteur, compteur_depuis)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
-        .bind(session.id, jeton.utilisateur, session.type, session.tache_id, session.tache_nom, appareil, session.apps, session.ouverte_le, version),
+        .bind(
+          session.id, jeton.utilisateur, session.type, session.tache_id, session.tache_nom, appareil, session.apps,
+          session.ouverte_le, version, session.compteur, session.compteur_depuis,
+        ),
       insererQuestion(db, jeton.utilisateur, session.id, question),
       ...instructionsInvalider(db, jeton.utilisateur),
     ]);
@@ -401,8 +449,8 @@ export async function ouvrirSession(deps: Dependances, db: D1Database, jeton: Je
     throw e;
   }
   // Fin au plus tard : le plafond (le cumul avance d'autant plus vite qu'il y a de sessions ouvertes) ou le prochain mode interdit.
-  const enCours = ouvertes.filter((x) => x.session.type === 'travail').length + 1;
-  const plafondA = maintenant.getTime() + ((config.sessions.plafondQuotidienMin * 60 - cumulS) * 1000) / enCours;
+  const enCours = ouvertes.filter((x) => x.session.type === 'travail' && compteurA(x.session, maintenant.getTime()) === compteur).length + 1;
+  const plafondA = maintenant.getTime() + ((plafondMin(config, compteur) * 60 - cumulS) * 1000) / enCours;
   const interdit = debutInterdiction(deps.moteur, contexte, appareil, maintenant.getTime(), HORIZON_FIN_H);
   const fin = Math.min(plafondA, interdit ?? Infinity);
   return vueSession(config, { session, question }, versInstant(Math.ceil(fin / 1000) * 1000));
@@ -426,7 +474,8 @@ export async function repondreQuestion(deps: Dependances, db: D1Database, jeton:
   const s = await sessionDuJeton(db, jeton, id);
   if (s.session.fermee_le) {
     if (s.session.motif_fin === 'mode_interdit' || s.session.motif_fin === 'plafond_atteint') {
-      const motif = s.session.motif_fin === 'mode_interdit' ? 'le mode en vigueur interdit les sessions' : 'plafond quotidien de sessions atteint';
+      const motif =
+        s.session.motif_fin === 'mode_interdit' ? 'le mode en vigueur interdit les sessions' : `${minuscule(libellePlafond(config, s.session.compteur))} atteint`;
       throw new ErreurApi(409, 'session_fermee', `Cette session est fermée : ${motif}.`, { motif_fin: s.session.motif_fin });
     }
     if (s.session.motif_fin === 'sans_reponse') {
@@ -485,17 +534,34 @@ export async function repondreQuestion(deps: Dependances, db: D1Database, jeton:
 
 export async function ajouterApps(deps: Dependances, db: D1Database, jeton: JetonAuthentifie, id: string, corps: Corps) {
   const demandes = corps.app !== undefined ? [texte(corps, 'app', 100)] : listeDeTextes(corps, 'apps', { min: 1 });
-  const { contexte, fins } = await preparer(deps, db, jeton);
-  const nouvelles = deplierApps(contexte.config, demandes);
+  const { maintenant, contexte, fins } = await preparer(deps, db, jeton);
+  const { config } = contexte;
+  const nouvelles = deplierApps(config, demandes);
   const s = await sessionDuJeton(db, jeton, id);
   if (s.session.fermee_le) throw new ErreurApi(409, 'session_fermee', 'Cette session est fermée.', { motif_fin: s.session.motif_fin });
   exigerSessionPossible(deps.moteur, contexte, s.session.appareil);
   const apps = [...new Set([...(JSON.parse(s.session.apps) as string[]), ...nouvelles])];
+  // Ajouter une app à plafond propre fait basculer la session sur ce plafond à partir de maintenant ;
+  // une session déjà sur un plafond propre y reste.
+  const bascule = s.session.compteur === null ? compteurDesApps(config, apps) : null;
+  if (bascule !== null) {
+    exigerSousPlafond(config, await cumulsSessionsS(db, jeton.utilisateur, deps.moteur.journeeCourante(contexte), maintenant), bascule);
+    await db.batch([
+      db
+        .prepare(`UPDATE sessions SET apps = ?, compteur = ?, compteur_depuis = ? WHERE id = ? AND fermee_le IS NULL`)
+        .bind(JSON.stringify(apps), bascule, versInstant(maintenant), s.session.id),
+      ...instructionsInvalider(db, jeton.utilisateur),
+    ]);
+    // La fin au plus tard dépend maintenant du nouveau plafond.
+    const { restantes, fins: nouvellesFins } = await cloturerEchues(db, deps.moteur, contexte, jeton.utilisateur, maintenant);
+    const apres = restantes.find((x) => x.session.id === s.session.id) ?? { ...s, session: { ...s.session, apps: JSON.stringify(apps) } };
+    return vueSession(config, apres, nouvellesFins.get(s.session.id) ?? null);
+  }
   await db.batch([
     db.prepare(`UPDATE sessions SET apps = ? WHERE id = ? AND fermee_le IS NULL`).bind(JSON.stringify(apps), s.session.id),
     ...instructionsInvalider(db, jeton.utilisateur),
   ]);
-  return vueSession(contexte.config, { ...s, session: { ...s.session, apps: JSON.stringify(apps) } }, fins.get(s.session.id) ?? null);
+  return vueSession(config, { ...s, session: { ...s.session, apps: JSON.stringify(apps) } }, fins.get(s.session.id) ?? null);
 }
 
 export async function fermerSession(deps: Dependances, db: D1Database, jeton: JetonAuthentifie, id: string) {

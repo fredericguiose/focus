@@ -12,6 +12,7 @@ import { CarteRegularite } from '@/composants/statut/CarteRegularite';
 import { CarteSommeil } from '@/composants/statut/CarteSommeil';
 import { CarteMode } from '@/composants/statut/CarteMode';
 import { Indicateur } from '@/composants/statut/Indicateur';
+import { PlafondsApps } from '@/composants/statut/PlafondsApps';
 import { ParcoursJournee } from '@/composants/statut/ParcoursJournee';
 import { useHeureServeur, useStatut } from '@/hooks/useFocus';
 import { formaterDuree, formaterEcart, formaterHeure } from '@/lib/temps';
@@ -70,6 +71,7 @@ export function EcranStatut() {
               <div className="grid w-full gap-1.5">
                 <Progress value={Math.min(100, (cumul.cumul_min / cumul.plafond_min) * 100)} aria-label="Sessions du jour" className="h-1.5" />
                 <span>sur {formaterDuree(cumul.plafond_min)}</span>
+                <PlafondsApps plafonds={cumul.par_app} />
               </div>
             ) : (
               `ouverte${statut.sessions.length > 1 ? 's' : ''}`

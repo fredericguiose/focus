@@ -23,6 +23,14 @@ export interface CorpsErreur {
 }
 
 /** App bloquée par le mode en vigueur sur un appareil, avant les sessions. */
+/** Plafond propre à une app : une session qui la contient compte ici, pas sur le plafond commun. */
+export interface PlafondApp {
+  app: string;
+  nom: string;
+  cumul_min: number;
+  plafond_min: number;
+}
+
 export interface AppBloquee {
   id: string;
   nom: string;
@@ -322,8 +330,11 @@ export interface ReponseStatut {
   appareil_principal?: string;
   appareils: StatutAppareil[];
   sessions: SessionOuverte[];
-  /** Cumul des sessions de la journée et plafond quotidien. */
-  sessions_du_jour?: { cumul_min: number; plafond_min: number };
+  /**
+   * Cumul des sessions de la journée et plafond quotidien commun ; `par_app` : apps à plafond
+   * propre (02/11 : Claude Code), comptées à part.
+   */
+  sessions_du_jour?: { cumul_min: number; plafond_min: number; par_app?: PlafondApp[] };
   /** Dernières nuits, de la plus ancienne à la plus récente (optionnel : pas encore renvoyé par l'API réelle). */
   nuits?: NuitPassee[];
   /**

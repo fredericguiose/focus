@@ -143,6 +143,12 @@ export interface Config {
   prixDuReport: ConfigPrixReport;
   sessions: {
     plafondQuotidienMin: number;
+    /**
+     * Plafond propre à certaines apps (02/11 : Claude Code, 3 h), séparé du plafond commun. Une
+     * session qui contient une de ces apps compte sur son plafond à elle (absent dans une config
+     * normalisée d'avant le 02/11).
+     */
+    plafondsAppsMin?: Record<string, number>;
     attentesS: number[];
     delaiNouvelleTacheMin: number;
     expirationQuestionS: number;

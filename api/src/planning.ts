@@ -13,7 +13,8 @@ import type { Dependances, JetonAuthentifie } from './env';
 import { ErreurApi, requeteInvalide } from './erreurs';
 import {
   appareilAutorise,
-  cumulSessionsS,
+  cumulsSessionsS,
+  plafondMin,
   eligibleLe,
   possibiliteSession,
   sessionsOuvertes,
@@ -368,7 +369,7 @@ async function calculerStatut(deps: Dependances, db: D1Database, jeton: JetonAut
   const { config } = contexte;
   const journee = deps.moteur.journeeCourante(contexte);
   const jourCivil = dateLocale(maintenant, journee.fuseau);
-  const [pings, etiquettes, sessions, cumulS, sommeil, synchro, seances, synchroSeances, figes, agenda] = await Promise.all([
+  const [pings, etiquettes, sessions, cumuls, sommeil, synchro, seances, synchroSeances, figes, agenda] = await Promise.all([
     db
       .prepare(
         `SELECT nom, MAX(vu_le) AS vu_le FROM appareils
@@ -378,7 +379,7 @@ async function calculerStatut(deps: Dependances, db: D1Database, jeton: JetonAut
       .all<{ nom: string; vu_le: string | null }>(),
     lireCache<{ verifie_le: string; manquantes: string[] }>(db, jeton.utilisateur, CLES_CACHE.etiquettes),
     sessionsOuvertes(db, deps.moteur, jeton.utilisateur, contexte, maintenant),
-    cumulSessionsS(db, jeton.utilisateur, journee, maintenant),
+    cumulsSessionsS(db, jeton.utilisateur, journee, maintenant),
     lireSommeil(db, jeton.utilisateur, versInstant(debutJourLocal(ajouterJours(journee.date, -nuitsALire(journee.date) - 1), journee.fuseau))),
     etatSynchro(db, jeton.utilisateur),
     lireSeances(db, jeton.utilisateur, versInstant(debutJourLocal(ajouterJours(jourCivil, -JOURS_VERIFIES - 1), journee.fuseau))),
@@ -440,7 +441,7 @@ async function calculerStatut(deps: Dependances, db: D1Database, jeton: JetonAut
     }),
     appareil_principal: appareilPrincipal(config),
     sessions,
-    sessions_du_jour: { cumul_min: Math.floor(cumulS / 60), plafond_min: config.sessions.plafondQuotidienMin },
+    sessions_du_jour: vueSessionsDuJour(config, cumuls),
     todoist: vueTodoist(config, contexte.faits.recupereLe, etiquettes?.valeur ?? null),
     taches_bloquantes: vueTachesBloquantes(config, contexte.faits, journee.date),
   };
@@ -550,5 +551,21 @@ export async function raisonDuBlocage(
     raison: etat.raison,
     sessions: etat.sessions,
     session,
+  };
+}
+
+/** Cumul du jour sur le plafond commun ; `par_app` : une ligne par app à plafond propre (02/11). */
+function vueSessionsDuJour(config: Config, cumuls: Map<string | null, number>) {
+  const minutes = (c: string | null) => Math.floor((cumuls.get(c) ?? 0) / 60);
+  const parApp = Object.keys(config.sessions.plafondsAppsMin ?? {}).map((app) => ({
+    app,
+    nom: config.apps[app]?.nom ?? app,
+    cumul_min: minutes(app),
+    plafond_min: plafondMin(config, app),
+  }));
+  return {
+    cumul_min: minutes(null),
+    plafond_min: config.sessions.plafondQuotidienMin,
+    ...(parApp.length > 0 ? { par_app: parApp } : {}),
   };
 }

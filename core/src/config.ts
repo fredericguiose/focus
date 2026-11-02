@@ -337,6 +337,7 @@ const schemaConfig = z.strictObject({
   sessions: z
     .strictObject({
       plafond_quotidien: duree.default(180),
+      plafonds_apps: z.record(z.string(), duree).default({}),
       attentes_s: z.array(entierPositif).min(1).default([0, 3, 5, 10, 15, 20]),
       delai_nouvelle_tache: duree.default(15),
       expiration_question_s: entierPositif.default(60),
@@ -461,6 +462,7 @@ function normaliser(b: ConfigBrute): Config {
     },
     sessions: {
       plafondQuotidienMin: b.sessions.plafond_quotidien,
+      plafondsAppsMin: b.sessions.plafonds_apps,
       attentesS: b.sessions.attentes_s,
       delaiNouvelleTacheMin: b.sessions.delai_nouvelle_tache,
       expirationQuestionS: b.sessions.expiration_question_s,
@@ -485,6 +487,7 @@ function verifierCoherence(c: Config): string[] {
   verifierIdentifiants(c, signaler);
   verifierSommeil(c, signaler);
   verifierGroupes(c, signaler);
+  verifierPlafondsApps(c, signaler);
   for (const [nom, mode] of Object.entries(c.modes)) verifierMode(c, nom, mode, signaler);
   for (const [nom, routine] of Object.entries(c.routines)) verifierRoutine(c, nom, routine, signaler);
   if (!c.routines[c.routineParDefaut]) {
@@ -542,6 +545,16 @@ function verifierGroupes(c: Config, signaler: Signaler): void {
         ? `« ${membre} » est un groupe ; un groupe ne contient que des apps`
         : inconnu('app inconnue', membre, Object.keys(c.apps)));
     });
+  }
+}
+
+/** Plafond propre à une app : une app du catalogue (pas un groupe), d'une durée positive. */
+function verifierPlafondsApps(c: Config, signaler: Signaler): void {
+  for (const [id, minutes] of Object.entries(c.sessions.plafondsAppsMin ?? {})) {
+    const chemin = ['sessions', 'plafonds_apps', id];
+    if (!c.apps[id]) {
+      signaler(chemin, c.groupes[id] ? `« ${id} » est un groupe ; un plafond propre vise une app` : inconnu('app inconnue', id, Object.keys(c.apps)));
+    } else if (minutes <= 0) signaler(chemin, 'le plafond doit être positif');
   }
 }
 
@@ -711,7 +724,7 @@ const CLES_CONNUES = [
   'lun', 'mar', 'mer', 'jeu', 'ven', 'sam', 'dim', 'conditions_en_plus', 'retirer', 'routine_par_defaut',
   'calendrier', 'routine', 'du', 'au', 'todoist', 'etiquette_planning', 'etiquette_recap', 'recap_tolerance_jours',
   'prioritaires', 'etiquettes_exclues', 'prix_du_report', 'par_report', 'plafond', 'commentaire_min', 'deadline',
-  'reports_max', 'jours_minimum', 'plafond_quotidien', 'attentes_s', 'delai_nouvelle_tache',
+  'reports_max', 'jours_minimum', 'plafond_quotidien', 'plafonds_apps', 'attentes_s', 'delai_nouvelle_tache',
   'expiration_question_s', 'intervalle_question', 'pc', 'apres', 'avant', 'decale_par', 'filtre', 'au_plus',
   'priorites', 'etiquettes_incluses', 'verification', 'mesure', 'synchro', 'xiaomi', 'hevy', 'google_agenda', 'agenda',
 ];

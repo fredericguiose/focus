@@ -677,6 +677,13 @@ Google (2 au plus par passage).
   `mode`, `motif`) si la session n'est pas possible sur l'appareil. Ouverture refusée aussi si
   la tâche est terminée ou créée il y a moins de 15 min, ou si le plafond quotidien (3 h, toutes
   sessions de la journée) est atteint.
+- **Plafonds propres à certaines apps** (02/11, `sessions.plafonds_apps`, ex. `claude_code: "3h"`) :
+  une session qui contient une de ces apps compte sur le plafond de cette app, pas sur le plafond
+  commun ; les deux sont indépendants. Ajouter une telle app à une session ouverte la fait
+  basculer à partir de l'ajout (colonnes `compteur` et `compteur_depuis`, migration 0004 ; avant,
+  le temps reste sur le commun) ; refusé (409 `plafond_atteint` avec `app`) si ce plafond est déjà
+  atteint. Une session déjà sur un plafond propre y reste. `sessions_du_jour.par_app` donne le
+  cumul de chacun.
 - Questions : la première à ouverture + intervalle (25 min PC, 10 min iPhone, réglable) ; puis
   après chaque « continue », + intervalle. `expire_a` = `posee_a` + 60 s (+ `attente_s`).
 - **Attente progressive** : le n-ième « continue » de la même tâche dans la journée exige
