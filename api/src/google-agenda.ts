@@ -69,7 +69,23 @@ export const URL_JETON_GOOGLE = 'https://oauth2.googleapis.com/token';
 export const URL_EVENEMENTS = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
 const DELAI_MS = 15_000;
 
-export const TITRE_NUIT = 'Dormir';
+/** Gris clair par défaut de Google Agenda (« Graphite », colorId 8). */
+export const COULEUR_NUIT = '8';
+/** Version du titre et de la couleur : la monter fait réécrire les nuits déjà écrites. */
+export const FORMAT_NUIT = 2;
+
+/** Heure locale du lever, format « 06h30 », dans le fuseau de la routine. */
+export function heureLever(instant: string, fuseau: string): string {
+  const p = new Intl.DateTimeFormat('fr-FR', { timeZone: fuseau, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    .formatToParts(new Date(instant));
+  const v = (t: string) => p.find((x) => x.type === t)?.value ?? '00';
+  return `${v('hour')}h${v('minute')}`;
+}
+
+/** Titre de l'événement : « 🛌 Dormir c'est important lever 06h30 ». */
+export function titreNuit(n: Pick<NuitAgenda, 'fin' | 'fuseau'>): string {
+  return `🛌 Dormir c'est important lever ${heureLever(n.fin, n.fuseau)}`;
+}
 export const DESCRIPTION_NUIT = 'Tenu à jour par Focus';
 
 /** Id déterministe de l'événement d'une nuit (base32hex : a-v, 0-9). */
@@ -83,7 +99,8 @@ export function corpsEvenement(n: NuitAgenda) {
   return {
     id: idEvenementNuit(n.nuit),
     status: 'confirmed',
-    summary: TITRE_NUIT,
+    summary: titreNuit(n),
+    colorId: COULEUR_NUIT,
     description: DESCRIPTION_NUIT,
     start: { dateTime: n.debut, timeZone: n.fuseau },
     end: { dateTime: n.fin, timeZone: n.fuseau },

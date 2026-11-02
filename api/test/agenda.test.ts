@@ -53,7 +53,8 @@ describe('client Google Agenda (fetch simulé)', () => {
     expect(JSON.parse(String(f.appels[1]!.init.body))).toEqual({
       id: 'focussommeil20261103',
       status: 'confirmed',
-      summary: 'Dormir',
+      summary: "🛌 Dormir c'est important lever 06h30",
+      colorId: '8',
       description: 'Tenu à jour par Focus',
       start: { dateTime: nuit.debut, timeZone: 'Europe/Paris' },
       end: { dateTime: nuit.fin, timeZone: 'Europe/Paris' },

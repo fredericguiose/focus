@@ -8,7 +8,7 @@ import { type Chiffre, chiffrer, dechiffrer } from './chiffrement';
 import { prendreVerrou, rendreVerrou } from './cache';
 import { CLES_CACHE, ecrireCache, lireCache } from './contexte';
 import type { Liaisons } from './env';
-import { type ClientAgenda, ErreurAgenda, type IdentifiantsGoogle, type NuitAgenda } from './google-agenda';
+import { type ClientAgenda, ErreurAgenda, FORMAT_NUIT, type IdentifiantsGoogle, type NuitAgenda } from './google-agenda';
 import { ajouterJours, versInstant } from './temps';
 
 /** Nuits tenues à jour : celle de la journée en cours (ce soir) et la suivante. */
@@ -21,6 +21,8 @@ const VERROU_AGENDA_S = 5 * 60;
 export interface EcritAgenda {
   debut: string;
   fin: string;
+  /** FORMAT_NUIT au moment de l'écriture ; absent = écrit avant le format 2. */
+  format?: number;
 }
 
 export interface EtatAgenda {
@@ -201,7 +203,7 @@ async function synchroniserSousVerrou(
   const etat: EtatAgenda = { tentee_le: tentee, reussie_le: avant?.reussie_le ?? null, erreur: null, nuits: ecrits };
 
   const voulues = nuitsVoulues(moteur, contexte, maintenant);
-  const aEcrire = voulues.filter((n) => ecrits[n.nuit]?.debut !== n.debut || ecrits[n.nuit]?.fin !== n.fin);
+  const aEcrire = voulues.filter((n) => ecrits[n.nuit]?.debut !== n.debut || ecrits[n.nuit]?.fin !== n.fin || ecrits[n.nuit]?.format !== FORMAT_NUIT);
   const aSupprimer = Object.keys(ecrits)
     .filter((nuit) => !voulues.some((n) => n.nuit === nuit))
     .slice(0, SUPPRESSIONS_PAR_PASSAGE);
@@ -231,7 +233,7 @@ async function synchroniserSousVerrou(
   try {
     for (const n of aEcrire) {
       await avecClient((c) => c.ecrireNuit(n));
-      ecrits[n.nuit] = { debut: n.debut, fin: n.fin };
+      ecrits[n.nuit] = { debut: n.debut, fin: n.fin, format: FORMAT_NUIT };
     }
     for (const nuit of aSupprimer) {
       await avecClient((c) => c.supprimerNuit(nuit));
