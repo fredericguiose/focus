@@ -13,7 +13,6 @@ import { CarteSommeil } from '@/composants/statut/CarteSommeil';
 import { CarteMode } from '@/composants/statut/CarteMode';
 import { Indicateur } from '@/composants/statut/Indicateur';
 import { ParcoursJournee } from '@/composants/statut/ParcoursJournee';
-import { TableauAppareils } from '@/composants/statut/TableauAppareils';
 import { useHeureServeur, useStatut } from '@/hooks/useFocus';
 import { formaterDuree, formaterEcart, formaterHeure } from '@/lib/temps';
 
@@ -85,7 +84,6 @@ export function EcranStatut() {
           <CarteEngagements statut={statut} />
         </div>
         <div className="grid min-w-0 gap-4 md:gap-6 lg:col-span-2 [&>*]:min-w-0">
-          <TableauAppareils appareils={statut.appareils} maintenant={maintenant} />
           <CarteSommeil statut={statut} />
           <CarteRegularite statut={statut} />
         </div>

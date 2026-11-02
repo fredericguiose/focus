@@ -109,17 +109,6 @@ export function formaterSecondes(secondes: number): string {
   return `${Math.floor(s / 60)} min ${deuxChiffres(s % 60)} s`;
 }
 
-export function ilYA(instant: Instant | null, maintenantMs: number): string {
-  if (!instant) return 'jamais';
-  const ecart = maintenantMs - Date.parse(instant);
-  if (ecart < MINUTE) return "à l'instant";
-  const minutes = Math.floor(ecart / MINUTE);
-  if (minutes < 60) return `il y a ${minutes} min`;
-  const heures = Math.floor(minutes / 60);
-  if (heures < 48) return `il y a ${heures} h`;
-  return `il y a ${Math.floor(heures / 24)} j`;
-}
-
 /** « dans 1 h 10 », « dans 5 min », « dans moins d'une minute » ; « il y a … » si l'écart est négatif. */
 export function formaterEcart(ecartMs: number): string {
   const minutes = Math.floor(Math.abs(ecartMs) / MINUTE);

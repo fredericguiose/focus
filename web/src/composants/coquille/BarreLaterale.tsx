@@ -20,9 +20,8 @@ import {
 } from '@/components/ui/sidebar';
 import { API_SIMULEE } from '@/api';
 import { useFocus, useHeureServeur } from '@/hooks/useFocus';
-import { etatPing, libelleAppareil } from '@/lib/appareils';
+import { etatPing, libelleAppareil, STYLES_PING } from '@/lib/appareils';
 import { cn } from '@/lib/utils';
-import { STYLES_PING } from '../statut/TableauAppareils';
 import { ECRANS, type Ecran, LISTE_ECRANS } from './navigation';
 import { BasculeTheme } from './Theme';
 

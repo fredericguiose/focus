@@ -33,3 +33,9 @@ export function etatPing(vuLe: string | null, maintenantMs: number): EtatPing {
   if (ecart <= PING_RECENT_MS) return 'recent';
   return ecart <= PING_ABSENT_MS ? 'retard' : 'absent';
 }
+
+export const STYLES_PING: Record<EtatPing, { point: string; libelle: string }> = {
+  recent: { point: 'bg-succes', libelle: 'en ligne' },
+  retard: { point: 'bg-avertissement', libelle: 'en retard' },
+  absent: { point: 'bg-destructive', libelle: 'hors ligne' },
+};
