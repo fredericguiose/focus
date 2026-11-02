@@ -63,10 +63,10 @@ describe('carte « Régularité » : résumé chiffré', () => {
   it('pas assez de mesures : une phrase courte, « Voyage : N nuits non comptées » s’il y a des exclusions', () => {
     const ignore = 'decalage_horaire' as const;
     const exclues: RegulariteCouchers = { nuits: [nuit({ ignore }), nuit({ nuit: '2026-11-02', ignore }), nuit({ nuit: '2026-11-03', mesure: null, ecart_min: null })], amplitude: null, limite_min: 120 };
-    expect(resumeCouchers(exclues, 'UTC')).toMatchObject({ ecart: null, legende: 'Voyage : 2 nuits non comptées', classe: 'text-muted-foreground' });
+    expect(resumeCouchers(exclues, 'UTC')).toMatchObject({ ecart: null, legende: 'Pas encore assez de mesures', classe: 'text-muted-foreground' });
     expect(resumeCouchers({ ...exclues, nuits: [] }, 'UTC').legende).toBe('Pas encore assez de mesures');
     const levers: RegulariteLevers = { jours: [jour({ ignore })], amplitude: null, limite_min: 120 };
-    expect(resumeLevers(levers, 'UTC').legende).toBe('Voyage : 1 jour non compté');
+    expect(resumeLevers(levers, 'UTC').legende).toBe('Pas encore assez de mesures');
   });
 
   it('levers : « limite », et les jours exclus en fin de légende', () => {
@@ -77,7 +77,7 @@ describe('carte « Régularité » : résumé chiffré', () => {
     };
     expect(resumeLevers(levers, 'UTC')).toMatchObject({
       ecart: '2 h 20',
-      legende: "d'écart sur 3 jours · limite 2 h · 1 jour non compté (voyage)",
+      legende: "d'écart sur 3 jours · limite 2 h",
       classe: 'text-avertissement',
       phrase: 'Écart de 2 h 20 sur 3 jours, de 04:32 à 06:52, au-dessus de la limite de 2 h.',
     });
@@ -202,11 +202,11 @@ describe('carte « Régularité » : rendu', () => {
       <CarteRegularite statut={{ ...s, journee, levers: undefined, couchers: { nuits: [...nuits, aCayenne], amplitude: null, limite_min: 120 } }} />,
     );
     const visible = texteVisible(container);
-    expect(visible).toContain('Voyage : 3 nuits non comptées');
+    expect(visible).toContain('Pas encore assez de mesures');
+    expect(visible).not.toMatch(/voyage/i);
     expect(visible).not.toContain('décalage horaire');
-    // « Paris » une seule fois à l'écran : dans la légende.
-    expect(visible.match(/Paris/g)).toHaveLength(1);
-    expect(visible).toContain('heures du lieu (Paris pendant le voyage)');
+    // Plus aucune mention du voyage ni du lieu à l'écran (02/11) : seulement dans l'infobulle et le texte lu.
+    expect(visible).not.toMatch(/Paris/);
     const lignes = [...screen.getByRole('list', { name: 'Endormissement de chaque nuit' }).querySelectorAll('li')].map((l) => l.textContent);
     expect(lignes[0]).toContain('endormi à 23:14 (heure de Paris)');
     expect(lignes[0]).not.toContain('19:14');

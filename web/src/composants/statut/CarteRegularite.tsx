@@ -36,8 +36,6 @@ export function villeDuFuseau(fuseau: string): string {
 }
 
 const pluriel = (n: number, mot: string) => `${n} ${mot}${n > 1 ? 's' : ''}`;
-/** « 2 nuits non comptées », « 1 jour non compté ». */
-const nonComptes = (n: number, mots: Mots) => `${pluriel(n, mots.unite)} non compté${mots.unite === 'nuit' ? 'e' : ''}${n > 1 ? 's' : ''}`;
 
 /**
  * Résumé chiffré en tête de l'onglet. `ecart` : la durée mise en avant (null sous 2 mesures
@@ -52,14 +50,13 @@ export interface Resume {
 }
 
 function resume(amplitude: Amplitude, limiteMin: number, entrees: Entree[], fuseau: string, mots: Mots): Resume {
-  const exclues = entrees.filter((e) => e.ignore && e.mesure !== null).length;
   if (!amplitude) {
-    const legende = exclues > 0 ? `Voyage : ${nonComptes(exclues, mots)}` : 'Pas encore assez de mesures';
+    const legende = 'Pas encore assez de mesures';
     return { ecart: null, legende, classe: 'text-muted-foreground', phrase: `${legende}.` };
   }
   const borne = `${mots.borne} ${formaterDuree(limiteMin)}`;
   const depasse = amplitude.ecart_min > limiteMin;
-  const morceaux = [`d'écart sur ${pluriel(amplitude.mesures, mots.unite)}`, borne, ...(exclues > 0 ? [`${nonComptes(exclues, mots)} (voyage)`] : [])];
+  const morceaux = [`d'écart sur ${pluriel(amplitude.mesures, mots.unite)}`, borne];
   const heure = (instant: string) => formaterHeure(instant, entrees.find((e) => e.mesure === instant)?.fuseau ?? fuseau);
   const ecart = formaterDuree(amplitude.ecart_min);
   const sens = depasse ? `, au-dessus ${mots.borne === 'limite' ? 'de la limite' : 'du repère'} de ${formaterDuree(limiteMin)}` : `, ${borne}`;
@@ -316,7 +313,6 @@ function Graphique({
     fil: c.mesureY === null ? null : ([Math.min(c.prevuY, c.mesureY), Math.max(c.prevuY, c.mesureY)] as [number, number]),
   }));
   const ignorees = colonnes.some((c) => c.ignoree);
-  const villes = [...new Set(colonnes.filter((c) => c.fuseau !== fuseau).map((c) => villeDuFuseau(c.fuseau)))];
   return (
     <div className="grid gap-2">
       <ChartContainer config={config} className="aspect-auto h-44 w-full [&_.recharts-wrapper]:outline-none [&_g]:outline-none">
@@ -353,8 +349,7 @@ function Graphique({
           { cle: 'mesure', marque: <span className="size-2 rounded-full" style={{ background: 'var(--sommeil-nuit)' }} />, texte: mot },
           { cle: 'prevu', marque: <span className="border-muted-foreground w-3 rounded-full border-t-2" />, texte: 'prévu' },
           ...(bande ? [{ cle: 'bande', marque: <span className="h-2.5 w-3 rounded-[2px]" style={{ background: 'color-mix(in oklab, var(--sommeil-nuit) 18%, transparent)' }} />, texte: 'bande de régularité' }] : []),
-          ...(ignorees ? [{ cle: 'voyage', marque: <span className="border-muted-foreground size-2 rounded-full border-[1.5px]" />, texte: 'non compté (voyage)' }] : []),
-          ...(villes.length > 0 ? [{ cle: 'lieu', marque: null, texte: `heures du lieu (${villes.join(', ')} pendant le voyage)` }] : []),
+          ...(ignorees ? [{ cle: 'voyage', marque: <span className="border-muted-foreground size-2 rounded-full border-[1.5px]" />, texte: 'non compté' }] : []),
         ]}
       />
     </div>
@@ -436,6 +431,7 @@ export function CarteRegularite({ statut }: { statut: ReponseStatut }) {
   const titre = (
     <CardTitle className="flex items-center gap-2 text-base">
       <CalendarClock className="text-muted-foreground size-4" /> Régularité
+      <span className="text-muted-foreground text-sm font-normal">· 7 derniers jours</span>
     </CardTitle>
   );
 
