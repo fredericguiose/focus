@@ -69,10 +69,10 @@ export const URL_JETON_GOOGLE = 'https://oauth2.googleapis.com/token';
 export const URL_EVENEMENTS = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
 const DELAI_MS = 15_000;
 
-/** Gris clair par défaut de Google Agenda (« Graphite », colorId 8). */
-export const COULEUR_NUIT = '8';
+/** Gris clair « Bouleau » de Google Agenda (colorId 9, indiqué par Frédéric le 02/11). */
+export const COULEUR_NUIT = '9';
 /** Version du titre et de la couleur : la monter fait réécrire les nuits déjà écrites. */
-export const FORMAT_NUIT = 2;
+export const FORMAT_NUIT = 3;
 
 /** Heure locale du lever, format « 06h30 », dans le fuseau de la routine. */
 export function heureLever(instant: string, fuseau: string): string {
