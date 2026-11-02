@@ -232,15 +232,14 @@ describe('API simulée : sessions', () => {
     expect(e.erreur).toBe('tache_trop_recente');
   });
 
-  it('ouvre une session puis pose une question', async () => {
+  it('ouvre une session : la question est renvoyée tout de suite, posée plus tard (comme l’API réelle)', async () => {
     const sim = simulation();
     await sim.api.ouvrirSession({ appareil: 'pc_linux', tache_id: 't2', apps: ['youtube'] });
-    let session = (await sim.api.statut()).sessions.find((s) => s.tache?.id === 't2');
+    const session = (await sim.api.statut()).sessions.find((s) => s.tache?.id === 't2');
     expect(session?.domaines).toEqual(['m.youtube.com', 'www.youtube.com', 'youtu.be', 'youtube.com']);
-    expect(session?.question).toBeNull();
-    sim.avancer(30_000);
-    session = (await sim.api.statut()).sessions.find((s) => s.tache?.id === 't2');
-    expect(session?.question).toMatchObject({ attente_s: 0 });
+    expect(session?.question).toMatchObject({ posee_a: '2026-11-03T14:00:30Z', attente_s: 0 });
+    const e = await erreurDe(sim.api.repondre(session!.id, { question_id: session!.question!.id, reponse: 'continue' }));
+    expect(e.erreur).toBe('trop_tot');
   });
 
   it('refuse les sessions la nuit', async () => {

@@ -17,7 +17,8 @@ import { Accueil } from '@/ecrans/Accueil';
 import { EcranConnecteurs } from '@/ecrans/Connecteurs';
 import { EcranSessions } from '@/ecrans/Sessions';
 import { EcranStatut, SqueletteStatut } from '@/ecrans/Statut';
-import { FournisseurFocus, useFocus } from '@/hooks/useFocus';
+import { FournisseurFocus, useFocus, useHeureServeur } from '@/hooks/useFocus';
+import { questionPosee } from '@/lib/attente';
 import { ecrireJeton, effacerJeton, lireJeton } from '@/lib/stockage';
 
 /** L'écran vit dans l'ancre de l'URL : un rechargement de la PWA garde l'onglet. */
@@ -43,10 +44,11 @@ function useEcran(): [Ecran, (ecran: Ecran) => void] {
 
 function Coquille() {
   const { statut, erreur, changerJeton } = useFocus();
+  const maintenant = useHeureServeur();
   const [ecran, allerA] = useEcran();
 
   const indicateurs: Partial<Record<Ecran, string>> = {};
-  if (statut?.sessions.some((s) => s.question !== null)) indicateurs.sessions = 'question en attente';
+  if (statut?.sessions.some((s) => s.question !== null && questionPosee(s.question, maintenant))) indicateurs.sessions = 'question en attente';
 
   return (
     <SidebarProvider>

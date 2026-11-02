@@ -35,6 +35,13 @@ describe('question de session', () => {
     await vider();
     expect(screen.queryByRole('button', { name: /Je continue/ })).toBeNull();
     expect(screen.getByText(/Prochaine question dans/)).toBeTruthy();
+    // La question suivante est déjà dans le statut (posee_a futur) : pas de dialogue avant posee_a.
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    // Intervalle simulé de 30 s. Seconde par seconde : un rafraîchissement du statut lancé au milieu
+    // d'une longue avance ne se résoudrait qu'à la fin, avec une heure serveur périmée.
+    for (let i = 0; i < 31; i++) await avancer(1_000);
+    expect(screen.getByRole('dialog', { name: 'Toujours sur « Exercices de probabilités » ?' })).toBeTruthy();
   });
 
   it('« J’arrête » ferme la session sans attendre', async () => {

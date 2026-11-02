@@ -11,6 +11,7 @@ import type { SessionOuverte } from '@/api/contrat';
 import { type ErreurFocus, versErreurFocus } from '@/api/erreur';
 import { useAppsBloquees } from '@/hooks/useAppsBloquees';
 import { useFocus, useHeureServeur, useStatut } from '@/hooks/useFocus';
+import { questionPosee } from '@/lib/attente';
 import { libelleAppareil } from '@/lib/appareils';
 import { formaterDuree, formaterEcart, formaterHeureRelative } from '@/lib/temps';
 import { ErreurAffichee } from './ErreurAffichee';
@@ -46,7 +47,9 @@ export function CarteSession({ session }: { session: SessionOuverte }) {
     }
   }
 
-  const question = session.question;
+  // Une question pas encore posée (posee_a futur) n'est que l'heure de la prochaine.
+  const question = session.question && questionPosee(session.question, maintenant) ? session.question : null;
+  const prochaineQuestionA = session.question && !question ? session.question.posee_a : session.prochaine_question_a;
   return (
     <Card className="gap-4">
       <CardHeader>
@@ -79,8 +82,8 @@ export function CarteSession({ session }: { session: SessionOuverte }) {
         ) : (
           <p className="text-muted-foreground flex items-center gap-2 text-sm">
             <MessageCircleQuestion className="size-4" />
-            {session.prochaine_question_a
-              ? `Prochaine question ${formaterEcart(Date.parse(session.prochaine_question_a) - maintenant)}`
+            {prochaineQuestionA
+              ? `Prochaine question ${formaterEcart(Date.parse(prochaineQuestionA) - maintenant)}`
               : 'Prochaine question après l’intervalle prévu'}
           </p>
         )}

@@ -997,7 +997,7 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
           throw new ErreurFocus('apps_invalides', 'Choisissez au moins une app bloquée sur cet appareil.', 400);
         }
         compteur += 1;
-        sessions.push({
+        const nouvelle: SessionInterne = {
           session: {
             id: `s_${compteur}`,
             appareil: appareil.appareil,
@@ -1007,8 +1007,11 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
             ouverte_le: versInstant(t),
             question: null,
           },
-          prochaineQuestion: t + INTERVALLE_QUESTION_SIMULE_S * 1000,
-        });
+          prochaineQuestion: null,
+        };
+        // Comme l'API réelle : la question est créée tout de suite, avec un posee_a futur.
+        poserQuestion(nouvelle, t + INTERVALLE_QUESTION_SIMULE_S * 1000);
+        sessions.push(nouvelle);
       }),
 
     ajouterApp: (sessionId, app) =>
@@ -1044,8 +1047,8 @@ export function creerApiSimulee(options: OptionsSimulation = {}): ApiFocus {
         }
         const cle = cleContinue(s.session.tache?.id ?? '', t);
         continues.set(cle, (continues.get(cle) ?? 0) + 1);
-        s.session.question = null;
-        s.prochaineQuestion = t + INTERVALLE_QUESTION_SIMULE_S * 1000;
+        // Comme l'API réelle : la question suivante est renvoyée tout de suite, posee_a futur.
+        poserQuestion(s, t + INTERVALLE_QUESTION_SIMULE_S * 1000);
       }),
 
     fermerSession: (sessionId) =>

@@ -28,6 +28,14 @@ export function etatQuestion(question: Question, maintenantMs: number): EtatQues
   };
 }
 
+/**
+ * L'API renvoie la question suivante dès sa création, avec un `posee_a` futur : elle n'attend
+ * une réponse qu'à partir de `posee_a`. Avant, c'est seulement l'heure de la prochaine question.
+ */
+export function questionPosee(question: Question, maintenantMs: number): boolean {
+  return Date.parse(question.posee_a) <= maintenantMs;
+}
+
 export function tacheEligible(tache: TacheSession, maintenantMs: number): boolean {
   return Date.parse(tache.eligible_le) <= maintenantMs;
 }
