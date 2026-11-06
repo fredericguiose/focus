@@ -411,6 +411,15 @@ func (d *Demon) Etat() local.Etat {
 		e.Mode = seg.Mode
 	}
 	e.SessionsPermises = planning.SessionsPermises(seg)
+	if seg == nil || !seg.Actions.VerrouillerSession {
+		for _, g := range d.plan.Segments {
+			if g.Debut.After(t) && g.Actions.VerrouillerSession {
+				debut := g.Debut
+				e.ProchainVerrou, e.ProchainMode = &debut, g.Mode
+				break
+			}
+		}
+	}
 	if !e.SessionsPermises {
 		// Aucune session ne libère rien : pas de question à poser à leur sujet.
 		return e

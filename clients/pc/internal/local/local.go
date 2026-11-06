@@ -37,6 +37,10 @@ type Etat struct {
 	SessionsPermises bool            `json:"sessions_permises"`
 	HorsLigne        bool            `json:"hors_ligne"`
 	Sessions         []SessionLocale `json:"sessions"`
+	// ProchainVerrou : début du prochain segment qui verrouille la session (nuit), s'il est connu
+	// (04/11 : préavis de l'agent à −15 et −5 min). ProchainMode : son mode.
+	ProchainVerrou *time.Time `json:"prochain_verrou,omitempty"`
+	ProchainMode   string     `json:"prochain_mode,omitempty"`
 }
 
 type DemandeOuverture struct {

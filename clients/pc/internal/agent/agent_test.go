@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -65,6 +66,7 @@ type dialoguesFactices struct {
 	bloquer   bool // Question attend l'annulation du contexte
 	attentes  []time.Duration
 	erreurs   []string
+	preavis   []string
 	infos     []string
 	saisie    string
 }
@@ -94,6 +96,11 @@ func (d *dialoguesFactices) Saisir(_ context.Context, _, defaut string) (string,
 func (d *dialoguesFactices) Informer(t string) {
 	d.mu.Lock()
 	d.infos = append(d.infos, t)
+	d.mu.Unlock()
+}
+func (d *dialoguesFactices) Prevenir(t string) {
+	d.mu.Lock()
+	d.preavis = append(d.preavis, t)
 	d.mu.Unlock()
 }
 func (d *dialoguesFactices) Erreur(t string) {
@@ -195,5 +202,37 @@ func TestOuvrirRefuse(t *testing.T) {
 	}
 	if len(d.erreurs) != 1 || d.erreurs[0] != "Session refusée : Sessions interdites en NIGHT_LOCK." {
 		t.Errorf("message affiché %v", d.erreurs)
+	}
+}
+
+func TestPreavisDuVerrou(t *testing.T) {
+	verrou := t0.Add(14 * time.Minute)
+	c := &canalFactice{etat: local.Etat{Maintenant: t0, ProchainVerrou: &verrou, ProchainMode: "NIGHT_LOCK"}}
+	d := &dialoguesFactices{}
+	a := nouvelAgent(c, d)
+	a.Tour(context.Background())
+	a.Tour(context.Background()) // même fenêtre : pas de second préavis
+	c.mu.Lock()
+	c.etat.Maintenant = verrou.Add(-4 * time.Minute)
+	c.mu.Unlock()
+	a.Tour(context.Background())
+	c.mu.Lock()
+	c.etat.Maintenant = verrou.Add(-3 * time.Minute)
+	c.mu.Unlock()
+	a.Tour(context.Background())
+	if len(d.preavis) != 2 || !strings.Contains(d.preavis[0], "14 min") || !strings.Contains(d.preavis[1], "4 min") {
+		t.Fatalf("préavis attendus à −14 puis −4 min : %v", d.preavis)
+	}
+}
+
+func TestPreavisAgentLanceTard(t *testing.T) {
+	verrou := t0.Add(3 * time.Minute)
+	c := &canalFactice{etat: local.Etat{Maintenant: t0, ProchainVerrou: &verrou, ProchainMode: "NIGHT_LOCK"}}
+	d := &dialoguesFactices{}
+	a := nouvelAgent(c, d)
+	a.Tour(context.Background())
+	a.Tour(context.Background())
+	if len(d.preavis) != 1 {
+		t.Fatalf("un seul préavis attendu : %v", d.preavis)
 	}
 }

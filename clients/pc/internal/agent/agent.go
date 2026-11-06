@@ -35,6 +35,8 @@ type Dialogues interface {
 	Choisir(ctx context.Context, texte string, options []string) (string, error)
 	Saisir(ctx context.Context, texte, defaut string) (string, error)
 	Informer(texte string)
+	// Prevenir : notification de bureau, sans fenêtre à fermer.
+	Prevenir(texte string)
 	Erreur(texte string)
 }
 
@@ -168,12 +170,42 @@ func (a *Agent) Tour(ctx context.Context) {
 			a.poser(cq, s, h)
 		}()
 	}
+	a.prevenirDuVerrou(e, t)
 	// Question réglée ailleurs (autre session, interface web) : on ferme le dialogue.
 	for q, fermer := range a.ouvertes {
 		if !dues[q] {
 			fermer()
 		}
 	}
+}
+
+// Préavis du verrou (04/11) : rien ne prévenait avant la coupure de la nuit.
+var Preavis = []time.Duration{15 * time.Minute, 5 * time.Minute}
+
+// prevenirDuVerrou : une notification à chaque préavis, une seule fois par verrou et par préavis.
+// Appelé sous a.mu.
+func (a *Agent) prevenirDuVerrou(e local.Etat, t time.Time) {
+	if e.ProchainVerrou == nil {
+		return
+	}
+	reste := e.ProchainVerrou.Sub(t)
+	if reste <= 0 {
+		return
+	}
+	nouveau := false
+	for _, p := range Preavis {
+		cle := fmt.Sprintf("verrou|%s|%s", e.ProchainVerrou.UTC().Format(time.RFC3339), p)
+		if reste <= p && !a.vues[cle] {
+			a.vues[cle] = true // agent lancé à −4 min : un seul préavis, pas deux
+			nouveau = true
+		}
+	}
+	if !nouveau {
+		return
+	}
+	minutes := int((reste + 59*time.Second) / time.Minute)
+	a.Dialogues.Prevenir(fmt.Sprintf("Verrouillage de la session dans %d min (%s). Enregistrez votre travail.", minutes, e.ProchainMode))
+	a.Journal.Info("préavis du verrou", "dans_min", minutes, "mode", e.ProchainMode)
 }
 
 func (a *Agent) poser(ctx context.Context, s local.SessionLocale, h planning.Horloge) {

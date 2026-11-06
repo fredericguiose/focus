@@ -102,6 +102,12 @@ func (z Zenity) Informer(texte string) {
 	}
 }
 
+func (z Zenity) Prevenir(texte string) {
+	if err := zenity.Notify(texte, zenity.Title(titre)); err != nil && z.Journal != nil {
+		z.Journal.Warn("notification", "erreur", err)
+	}
+}
+
 func (z Zenity) Erreur(texte string) {
 	if err := zenity.Error(texte, zenity.Title(titre), zenity.NoWrap()); err != nil && z.Journal != nil {
 		z.Journal.Error(texte, "affichage", err)
