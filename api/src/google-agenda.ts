@@ -77,8 +77,8 @@ const DELAI_MS = 15_000;
  * couleurs 1 à 11 (/colors, vérifié le 02/11) ; le Bouleau (#cabdbf) voulu par Frédéric n'existe que
  * pour un agenda, d'où l'agenda « Sommeil » à part (`google_agenda.agenda` du YAML).
  */
-/** Version du titre et de la couleur : la monter fait réécrire les nuits déjà écrites. */
-export const FORMAT_NUIT = 5;
+/** Version du titre, de la couleur et des rappels : la monter fait réécrire les nuits déjà écrites. */
+export const FORMAT_NUIT = 6;
 
 /** Heure locale du lever, format « 06h30 », dans le fuseau de la routine. */
 export function heureLever(instant: string, fuseau: string): string {
@@ -93,6 +93,11 @@ export function titreNuit(n: Pick<NuitAgenda, 'fin' | 'fuseau'>): string {
   return `🛌 Dormir c'est important lever ${heureLever(n.fin, n.fuseau)}`;
 }
 export const DESCRIPTION_NUIT = 'Tenu à jour par Focus';
+/** Rappels sur le téléphone avant le verrou de nuit (minutes avant le coucher). */
+export const RAPPELS_NUIT = [
+  { method: 'popup', minutes: 15 },
+  { method: 'popup', minutes: 5 },
+];
 
 /** Id déterministe de l'événement d'une nuit (base32hex : a-v, 0-9). */
 export function idEvenementNuit(nuit: string): string {
@@ -110,7 +115,8 @@ export function corpsEvenement(n: NuitAgenda) {
     start: { dateTime: n.debut, timeZone: n.fuseau },
     end: { dateTime: n.fin, timeZone: n.fuseau },
     transparency: 'opaque',
-    reminders: { useDefault: false, overrides: [] },
+    // Préavis du verrou de nuit (le coucher appliqué = début du NIGHT_LOCK), 04/11.
+    reminders: { useDefault: false, overrides: RAPPELS_NUIT },
     extendedProperties: { private: { focus: 'sommeil', focusNuit: n.nuit } },
   };
 }

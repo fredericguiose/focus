@@ -58,7 +58,7 @@ describe('client Google Agenda (fetch simulé)', () => {
       start: { dateTime: nuit.debut, timeZone: 'Europe/Paris' },
       end: { dateTime: nuit.fin, timeZone: 'Europe/Paris' },
       transparency: 'opaque',
-      reminders: { useDefault: false, overrides: [] },
+      reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 15 }, { method: 'popup', minutes: 5 }] },
       extendedProperties: { private: { focus: 'sommeil', focusNuit: '2026-11-03' } },
     });
   });
