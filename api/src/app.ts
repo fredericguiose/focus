@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { gardeAcces, horsHoteApi } from './acces';
+import { enregistrerActivite } from './activite';
 import { actualiser } from './actualiser';
 import { TOUS, exigerJeton } from './auth';
 import { invaliderTout } from './cache';
@@ -33,6 +34,11 @@ export function creerApp(deps: Dependances) {
 
   app.post('/v1/accuses', appareil, async (c) =>
     c.json(await enregistrerAccuse(deps, c.env.DB, c.get('jeton'), await lireCorps(c)), 201),
+  );
+
+  // Temps actif déclaré par le client PC (04/11 : hooks de Claude Code).
+  app.post('/v1/activite', appareil, async (c) =>
+    c.json(await enregistrerActivite(deps, c.env.DB, c.get('jeton'), await lireCorps(c))),
   );
 
   app.post('/v1/evenements', appareil, async (c) =>

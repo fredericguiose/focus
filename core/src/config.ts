@@ -338,6 +338,15 @@ const schemaConfig = z.strictObject({
     .strictObject({
       plafond_quotidien: duree.default(180),
       plafonds_apps: z.record(z.string(), duree).default({}),
+      // 04/11 : une app comptée au temps actif déclaré par le client (hooks de Claude Code),
+      // sans session à ouvrir. Facultatif.
+      temps_actif: z
+        .strictObject({
+          app: z.string(),
+          marge: duree.default(5),
+          exemptions: z.array(z.string().min(1)).default([]),
+        })
+        .optional(),
       attentes_s: z.array(entierPositif).min(1).default([0, 3, 5, 10, 15, 20]),
       delai_nouvelle_tache: duree.default(15),
       expiration_question_s: entierPositif.default(60),
@@ -463,6 +472,9 @@ function normaliser(b: ConfigBrute): Config {
     sessions: {
       plafondQuotidienMin: b.sessions.plafond_quotidien,
       plafondsAppsMin: b.sessions.plafonds_apps,
+      ...(b.sessions.temps_actif
+        ? { tempsActif: { app: b.sessions.temps_actif.app, margeMin: b.sessions.temps_actif.marge, exemptions: b.sessions.temps_actif.exemptions } }
+        : {}),
       attentesS: b.sessions.attentes_s,
       delaiNouvelleTacheMin: b.sessions.delai_nouvelle_tache,
       expirationQuestionS: b.sessions.expiration_question_s,
@@ -550,6 +562,16 @@ function verifierGroupes(c: Config, signaler: Signaler): void {
 
 /** Plafond propre à une app : une app du catalogue (pas un groupe), d'une durée positive. */
 function verifierPlafondsApps(c: Config, signaler: Signaler): void {
+  const actif = c.sessions.tempsActif;
+  if (actif) {
+    const chemin = ['sessions', 'temps_actif', 'app'];
+    if (!c.apps[actif.app]) signaler(chemin, inconnu('app inconnue', actif.app, Object.keys(c.apps)));
+    else if (c.sessions.plafondsAppsMin?.[actif.app] === undefined) signaler(chemin, `« ${actif.app} » doit avoir un plafond propre (sessions.plafonds_apps)`);
+    if (actif.margeMin <= 0) signaler(['sessions', 'temps_actif', 'marge'], 'la marge doit être positive');
+    actif.exemptions.forEach((e, i) => {
+      if (!e.startsWith('/')) signaler(['sessions', 'temps_actif', 'exemptions', i], `chemin absolu attendu (« ${e} »)`);
+    });
+  }
   for (const [id, minutes] of Object.entries(c.sessions.plafondsAppsMin ?? {})) {
     const chemin = ['sessions', 'plafonds_apps', id];
     if (!c.apps[id]) {
@@ -724,7 +746,7 @@ const CLES_CONNUES = [
   'lun', 'mar', 'mer', 'jeu', 'ven', 'sam', 'dim', 'conditions_en_plus', 'retirer', 'routine_par_defaut',
   'calendrier', 'routine', 'du', 'au', 'todoist', 'etiquette_planning', 'etiquette_recap', 'recap_tolerance_jours',
   'prioritaires', 'etiquettes_exclues', 'prix_du_report', 'par_report', 'plafond', 'commentaire_min', 'deadline',
-  'reports_max', 'jours_minimum', 'plafond_quotidien', 'plafonds_apps', 'attentes_s', 'delai_nouvelle_tache',
+  'reports_max', 'jours_minimum', 'plafond_quotidien', 'plafonds_apps', 'temps_actif', 'marge', 'exemptions', 'app', 'attentes_s', 'delai_nouvelle_tache',
   'expiration_question_s', 'intervalle_question', 'pc', 'apres', 'avant', 'decale_par', 'filtre', 'au_plus',
   'priorites', 'etiquettes_incluses', 'verification', 'mesure', 'synchro', 'xiaomi', 'hevy', 'google_agenda', 'agenda',
 ];

@@ -379,7 +379,7 @@ async function calculerStatut(deps: Dependances, db: D1Database, jeton: JetonAut
       .all<{ nom: string; vu_le: string | null }>(),
     lireCache<{ verifie_le: string; manquantes: string[] }>(db, jeton.utilisateur, CLES_CACHE.etiquettes),
     sessionsOuvertes(db, deps.moteur, jeton.utilisateur, contexte, maintenant),
-    cumulsSessionsS(db, jeton.utilisateur, journee, maintenant),
+    cumulsSessionsS(db, jeton.utilisateur, journee, maintenant, contexte.config),
     lireSommeil(db, jeton.utilisateur, versInstant(debutJourLocal(ajouterJours(journee.date, -nuitsALire(journee.date) - 1), journee.fuseau))),
     etatSynchro(db, jeton.utilisateur),
     lireSeances(db, jeton.utilisateur, versInstant(debutJourLocal(ajouterJours(jourCivil, -JOURS_VERIFIES - 1), journee.fuseau))),

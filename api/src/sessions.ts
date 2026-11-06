@@ -1,6 +1,7 @@
 // Sessions de travail (conception §4.5). Rien de calculable n'est stocké : le plafond du jour
 // et le rang des « continue » sont recalculés depuis les tables à chaque demande.
 import type { Config, Contexte, Instant, Journee, Moteur, Tache } from '../../core/src/types';
+import { cumulTempsActifS } from './activite';
 import { instructionsInvalider } from './cache';
 import { chargerContexte, nouvelIdentifiant } from './contexte';
 import type { Dependances, JetonAuthentifie } from './env';
@@ -51,6 +52,11 @@ export interface VueSession {
   motif_fin: MotifFin | null;
   question: { id: string; posee_a: string; attente_s: number; expire_a: string } | null;
   /**
+   * App à plafond propre sur laquelle la session compte (ex. « claude_code »), null pour une session
+   * normale (plafond commun). L'extension ne pose la question que pour les sessions normales.
+   */
+  plafond_app: string | null;
+  /**
    * Session ouverte : l'instant où elle sera fermée quoi qu'on réponde (plafond quotidien atteint,
    * ou début d'un mode qui interdit les sessions sur son appareil), dans l'horizon du planning ;
    * null si rien ne la ferme d'ici là. Le client cesse de libérer ses apps à cet instant.
@@ -90,7 +96,7 @@ function instructionsFermeture(db: D1Database, s: SessionChargee, fin: Instant, 
 }
 
 /** Horizon dans lequel on cherche le prochain mode qui interdit les sessions (celui du planning). */
-const HORIZON_FIN_H = 36;
+export const HORIZON_FIN_H = 36;
 
 // ─── Plafonds : le commun, et ceux propres à certaines apps (02/11) ────────────
 
@@ -133,7 +139,7 @@ function cumulDepuis(lignes: LigneCumul[], debut: number, maintenant: number, co
 }
 
 /** Premier instant ≥ `depuis` où le mode de l'appareil interdit les sessions, selon le planning calculé à `depuis`. */
-function debutInterdiction(moteur: Moteur, contexte: Contexte, appareil: string, depuis: number, horizonH: number): number | null {
+export function debutInterdiction(moteur: Moteur, contexte: Contexte, appareil: string, depuis: number, horizonH: number): number | null {
   if (!contexte.config.appareils[appareil]) return depuis;
   const segments = moteur.planifier({ ...contexte, maintenant: versInstant(depuis) }, appareil, Math.max(horizonH, 1 / 60));
   const interdit = segments.find((g) => g.sessions === 'interdites');
@@ -165,9 +171,12 @@ export async function cloturerEchues(db: D1Database, moteur: Moteur, contexte: C
   // sessions de travail ouvertes sur ce compteur.
   const enCours = ouvertes.filter((s) => s.session.type === 'travail' && ms(s.session.ouverte_le) <= t);
   const plafondsA = new Map<Compteur, number>();
+  // Temps actif déclaré (04/11) : compte sur le même plafond que les sessions de cette app.
+  const tempsActif = enCours.length > 0 ? await cumulTempsActifS(db, utilisateur, contexte.config, journee.lever, maintenant) : null;
   for (const c of new Set(enCours.map((s) => compteurA(s.session, t)))) {
     const n = enCours.filter((s) => compteurA(s.session, t) === c).length;
-    const resteS = plafondMin(contexte.config, c) * 60 - cumulDepuis(lues.map((x) => x.session), lever, t, c);
+    const actifS = tempsActif && tempsActif.app === c ? tempsActif.secondes : 0;
+    const resteS = plafondMin(contexte.config, c) * 60 - cumulDepuis(lues.map((x) => x.session), lever, t, c) - actifS;
     plafondsA.set(c, t + (resteS * 1000) / n);
   }
 
@@ -227,12 +236,13 @@ export function vueSession(config: Config, s: SessionChargee, finAuPlusTard: str
     fermee_le: s.session.fermee_le,
     motif_fin: s.session.motif_fin,
     question: s.question && !s.session.fermee_le ? { ...s.question } : null,
+    plafond_app: s.session.compteur,
     fin_au_plus_tard: s.session.fermee_le ? null : finAuPlusTard,
   };
 }
 
 /** Secondes de session de travail cumulées depuis le lever de la journée courante, par compteur. */
-export async function cumulsSessionsS(db: D1Database, utilisateur: string, journee: Journee, maintenant: Date): Promise<Map<Compteur, number>> {
+export async function cumulsSessionsS(db: D1Database, utilisateur: string, journee: Journee, maintenant: Date, config?: Config): Promise<Map<Compteur, number>> {
   const { results } = await db
     .prepare(
       `SELECT type, ouverte_le, fermee_le, compteur, compteur_depuis FROM sessions
@@ -241,7 +251,12 @@ export async function cumulsSessionsS(db: D1Database, utilisateur: string, journ
     .bind(utilisateur, versInstant(maintenant), journee.lever)
     .all<LigneCumul>();
   const compteurs = new Set<Compteur>([null, ...results.map((s) => s.compteur)]);
-  return new Map([...compteurs].map((c) => [c, cumulDepuis(results, ms(journee.lever), maintenant.getTime(), c)]));
+  const cumuls = new Map([...compteurs].map((c) => [c, cumulDepuis(results, ms(journee.lever), maintenant.getTime(), c)]));
+  if (config) {
+    const actif = await cumulTempsActifS(db, utilisateur, config, journee.lever, maintenant);
+    if (actif) cumuls.set(actif.app, (cumuls.get(actif.app) ?? 0) + actif.secondes);
+  }
+  return cumuls;
 }
 
 function exigerSousPlafond(config: Config, cumuls: Map<Compteur, number>, compteur: Compteur): void {
@@ -410,7 +425,7 @@ export async function ouvrirSession(deps: Dependances, db: D1Database, jeton: Je
     });
   }
   const compteur = compteurDesApps(config, apps);
-  const cumuls = await cumulsSessionsS(db, jeton.utilisateur, journee, maintenant);
+  const cumuls = await cumulsSessionsS(db, jeton.utilisateur, journee, maintenant, config);
   exigerSousPlafond(config, cumuls, compteur);
   const cumulS = cumuls.get(compteur) ?? 0;
 
@@ -545,7 +560,7 @@ export async function ajouterApps(deps: Dependances, db: D1Database, jeton: Jeto
   // une session déjà sur un plafond propre y reste.
   const bascule = s.session.compteur === null ? compteurDesApps(config, apps) : null;
   if (bascule !== null) {
-    exigerSousPlafond(config, await cumulsSessionsS(db, jeton.utilisateur, deps.moteur.journeeCourante(contexte), maintenant), bascule);
+    exigerSousPlafond(config, await cumulsSessionsS(db, jeton.utilisateur, deps.moteur.journeeCourante(contexte), maintenant, config), bascule);
     await db.batch([
       db
         .prepare(`UPDATE sessions SET apps = ?, compteur = ?, compteur_depuis = ? WHERE id = ? AND fermee_le IS NULL`)
