@@ -32,10 +32,20 @@ func Nouveau(base string, jeton func() (string, error)) *Client {
 	return &Client{
 		Base:      strings.TrimRight(base, "/"),
 		Jeton:     jeton,
-		HTTP:      &http.Client{Timeout: 15 * time.Second},
+		HTTP:      &http.Client{Timeout: 15 * time.Second, Transport: transport()},
 		UserAgent: "focus-pc/2.0",
 		Horloge:   time.Now,
 	}
+}
+
+// transport : après une mise en veille, la connexion HTTP/2 gardée ouverte vers Cloudflare est
+// morte sans que le noyau le sache ; sans ping, chaque requête la réutilisait et expirait
+// (06/11 : 14 min de « Client.Timeout exceeded » après un réveil, session de travail ignorée,
+// claude_code resté bloqué jusqu'au redémarrage du service).
+func transport() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.HTTP2 = &http.HTTP2Config{SendPingTimeout: 10 * time.Second, PingTimeout: 5 * time.Second}
+	return t
 }
 
 // Erreur : réponse non 2xx, avec le corps { erreur, message } de l'API (§4.2).
@@ -102,6 +112,8 @@ func (c *Client) faire(ctx context.Context, methode, chemin string, corps any) (
 	}
 	rep, err := c.HTTP.Do(req)
 	if err != nil {
+		// Ne pas réessayer sur la même connexion peut-être morte : la suivante repart de zéro.
+		c.HTTP.CloseIdleConnections()
 		return nil, err
 	}
 	if rep.StatusCode/100 != 2 {
