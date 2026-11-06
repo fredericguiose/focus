@@ -485,7 +485,7 @@ simultanées : la seconde reçoit 422 `exception_refusee` (« décision de nuit 
     { "id": "s_01", "tache": { "id": "123", "nom": "DM de maths" }, "apps": ["chatgpt"],
       "domaines": ["chatgpt.com"], "ouverte_le": "…Z",
       "question": { "id": "q_07", "posee_a": "…Z", "attente_s": 3, "expire_a": "…Z" },
-      "fin_au_plus_tard": "…Z" | null }
+      "plafond_app": "claude_code" | null, "fin_au_plus_tard": "…Z" | null }
   ],
   "raison": "WORK — tâches prioritaires restantes : 2"
 }
@@ -501,6 +501,11 @@ Règles côté client :
   « continue ». Pendant un segment avec `verrouiller_session: true` **ou** `sessions:
   "interdites"`, les sessions ne comptent pas (le client applique ces fins lui-même, planning en
   cache compris ; l'API ne renvoie plus de session ouverte quand le mode les interdit).
+- `question` est la question **suivante**, renvoyée dès sa création avec un `posee_a` futur : elle
+  ne se pose (et ne s'affiche) qu'entre `posee_a` et `expire_a`.
+- `plafond_app` : app à plafond propre sur laquelle la session compte (02/11 : Claude Code), null
+  pour une session normale. L'extension Chrome ne pose la question que pour les sessions normales ;
+  le client PC la pose pour toutes.
 
 ### 4.4 Tâches planifiées (une seule entrée cron `* * * * *`)
 **Cadences** (revue du 01/11, plan gratuit de Workers : 10 ms de CPU et 50 sous-requêtes par

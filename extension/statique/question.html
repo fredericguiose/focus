@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Question — Focus</title>
+    <link rel="icon" href="icones/icone-32.png" />
+    <link rel="stylesheet" href="style.css" />
+    <script type="module" src="question.js"></script>
+  </head>
+  <body>
+    <main class="page question">
+      <div class="marque"><img src="icones/icone-32.png" alt="" />Focus</div>
+      <h1 class="titre-question" id="titre">Question de session</h1>
+      <p class="discret" id="echeance" aria-live="polite"></p>
+      <div class="message erreur" id="erreur" role="alert" hidden></div>
+      <div class="actions pleine">
+        <button type="button" id="arrete">J'arrête</button>
+        <button type="button" class="primaire" id="continue" disabled>Je continue</button>
+      </div>
+    </main>
+  </body>
+</html>

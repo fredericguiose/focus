@@ -16,11 +16,21 @@ export interface SegmentPlanning {
   actions: { bloquer_domaines?: string[]; verrouiller_session?: boolean; fermer_comptes_hors_travail?: boolean };
 }
 
+export interface QuestionPlanning {
+  id: string;
+  posee_a: string;
+  attente_s: number;
+  expire_a: string;
+}
+
 export interface SessionPlanning {
   id: string;
   apps: string[];
   domaines?: string[];
-  question: { id: string; posee_a: string; attente_s: number; expire_a: string } | null;
+  tache?: { id: string; nom: string } | null;
+  question: QuestionPlanning | null;
+  /** App à plafond propre (ex. « claude_code ») ; null ou absent : session normale. */
+  plafond_app?: string | null;
   fin_au_plus_tard: string | null;
 }
 
@@ -159,4 +169,51 @@ export function finDuBlocage(p: Planning, domaine: string, t: number): number | 
 export function resume(recu: PlanningRecu, maintenantLocal: number): { mode: string | null; domaines: number } {
   const t = maintenantLocal + recu.decalageMs;
   return { mode: segmentEnVigueur(recu.planning, t)?.mode ?? null, domaines: domainesBloques(recu.planning, t)?.length ?? 0 };
+}
+
+// ─── Questions posées par l'extension ─────────────────────────────────────────────────────────
+
+/** Question à poser dans le navigateur, avec ce qu'il faut pour l'afficher. */
+export interface QuestionAPoser {
+  sessionId: string;
+  tache: string | null;
+  question: QuestionPlanning;
+}
+
+/**
+ * L'API renvoie la question suivante dès sa création, avec un `posee_a` futur. Elle est à poser
+ * entre `posee_a` (inclus) et `expire_a` (exclu), pour les sessions normales seulement : celles à
+ * plafond propre (Claude Code) n'ont leur question que dans le dialogue du client PC.
+ */
+export function aPoserDansLeNavigateur(s: SessionPlanning): boolean {
+  return s.question !== null && !s.plafond_app;
+}
+
+/** Questions dues à l'instant t (heure du serveur), d'après le planning. */
+export function questionsDues(p: Planning, t: number): QuestionAPoser[] {
+  return p.sessions
+    .filter((s) => aPoserDansLeNavigateur(s) && sessionValide(s, t) && instant(s.question!.posee_a) <= t)
+    .map((s) => ({ sessionId: s.id, tache: s.tache?.nom ?? null, question: s.question! }));
+}
+
+/** Prochain `posee_a` futur (heure du serveur) parmi les questions à poser ; null s'il n'y en a pas. */
+export function prochainePose(p: Planning, t: number): number | null {
+  const futurs = p.sessions
+    .filter((s) => aPoserDansLeNavigateur(s) && sessionValide(s, t))
+    .map((s) => instant(s.question!.posee_a))
+    .filter((x) => x > t);
+  return futurs.length > 0 ? Math.min(...futurs) : null;
+}
+
+/** État de la fenêtre de question à l'instant t (heure du serveur), comme la web app. */
+export function etatQuestion(q: QuestionPlanning, t: number): { avantContinuerS: number; avantExpirationS: number; peutContinuer: boolean; expiree: boolean } {
+  const continuerDes = instant(q.posee_a) + q.attente_s * 1000;
+  const expireA = instant(q.expire_a);
+  const expiree = t >= expireA;
+  return {
+    avantContinuerS: Math.max(0, Math.ceil((continuerDes - t) / 1000)),
+    avantExpirationS: Math.max(0, Math.ceil((expireA - t) / 1000)),
+    peutContinuer: !expiree && t >= continuerDes,
+    expiree,
+  };
 }

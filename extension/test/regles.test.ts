@@ -10,6 +10,9 @@ import {
   type SessionPlanning,
   decider,
   domainesBloques,
+  etatQuestion,
+  prochainePose,
+  questionsDues,
   finDuBlocage,
   validerPlanning,
 } from '../src/regles.ts';
@@ -185,5 +188,30 @@ describe('raisonDetaillee', () => {
   test('sans « non atteint » : la raison lisible seule', () => {
     assert.deepEqual(raisonDetaillee('NIGHT_LOCK — après 23:00'), { objectif: null, manques: ['Après 23:00'] });
     assert.deepEqual(raisonDetaillee(''), { objectif: null, manques: [] });
+  });
+});
+
+describe('questions posées dans le navigateur', () => {
+  const q = (posee: number, attente_s = 5, id = 'q1') => ({ id, posee_a: iso(posee), attente_s, expire_a: iso(posee + (60 + attente_s) * 1000) });
+  const normale = session(['youtube.com'], { tache: { id: 't1', nom: 'Maths' }, question: q(T0 + 25 * 60_000) });
+
+  test('question renvoyée à l’avance : pas due avant posee_a, due à posee_a, plus après expire_a', () => {
+    const p = planning({ sessions: [normale] });
+    assert.deepEqual(questionsDues(p, T0), []);
+    assert.equal(prochainePose(p, T0), T0 + 25 * 60_000);
+    assert.deepEqual(questionsDues(p, T0 + 25 * 60_000), [{ sessionId: 's1', tache: 'Maths', question: normale.question }]);
+    assert.equal(prochainePose(p, T0 + 25 * 60_000), null);
+    assert.deepEqual(questionsDues(p, T0 + 25 * 60_000 + 65_000), []);
+  });
+  test('session à plafond propre (Claude Code) : jamais dans le navigateur', () => {
+    const p = planning({ sessions: [{ ...normale, plafond_app: 'claude_code' }] });
+    assert.deepEqual(questionsDues(p, T0 + 25 * 60_000), []);
+    assert.equal(prochainePose(p, T0), null);
+  });
+  test('etatQuestion : attente avant « Je continue », puis expiration', () => {
+    const question = q(T0, 5);
+    assert.deepEqual(etatQuestion(question, T0), { avantContinuerS: 5, avantExpirationS: 65, peutContinuer: false, expiree: false });
+    assert.equal(etatQuestion(question, T0 + 5000).peutContinuer, true);
+    assert.equal(etatQuestion(question, T0 + 65_000).expiree, true);
   });
 });

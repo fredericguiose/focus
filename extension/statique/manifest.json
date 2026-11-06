@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Focus",
-  "version": "2.1.0",
-  "description": "Affiche pourquoi un site est bloqué par Focus et permet d'ouvrir une session. Le blocage réseau reste celui du PC.",
+  "version": "2.2.0",
+  "description": "Affiche pourquoi un site est bloqué par Focus, permet d'ouvrir une session et pose sa question. Le blocage réseau reste celui du PC.",
   "minimum_chrome_version": "116",
   "permissions": ["webNavigation", "storage", "alarms", "favicon"],
   "host_permissions": ["https://api-focus.fredericguiose.com/*"],

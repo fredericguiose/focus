@@ -6,7 +6,7 @@
 // Repli, sans planning frais : sur une erreur de navigation qui ressemble au blocage hosts, on
 // demande à l'API (GET /v1/blocage) si ce domaine est bloqué.
 import { type MessageRafraichir, type Reglages, type ReponseRafraichir, appeler, demanderBlocage, lireReglages, versErreurApi } from './commun.js';
-import { type PlanningRecu, decider, finDuBlocage, resume, segmentEnVigueur, validerPlanning } from './regles.js';
+import { AGE_MAX_MS, type PlanningRecu, decider, finDuBlocage, prochainePose, questionsDues, resume, segmentEnVigueur, validerPlanning } from './regles.js';
 
 const ERREURS_DE_BLOCAGE = new Set([
   'net::ERR_CONNECTION_REFUSED',
@@ -45,6 +45,7 @@ async function telecharger(r: Reglages): Promise<PlanningRecu> {
   if (actuels && cleReglages(actuels) === cleReglages(r)) {
     enMemoire = recu;
     await chrome.storage.session.set({ [CLE_PLANNING]: recu });
+    void gererQuestions();
   }
   return recu;
 }
@@ -75,12 +76,14 @@ async function rafraichirSiPossible(): Promise<void> {
 
 chrome.alarms.onAlarm.addListener((a) => {
   if (a.name === ALARME) void rafraichirSiPossible();
+  if (a.name === ALARME_QUESTION) void gererQuestions();
 });
 
 async function demarrer(): Promise<void> {
   if (!(await chrome.alarms.get(ALARME))) await chrome.alarms.create(ALARME, { periodInMinutes: 1 });
   const p = await planningGarde();
   if (!p || Date.now() - p.recuLe > FRAICHEUR_REVEIL_MS) await rafraichirSiPossible();
+  else await gererQuestions();
 }
 void demarrer();
 
@@ -89,6 +92,86 @@ chrome.storage.onChanged.addListener((changes, zone) => {
   if (zone !== 'local' || !('jeton' in changes || 'api' in changes || 'appareil' in changes)) return;
   enMemoire = null;
   void chrome.storage.session.remove(CLE_PLANNING).then(rafraichirSiPossible);
+});
+
+// ─── Questions de session ───────────────────────────────────────────────────────────────────
+// Le client PC pose la question dans un dialogue système ; l'extension la pose aussi, dans une
+// petite fenêtre, pour les sessions normales (pas celles à plafond propre, comme Claude Code). Une
+// réponse donnée ailleurs change la question du planning : la fenêtre se ferme d'elle-même.
+
+const ALARME_QUESTION = 'question';
+/** question_id → fenêtre ouverte ; et questions déjà montrées (fermer la fenêtre ne la rouvre pas). */
+const CLE_FENETRES = 'fenetresQuestions';
+const CLE_VUES = 'questionsVues';
+const LARGEUR_FENETRE = 440;
+const HAUTEUR_FENETRE = 300;
+
+let fileQuestions: Promise<void> = Promise.resolve();
+
+/** Sérialisé : un rafraîchissement et l'alarme simultanés n'ouvrent pas deux fenêtres. */
+function gererQuestions(): Promise<void> {
+  fileQuestions = fileQuestions.then(gererQuestionsMaintenant).catch((e: unknown) => console.warn('Focus : questions :', e));
+  return fileQuestions;
+}
+
+async function ouvrirFenetreQuestion(sessionId: string, questionId: string): Promise<number | undefined> {
+  const page = new URL(chrome.runtime.getURL('question.html'));
+  page.searchParams.set('session', sessionId);
+  page.searchParams.set('question', questionId);
+  let position: { left?: number; top?: number } = {};
+  try {
+    const w = await chrome.windows.getLastFocused();
+    if (w.left !== undefined && w.top !== undefined && w.width && w.height) {
+      position = { left: Math.round(w.left + (w.width - LARGEUR_FENETRE) / 2), top: Math.round(w.top + (w.height - HAUTEUR_FENETRE) / 3) };
+    }
+  } catch {
+    // Aucune fenêtre : Chrome place la fenêtre lui-même.
+  }
+  const fenetre = await chrome.windows.create({ url: page.href, type: 'popup', focused: true, width: LARGEUR_FENETRE, height: HAUTEUR_FENETRE, ...position });
+  return fenetre?.id;
+}
+
+async function gererQuestionsMaintenant(): Promise<void> {
+  const lu = await chrome.storage.session.get([CLE_FENETRES, CLE_VUES]);
+  const fenetres = { ...((lu[CLE_FENETRES] as Record<string, number> | undefined) ?? {}) };
+  let vues = (lu[CLE_VUES] as string[] | undefined) ?? [];
+  const recu = await planningGarde();
+  const maintenant = Date.now();
+  const frais = recu !== null && maintenant - recu.recuLe <= AGE_MAX_MS;
+  const t = recu ? maintenant + recu.decalageMs : maintenant;
+  const dues = frais ? questionsDues(recu.planning, t) : [];
+  const idsDus = new Set(dues.map((d) => d.question.id));
+
+  // Question réglée ailleurs (client PC, web app), expirée, ou planning trop vieux : on ferme.
+  for (const [questionId, fenetreId] of Object.entries(fenetres)) {
+    if (idsDus.has(questionId)) continue;
+    delete fenetres[questionId];
+    await chrome.windows.remove(fenetreId).catch(() => {});
+  }
+  for (const d of dues) {
+    if (fenetres[d.question.id] !== undefined || vues.includes(d.question.id)) continue;
+    const id = await ouvrirFenetreQuestion(d.sessionId, d.question.id);
+    if (id !== undefined) fenetres[d.question.id] = id;
+    vues = [...vues, d.question.id];
+  }
+  // Seules les questions encore présentes dans le planning restent en mémoire.
+  const presentes = new Set(recu?.planning.sessions.flatMap((s) => (s.question ? [s.question.id] : [])) ?? []);
+  await chrome.storage.session.set({ [CLE_FENETRES]: fenetres, [CLE_VUES]: vues.filter((v) => presentes.has(v)) });
+
+  // Réveil à la prochaine question (le planning se relit aussi chaque minute).
+  const prochaine = frais ? prochainePose(recu.planning, t) : null;
+  if (prochaine === null) await chrome.alarms.clear(ALARME_QUESTION);
+  else await chrome.alarms.create(ALARME_QUESTION, { when: prochaine - recu!.decalageMs });
+}
+
+chrome.windows.onRemoved.addListener((fenetreId) => {
+  // Dans la même file que gererQuestions : pas d'écritures croisées dans storage.session.
+  fileQuestions = fileQuestions.then(async () => {
+    const lu = await chrome.storage.session.get(CLE_FENETRES);
+    const fenetres = (lu[CLE_FENETRES] as Record<string, number> | undefined) ?? {};
+    const restantes = Object.fromEntries(Object.entries(fenetres).filter(([, id]) => id !== fenetreId));
+    if (Object.keys(restantes).length !== Object.keys(fenetres).length) await chrome.storage.session.set({ [CLE_FENETRES]: restantes });
+  });
 });
 
 // ─── Décision sur navigation ────────────────────────────────────────────────────────────────

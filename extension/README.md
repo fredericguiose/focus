@@ -32,7 +32,14 @@ et permet d'ouvrir une session si le mode l'autorise.
    par `GET /v1/taches`, session par `POST /v1/sessions` (10 s d'attente). « Réessayer » relit le
    planning tout de suite et rouvre la page si le domaine n'est plus bloqué. Après l'ouverture
    d'une session, le planning est relu aussitôt ; le PC, lui, l'applique dans la minute.
-6. **Options.** « Enregistrer et vérifier » enregistre les réglages puis demande au service
+6. **Question de session.** Pour une session normale (`plafond_app` null : pas Claude Code), le
+   service worker ouvre à `posee_a` une petite fenêtre (`question.html`, `chrome.windows.create`
+   de type popup) : « Toujours sur « tâche » ? », « J'arrête » tout de suite, « Je continue »
+   après `attente_s` (`POST /v1/sessions/:id/reponse`). Réveil par une alarme à la prochaine
+   `posee_a`, en plus de la relecture du planning chaque minute. Le client PC pose la même
+   question dans son dialogue : une réponse donnée d'un côté retire la question du planning, et
+   la fenêtre se ferme d'elle-même. Fermer la fenêtre sans répondre ne la rouvre pas.
+7. **Options.** « Enregistrer et vérifier » enregistre les réglages puis demande au service
    worker de lire le planning avec eux (`chrome.runtime.sendMessage`) : vert seulement s'il l'a
    reçu (mode actuel, nombre de sites bloqués), sinon l'erreur exacte.
 
