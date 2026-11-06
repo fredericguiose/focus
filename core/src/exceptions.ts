@@ -4,8 +4,8 @@
 // fenêtre de régularité) est comparée avant / après.
 
 import type { Contexte, DateLocale, DemandeException, Exception, FrictionFournie, Journee, PrixException } from './types';
-import { engagementsDuJour, journee, journeeCourante, nuitDe } from './journee';
-import { ajouterJours, dateCourte, ecartJours, estDate, estHeure, lireInstant, local, minutesDe } from './temps';
+import { engagementsDuJour, journee, journeeCourante, nuitDe, reveilLibre, routineDuJour } from './journee';
+import { ajouterJours, dateCourte, ecartJours, ecrireInstant, estDate, estHeure, instantLocal, lireInstant, local, minutesDe } from './temps';
 
 export const PHRASE_DECISION_DE_NUIT = 'JE NE PEUX PAS DECALER';
 export const RAISON_MIN_CARACTERES = 50;
@@ -167,6 +167,23 @@ function frictionManquante(friction: FrictionFournie | undefined): string | unde
 }
 
 /**
+ * Lever visé par un engagement décalé ou retiré, sans les plafonds (04/11) : le plus tôt des
+ * réveils du jour après l'exception, à défaut le reveil_libre. Rogné si le lever obtenu est plus
+ * tôt ; la cause est le reveil_libre si le lever obtenu l'atteint, sinon la régularité.
+ */
+function leverPlafonne(ctxApres: Contexte, d: DemandeException, leverApres: number): PrixException['leverPlafonne'] {
+  if (d.type !== 'decale' && d.type !== 'retire') return undefined;
+  const { routine } = routineDuJour(ctxApres.config, d.date);
+  const plafond = reveilLibre(ctxApres.config, routine);
+  const reveils = engagementsDuJour(ctxApres, d.date).map((e) => e.reveilMin).filter((r): r is number => r !== undefined);
+  const vouluMin = reveils.length > 0 ? Math.min(...reveils) : plafond;
+  const voulu = instantLocal(d.date, vouluMin, routine.fuseau);
+  if (leverApres >= voulu - 60_000) return undefined;
+  const cause = vouluMin > plafond && leverApres >= instantLocal(d.date, plafond, routine.fuseau) - 60_000 ? 'reveil_libre' : 'regularite';
+  return { voulu: ecrireInstant(voulu), cause };
+}
+
+/**
  * Les contrôles sont ordonnés : si le motif de refus porte sur la friction, tout le reste est
  * admissible. Avant l'ouverture, desserrer exige une raison (friction 'raison'). Une décision
  * de nuit acceptée (friction 'raison_phrase') doit être enregistrée avec `pendantNuit: true` et
@@ -197,6 +214,10 @@ export function prixException(contexte: Contexte, demande: DemandeException, fri
     leverApres: apres.leverSuivant,
     detteAvantMin: avant.detteNuitMin,
     detteApresMin: apres.detteNuitMin,
+    ...(() => {
+      const rogne = invalide ? undefined : leverPlafonne(ctxApres, demande, lireInstant(apres.leverSuivant));
+      return rogne ? { leverPlafonne: rogne } : {};
+    })(),
   };
   const accepte = (f: PrixException['friction'], nuitDecision?: DateLocale): PrixException => ({
     admissible: true,
@@ -241,6 +262,16 @@ export function prixException(contexte: Contexte, demande: DemandeException, fri
   if (!ouverte(premiere)) {
     const refus = sousLePlafond('raison', false);
     if (refus) return refus;
+    const manque = raisonManquante(friction);
+    return manque ? refuse(manque, 'raison', true) : accepte('raison');
+  }
+
+  // 04/11 : décaler ou retirer un engagement (corriger l'heure d'un cours, par exemple) ne coûte
+  // jamais la décision de nuit : une raison suffit. Le lever reste borné par reveil_libre et la
+  // régularité. Avant, le décalage du cours à 9h45 du 03/11 au soir l'avait consommée en silence.
+  if (demande.type === 'decale' || demande.type === 'retire') {
+    const refusR = sousLePlafond('raison', false);
+    if (refusR) return refusR;
     const manque = raisonManquante(friction);
     return manque ? refuse(manque, 'raison', true) : accepte('raison');
   }

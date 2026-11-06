@@ -164,14 +164,14 @@ describe('exceptions — revue du 01/11', () => {
     await expect(inserer('e_direct')).rejects.toThrow(/UNIQUE/);
   });
 
-  it('une décision de nuit venue d\'une exception d\'un autre jour est enregistrée pour la nuit qu\'elle desserre', async () => {
+  it('retirer un engagement la nuit ne consomme pas la décision de nuit (04/11)', async () => {
     horloge.regler('2026-11-02T20:00:00Z'); // lundi 21:00 Paris, soirée ouverte
-    const r = await api.post('/v1/exceptions', web, { type: 'retire', date: '2026-11-03', engagement: 'travail', raison: RAISON, phrase: PHRASE });
+    const r = await api.post('/v1/exceptions', web, { type: 'retire', date: '2026-11-03', engagement: 'travail', raison: RAISON });
     expect(r.statut).toBe(201);
-    expect(r.corps.prix).toMatchObject({ friction: 'raison_phrase', nuit_decision: '2026-11-02' });
+    expect(r.corps.prix).toMatchObject({ friction: 'raison', nuit_decision: null });
     const ligne = await env.DB.prepare('SELECT jour, pendant_nuit, nuit_decision FROM exceptions').first();
-    expect(ligne).toEqual({ jour: '2026-11-03', pendant_nuit: 1, nuit_decision: '2026-11-02' });
+    expect(ligne).toEqual({ jour: '2026-11-03', pendant_nuit: 0, nuit_decision: null });
     const statut = await api.get('/v1/statut', web);
-    expect(statut.corps.journee.decision_de_nuit_prise).toBe(true);
+    expect(statut.corps.journee.decision_de_nuit_prise).toBe(false);
   });
 });

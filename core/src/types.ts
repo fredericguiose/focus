@@ -149,6 +149,12 @@ export interface Config {
      * normalisée d'avant le 02/11).
      */
     plafondsAppsMin?: Record<string, number>;
+    /**
+     * 04/11 : app comptée au temps actif déclaré par le client PC (hooks de Claude Code), sans
+     * session à ouvrir. Compté : de chaque message à la fin de la réponse, plus `margeMin`. Les
+     * dossiers de travail sous `exemptions` (motifs avec `*`) ne comptent pas.
+     */
+    tempsActif?: { app: string; margeMin: number; exemptions: string[] };
     attentesS: number[];
     delaiNouvelleTacheMin: number;
     expirationQuestionS: number;
@@ -242,6 +248,12 @@ export interface PrixException {
   frictionManquante?: boolean;
   /** Décision de nuit acceptée : la nuit qu'elle consomme (à enregistrer avec l'exception). */
   nuitDecision?: DateLocale;
+  /**
+   * 04/11 : le lever obtenu est plus tôt que celui que la demande vise (engagement décalé ou
+   * retiré) : `voulu` = lever sans plafond, `cause` = la règle qui le rogne (régularité des
+   * levers, `ecart_lever_max`, ou plafond `reveil_libre`). Absent si rien n'est rogné.
+   */
+  leverPlafonne?: { voulu: Instant; cause: 'regularite' | 'reveil_libre' };
   resserre: boolean;
   coucherAvant: Instant;
   coucherApres: Instant;

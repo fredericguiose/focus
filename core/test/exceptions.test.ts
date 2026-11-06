@@ -206,6 +206,39 @@ describe('exceptions — engagements', () => {
   });
 });
 
+describe('exceptions — décaler un engagement la nuit (04/11)', () => {
+  // Bug du 03/11 : décaler le cours à 9h45 vers 20h29 avait consommé la décision de nuit, et
+  // l'effet avait été rogné (régularité) sans que rien ne le dise.
+  const decale = (heure: string) => ({ type: 'decale' as const, date: '2026-11-03', engagement: 'travail', heure });
+
+  it('après l\'ouverture : une raison suffit, la décision de nuit reste disponible', () => {
+    const p = prixException(contexte(APRES_OUVERTURE), decale('06:50'), MOTIF);
+    expect(p).toMatchObject({ admissible: true, friction: 'raison', resserre: false });
+    expect(p.nuitDecision).toBeUndefined();
+    const prise = exception(decale('06:50'), '2026-11-02T20:00:00Z');
+    const coucherPlusTard = prixException({ ...contexte('2026-11-02T20:10:00Z'), exceptions: [prise] }, coucher('23:30'));
+    expect(coucherPlusTard).toMatchObject({ friction: 'raison_phrase' });
+    expect(coucherPlusTard.motifRefus ?? '').not.toMatch(/déjà prise/);
+  });
+
+  it('le lever rogné par le reveil_libre est signalé', () => {
+    const p = prixException(contexte(APRES_OUVERTURE), decale('09:00'), MOTIF);
+    expect(p.leverApres).toBe('2026-11-03T06:00:00Z'); // 07:00
+    expect(p.leverPlafonne).toEqual({ voulu: '2026-11-03T08:00:00Z', cause: 'reveil_libre' });
+  });
+
+  it('le lever rogné par la régularité est signalé', () => {
+    const config = lireConfig(remplacer(EXEMPLE, '  ecart_lever_max: "2h"\n', '  ecart_lever_max: "1h"\n'));
+    const p = prixException({ ...contexte(APRES_OUVERTURE), config }, decale('09:00'), MOTIF);
+    expect(p.leverPlafonne?.cause).toBe('regularite');
+    expect(lireInstant(p.leverApres)).toBeLessThan(lireInstant('2026-11-03T06:00:00Z'));
+  });
+
+  it('rien de rogné : pas de signalement', () => {
+    expect(prixException(contexte(APRES_OUVERTURE), decale('06:50'), MOTIF).leverPlafonne).toBeUndefined();
+  });
+});
+
 describe('exceptions — avancer le coucher', () => {
   // Nuit du vendredi 06/11 : coucher 23:00 (22:00Z), samedi sans engagement, lever 07:00 (06:00Z).
   const VENDREDI = '2026-11-06';
@@ -344,11 +377,12 @@ describe('exceptions — une exception d\'un autre jour qui desserre ce soir (re
     expect(lireInstant(avec.coucherApplique)).toBeLessThan(lireInstant(sans.coucherApplique));
   });
 
-  it('après l\'ouverture de ce soir : décision de nuit pour CE SOIR (raison + phrase), pas une simple raison', () => {
-    const p = prixException(ctx('2026-11-02T20:15:00Z'), retire, MOTIF);
-    expect(p).toMatchObject({ admissible: false, friction: 'raison_phrase', frictionManquante: true, resserre: false });
-    const ok = prixException(ctx('2026-11-02T20:15:00Z'), retire, FRICTION);
-    expect(ok).toMatchObject({ admissible: true, friction: 'raison_phrase', nuitDecision: NUIT });
+  it('après l\'ouverture de ce soir : retirer l\'engagement ne coûte qu\'une raison, pas la décision de nuit (04/11)', () => {
+    const sans = prixException(ctx('2026-11-02T20:15:00Z'), retire);
+    expect(sans).toMatchObject({ admissible: false, friction: 'raison', frictionManquante: true, resserre: false });
+    const ok = prixException(ctx('2026-11-02T20:15:00Z'), retire, MOTIF);
+    expect(ok).toMatchObject({ admissible: true, friction: 'raison' });
+    expect(ok.nuitDecision).toBeUndefined();
   });
 
   it('la décision consommée vaut pour ce soir : une seconde est refusée', () => {

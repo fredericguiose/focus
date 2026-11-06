@@ -79,6 +79,7 @@ function vuePrix(p: PrixException) {
     dette_avant_min: p.detteAvantMin,
     dette_apres_min: p.detteApresMin,
     nuit_decision: p.nuitDecision ?? null,
+    lever_plafonne: p.leverPlafonne ?? null,
   };
 }
 

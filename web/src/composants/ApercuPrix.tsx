@@ -28,7 +28,7 @@ function Comparaison({ terme, avant, apres, alerte = false }: { terme: string; a
   );
 }
 
-const BADGES_FRICTION = { raison: 'Raison exigée', raison_phrase: 'Raison et phrase exigées' } as const;
+const BADGES_FRICTION = { raison: 'Raison exigée', raison_phrase: 'Décision de nuit : raison et phrase' } as const;
 
 /** Ce qui manque encore quand seule la justification fait défaut : rien n'est refusé. */
 function aJustifier(friction: PrixException['friction']): string {
@@ -115,6 +115,17 @@ export function ApercuPrix({
           alerte={sommeil(prix.coucherApres, prix.leverApres) < sommeil(prix.coucherAvant, prix.leverAvant)}
         />
       </div>
+      {prix.leverPlafonne ? (
+        <p className="text-avertissement text-sm">
+          Lever ramené à {heure(prix.leverApres)} au lieu de {heure(prix.leverPlafonne.voulu)} :{' '}
+          {prix.leverPlafonne.cause === 'reveil_libre'
+            ? 'plafond du réveil libre.'
+            : "règle des levers réguliers (écart maximal avec les levers de la semaine)."}
+        </p>
+      ) : null}
+      {prix.friction === 'raison_phrase' && !refuse ? (
+        <p className="text-avertissement text-sm">Ce changement utilise votre décision de nuit : il n'y en a qu'une par nuit.</p>
+      ) : null}
       {enAttente && !frictionValide ? <p className="text-muted-foreground text-sm">{aJustifier(prix.friction)}</p> : null}
       {refuse ? <p className="text-destructive text-sm font-medium">{prix.motifRefus ? `${phrase(prix.motifRefus.replace(/\.$/, ''))}.` : 'Changement refusé.'}</p> : null}
     </section>

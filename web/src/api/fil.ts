@@ -118,6 +118,7 @@ export interface PrixFil {
   lever_apres: string;
   dette_avant_min: number;
   dette_apres_min: number;
+  lever_plafonne?: { voulu: string; cause: 'regularite' | 'reveil_libre' } | null;
 }
 
 export function journeeDepuisFil(j: JourneeFil): Journee {
@@ -219,6 +220,7 @@ export function prixDepuisFil(p: PrixFil): PrixException {
     leverApres: p.lever_apres,
     detteAvantMin: p.dette_avant_min,
     detteApresMin: p.dette_apres_min,
+    ...(p.lever_plafonne ? { leverPlafonne: p.lever_plafonne } : {}),
   };
 }
 
